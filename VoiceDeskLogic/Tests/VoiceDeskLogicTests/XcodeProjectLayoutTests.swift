@@ -120,7 +120,10 @@ final class XcodeProjectLayoutTests: XCTestCase {
         let pbx = try XCTUnwrap(pbxprojContents(), "VoiceDesk.xcodeproj should sit next to VoiceDeskLogic")
         XCTAssertTrue(pbx.contains("XCRemoteSwiftPackageReference \"GoogleSignIn-iOS\""))
         XCTAssertTrue(pbx.contains("https://github.com/google/GoogleSignIn-iOS"))
-        XCTAssertTrue(pbx.contains("minimumVersion = 9.0.0"))
+        XCTAssertTrue(pbx.contains("kind = exactVersion"))
+        XCTAssertTrue(pbx.contains("version = 9.2.0"))
+        XCTAssertFalse(pbx.contains("upToNextMajorVersion"))
+        XCTAssertFalse(pbx.contains("minimumVersion = 9.0.0"))
         XCTAssertTrue(pbx.contains("productName = GoogleSignIn"))
         XCTAssertFalse(pbx.contains("productName = GoogleSignInSwift"))
 
@@ -130,8 +133,10 @@ final class XcodeProjectLayoutTests: XCTestCase {
         )
         XCTAssertTrue(resolved.contains("\"identity\" : \"googlesignin-ios\""))
         XCTAssertTrue(resolved.contains("\"version\" : \"9.2.0\""))
+        XCTAssertTrue(resolved.contains("\"revision\" : \"08d8dcecafb575f98879ffdbb8302c1b9ad65d19\""))
         XCTAssertTrue(resolved.contains("appauth-ios"))
         XCTAssertTrue(resolved.contains("gtmappauth"))
+        XCTAssertTrue(resolved.contains("\"version\" : \"5.0.0\""))
         XCTAssertTrue(resolved.contains("gtm-session-fetcher"))
     }
 

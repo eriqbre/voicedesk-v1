@@ -63,6 +63,14 @@ main                         # dogfood candidate; protected
 - No long-lived `develop` / `staging`.
 - Parked PRs > 7 days: close or re-scope.
 
+### VoiceDesk pull recipe (Mac dogfood)
+
+After checkout, keep the committed `VoiceDesk.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. It pins GoogleSignIn-iOS **9.2.0** (and GTMAppAuth 5.0.0). **Never delete** that file to “fix” a resolve — a fresh solve of `9.0.0..<10.0.0` can pick a GTMAppAuth tools-version that Xcode 16 rejects.
+
+- If `VoiceDesk.xcodeproj` or `Package.resolved` is dirty: `git restore VoiceDesk.xcodeproj` **and** `git restore VoiceDesk.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
+- Only `git clean -f` an **untracked** `Package.resolved` that blocks checkout, then check the file out again so the committed pin returns.
+- If Xcode still says `Missing package product 'GoogleSignIn'`: `xcodebuild -resolvePackageDependencies -project VoiceDesk.xcodeproj -scheme VoiceDesk` (uses the committed lockfile).
+
 ### Slice order
 1. `slice/1-ios-shell-voice-ui`
 2. `slice/2-google-sync`
