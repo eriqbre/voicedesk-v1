@@ -237,7 +237,7 @@ public enum GoogleJSONMapping: Sendable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    public enum MappingError: Error {
+    public enum MappingError: Error, Sendable {
         case invalidJSON
     }
 }

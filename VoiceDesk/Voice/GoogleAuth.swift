@@ -7,7 +7,7 @@ import VoiceDeskLogic
 import GoogleSignIn
 #endif
 
-enum GoogleSignInError: LocalizedError {
+enum GoogleSignInError: LocalizedError, Sendable {
     case missingClientID
     case noPresenter
     case cancelled

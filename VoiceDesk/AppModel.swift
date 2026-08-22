@@ -23,6 +23,7 @@ final class AppModel {
     let sendClient: RecordingSendClient
     let playbook: PlaybookStoring
     let cache: DeskCaching
+    /// Main-actor `GoogleSyncing` — never hop this existential off `@MainActor`.
     let sync: any GoogleSyncing
 
     private var liveAssistantID: UUID?
