@@ -330,6 +330,19 @@ final class AppModel {
         if surfaceConnectGoogleIfAsked(text) {
             return
         }
+        if google.isConnected, ConversationPresence.ownsConnectedDeskTurn(text) {
+            claimLocalAssistantReply()
+            if let evidence = ConversationPresence.deskEvidence(
+                for: text,
+                context: deskContext,
+                focusedEmail: lastFocusedEmail
+            ) {
+                surfaceDeskEvidence(evidence)
+            } else {
+                appendAssistant(ConversationPresence.emailNeedMoreReply)
+            }
+            return
+        }
         if let evidence = ConversationPresence.deskEvidence(
             for: text,
             context: deskContext,
@@ -426,6 +439,20 @@ final class AppModel {
         }
 
         if surfaceConnectGoogleIfAsked(text) {
+            return
+        }
+
+        if google.isConnected, ConversationPresence.ownsConnectedDeskTurn(text) {
+            claimLocalAssistantReply()
+            if let evidence = ConversationPresence.deskEvidence(
+                for: text,
+                context: deskContext,
+                focusedEmail: lastFocusedEmail
+            ) {
+                await applyDeskEvidence(evidence)
+            } else {
+                appendAssistant(ConversationPresence.emailNeedMoreReply)
+            }
             return
         }
 
@@ -600,13 +627,15 @@ final class AppModel {
             )
             return
         }
+        let beatID = appendSearchingBeat()
         do {
             let found = try await sync.searchMessages(token: token, query: query, now: Date())
             if found.isEmpty {
-                appendAssistant(ConversationPresence.gmailSearchEmptyReply)
+                replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchEmptyReply)
                 return
             }
             if found.count == 1 {
+                removeTurn(id: beatID)
                 applyLoadedEmail(found[0])
                 return
             }
@@ -617,13 +646,36 @@ final class AppModel {
             cache.save(deskSnapshot)
             refreshPresence()
             lastFocusedEmail = top.first
-            appendAssistant(
-                ConversationPresence.gmailSearchSeveralReply,
+            replaceAssistant(
+                id: beatID,
+                text: ConversationPresence.gmailSearchSeveralReply,
                 cards: top.map { .email($0) }
             )
         } catch {
-            appendAssistant(ConversationPresence.gmailSearchFailedReply)
+            replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchFailedReply)
         }
+    }
+
+    @discardableResult
+    private func appendSearchingBeat() -> UUID {
+        let turn = ConversationTurn(role: .assistant, text: ConversationPresence.gmailSearchingBeat)
+        turns.append(turn)
+        requestScrollToLatestCards(preferring: turn.id)
+        return turn.id
+    }
+
+    private func replaceAssistant(id: UUID, text: String, cards: [ContentCard] = []) {
+        if let index = turns.firstIndex(where: { $0.id == id }) {
+            turns[index].text = text
+            turns[index].cards = cards
+            requestScrollToLatestCards(preferring: cards.last?.id ?? id)
+            return
+        }
+        appendAssistant(text, cards: cards)
+    }
+
+    private func removeTurn(id: UUID) {
+        turns.removeAll { $0.id == id }
     }
 
     private func revealEmailBody(_ email: EmailItem) async {

@@ -254,6 +254,46 @@ public enum ConversationPresence {
         return contains(lower, ["on the card", "email card", "calendar card", "cards below", "waiting on the"])
     }
 
+    /// Connected Google + desk ask: the client owns the turn. Grok must not speak.
+    public static func ownsConnectedDeskTurn(_ raw: String) -> Bool {
+        looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw)
+    }
+
+    public static func looksLikeMailAsk(_ raw: String) -> Bool {
+        if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
+            return false
+        }
+        if wantsCalendarDetails(raw), !contains(raw.lowercased(), ["email", "mail", "note", "message", "thread"]) {
+            return false
+        }
+        if wantsTaskAsk(raw), !contains(raw.lowercased(), ["email", "mail", "note", "message", "thread"]) {
+            return false
+        }
+        if wantsFullThread(raw) || wantsEmailFollowUp(raw) || wantsSpecificEmail(raw)
+            || wantsShowEmail(raw) || wantsEmailBody(raw) || wantsInbox(raw) {
+            return true
+        }
+        if GmailSearchQuery.hasSenderPattern(raw) { return true }
+        if GmailSearchQuery.query(from: raw) != nil,
+           contains(raw.lowercased(), ["find", "look", "search", "get", "pull", "show", "email", "mail", "note", "message", "thread"]) {
+            return true
+        }
+        return false
+    }
+
+    public static func wantsCalendarAsk(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        if wantsCalendarDetails(raw) { return true }
+        return contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
+            || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
+    }
+
+    public static func wantsTaskAsk(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        return contains(lower, ["my tasks", "what tasks", "to-do", "todo", "open tasks"])
+            || (contains(lower, ["task"]) && contains(lower, ["my", "have", "open"]))
+    }
+
     /// Local path that always attaches evidence when the spoken copy mentions a card.
     public static func deskEvidence(
         for raw: String,
@@ -264,12 +304,46 @@ public enum ConversationPresence {
             return nil
         }
 
-        if wantsCalendarDetails(raw),
-           let event = matchingCalendar(for: raw, in: context.snapshot.events) {
+        if wantsCalendarAsk(raw) {
+            if let event = matchingCalendar(for: raw, in: context.snapshot.events) {
+                return DeskEvidence(
+                    topic: .calendar,
+                    text: calendarDetailsReply(event),
+                    cards: [.calendar(event)]
+                )
+            }
+            if context.isConnected {
+                if wantsCalendarDetails(raw) || matchingCalendar(for: raw, in: context.snapshot.events) == nil,
+                   GmailSearchQuery.hasSenderPattern(raw) || wantsCalendarDetails(raw) {
+                    return DeskEvidence(
+                        topic: .calendar,
+                        text: calendarMissReply,
+                        cards: []
+                    )
+                }
+                return DeskEvidence(
+                    topic: .calendar,
+                    text: calendarReply(context: context),
+                    cards: cards(for: .calendar, context: context)
+                )
+            }
+        }
+
+        if context.isConnected, wantsTaskAsk(raw) {
+            if let task = matchingTask(for: raw, in: context.snapshot.tasks) {
+                return DeskEvidence(
+                    topic: .task,
+                    text: taskReply(context: context),
+                    cards: [.task(task)]
+                )
+            }
+            if context.snapshot.tasks.isEmpty || GmailSearchQuery.query(from: raw) != nil {
+                return DeskEvidence(topic: .task, text: taskMissReply, cards: [])
+            }
             return DeskEvidence(
-                topic: .calendar,
-                text: calendarDetailsReply(event),
-                cards: [.calendar(event)]
+                topic: .task,
+                text: taskReply(context: context),
+                cards: cards(for: .task, context: context)
             )
         }
 
@@ -292,43 +366,43 @@ public enum ConversationPresence {
             }
         }
 
-        if (wantsSpecificEmail(raw) || wantsEmailBody(raw)), !wantsCalendarDetails(raw) {
+        if looksLikeMailAsk(raw), !wantsCalendarDetails(raw) {
             if let email = matchingEmail(for: raw, in: context.snapshot.emails) {
                 return emailEvidence(email)
+            }
+            if wantsEmailFollowUp(raw) {
+                if let focusedEmail {
+                    return emailEvidence(focusedEmail)
+                }
+                if !context.snapshot.emails.isEmpty {
+                    return inboxEvidence(context: context, followUp: true)
+                }
+                if context.isConnected, GmailSearchQuery.hasSenderPattern(raw),
+                   let query = GmailSearchQuery.query(from: raw) {
+                    return searchEvidence(query: query, expandEarlier: false)
+                }
+                return DeskEvidence(
+                    topic: .inbox,
+                    text: notSeeingCardsReply(hasInbox: false),
+                    cards: []
+                )
+            }
+            if wantsInbox(raw), isBareInboxList(raw) {
+                return inboxEvidence(context: context, followUp: false)
             }
             if context.isConnected, let query = GmailSearchQuery.query(from: raw) {
                 return searchEvidence(query: query, expandEarlier: wantsFullThread(raw))
             }
-        }
-
-        if wantsEmailFollowUp(raw) {
-            if let focusedEmail {
-                return emailEvidence(focusedEmail)
+            if context.isConnected {
+                return DeskEvidence(
+                    topic: .inbox,
+                    text: emailNeedMoreReply,
+                    cards: []
+                )
             }
-            if let email = matchingEmail(for: raw, in: context.snapshot.emails) {
-                return emailEvidence(email)
+            if wantsInbox(raw) {
+                return inboxEvidence(context: context, followUp: false)
             }
-            if !context.snapshot.emails.isEmpty {
-                return inboxEvidence(context: context, followUp: true)
-            }
-            return DeskEvidence(
-                topic: .inbox,
-                text: notSeeingCardsReply(hasInbox: false),
-                cards: []
-            )
-        }
-
-        if wantsInbox(raw) {
-            return inboxEvidence(context: context, followUp: false)
-        }
-
-        if let event = matchingCalendar(for: raw, in: context.snapshot.events),
-           wantsCalendarDetails(raw) || wantsEmailBody(raw) {
-            return DeskEvidence(
-                topic: .calendar,
-                text: calendarDetailsReply(event),
-                cards: [.calendar(event)]
-            )
         }
 
         return nil
@@ -358,11 +432,37 @@ public enum ConversationPresence {
             && !wantsSpecificEmail(raw)
     }
 
+    public static func isBareInboxList(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        if contains(lower, [
+            "what's in my inbox",
+            "whats in my inbox",
+            "what emails do i have",
+            "what email do i have",
+            "other emails",
+            "emails i have today",
+            "emails today",
+            "show me my emails",
+            "show me my inbox",
+            "show my emails",
+            "what other emails"
+        ]), GmailSearchQuery.query(from: raw) == nil {
+            return true
+        }
+        return wantsInbox(raw) && GmailSearchQuery.query(from: raw) == nil && !hasMailTarget(raw)
+    }
+
+    private static func hasMailTarget(_ raw: String) -> Bool {
+        GmailSearchQuery.hasSenderPattern(raw) || GmailSearchQuery.query(from: raw) != nil
+    }
+
     public static func wantsShowEmail(_ raw: String) -> Bool {
         let lower = raw.lowercased()
         let show = contains(lower, [
             "show", "open", "read", "pull up", "summarize", "summary", "details",
-            "what does", "what's it", "whats it", "tell me more"
+            "what does", "what's it", "whats it", "tell me more",
+            "find", "look up", "look for", "search"
         ])
         let noun = contains(lower, ["email", "mail", "note", "message", "thread"])
         return show && noun
@@ -534,7 +634,7 @@ public enum ConversationPresence {
     private static func searchEvidence(query: String, expandEarlier: Bool) -> DeskEvidence {
         DeskEvidence(
             topic: .inbox,
-            text: gmailSearchPendingReply,
+            text: gmailSearchingBeat,
             cards: [],
             shouldFetchBody: false,
             expandEarlierMessages: expandEarlier,
@@ -543,8 +643,9 @@ public enum ConversationPresence {
         )
     }
 
-    public static let gmailSearchPendingReply =
-        "I’ll search Gmail for that. I’m not inventing mail."
+    /// Spoken while the client actually calls Gmail. Never a capability claim.
+    public static let gmailSearchingBeat = "Searching Gmail…"
+    public static let gmailSearchPendingReply = gmailSearchingBeat
 
     public static let gmailSearchEmptyReply =
         "I searched Gmail and didn’t find that. I’m not inventing it."
@@ -553,7 +654,16 @@ public enum ConversationPresence {
         "I found a few matches. They’re on the cards — which one?"
 
     public static let gmailSearchFailedReply =
-        "I couldn’t search Gmail right now. I’m not inventing that message."
+        "I couldn’t reach Gmail just now. I’m not inventing that message."
+
+    public static let emailNeedMoreReply =
+        "Who’s it from, or what’s the subject?"
+
+    public static let calendarMissReply =
+        "Nothing matching that is in the upcoming calendar sync. I’m not inventing an event."
+
+    public static let taskMissReply =
+        "No matching open task in the last sync. I’m not inventing one."
 
     private static func inboxEvidence(context: DeskContext, followUp: Bool) -> DeskEvidence {
         let cards = cards(for: .inbox, context: context)
@@ -626,6 +736,21 @@ public enum ConversationPresence {
         let lower = raw.lowercased()
         return contains(lower, ["reservation", "that event", "the event", "calendar event"])
             || (contains(lower, ["details", "pull up"]) && contains(lower, ["reservation", "event", "meeting", "calendar"]))
+    }
+
+    public static func matchingTask(for raw: String, in tasks: [TaskItem]) -> TaskItem? {
+        let lower = raw.lowercased()
+        let stop: Set<String> = ["task", "tasks", "open", "have", "what", "my", "the"]
+        for task in tasks {
+            let words = task.title.lowercased()
+                .split { !$0.isLetter }
+                .map(String.init)
+                .filter { $0.count >= 4 && !stop.contains($0) }
+            if words.contains(where: { lower.contains($0) }) {
+                return task
+            }
+        }
+        return nil
     }
 
     public static func matchingCalendar(for raw: String, in events: [CalendarItem]) -> CalendarItem? {

@@ -2,6 +2,10 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class GmailSearchQueryTests: XCTestCase {
+    func testBaselineInboxLimitIs25() {
+        XCTAssertEqual(GoogleSyncPolicy.recentInboxLimit, 25)
+    }
+
     func testMurrayAskUsesFromClause() {
         let query = GmailSearchQuery.query(from: "Hey, show me Murray's latest email.")
         XCTAssertEqual(query, "from:murray")
@@ -20,5 +24,23 @@ final class GmailSearchQueryTests: XCTestCase {
 
     func testFullThreadFollowUpHasNoSearchTokens() {
         XCTAssertNil(GmailSearchQuery.query(from: "Can you summarize the full thread?"))
+    }
+
+    func testFindMurraysClosingNoteWithoutSayingEmail() {
+        let query = GmailSearchQuery.query(from: "find Murray's closing note")
+        XCTAssertTrue(query?.contains("from:murray") == true)
+        XCTAssertTrue(query?.contains("closing") == true)
+        XCTAssertTrue(GmailSearchQuery.hasSenderPattern("find Murray's closing note"))
+    }
+
+    func testEmailAboutSubjectTokens() {
+        let query = GmailSearchQuery.query(from: "email about the inspection window")
+        XCTAssertTrue(query?.contains("inspection") == true)
+        XCTAssertTrue(query?.contains("window") == true)
+    }
+
+    func testDidMurraySendSomethingUsesFrom() {
+        let query = GmailSearchQuery.query(from: "Did Murray send me something?")
+        XCTAssertTrue(query?.contains("from:murray") == true)
     }
 }

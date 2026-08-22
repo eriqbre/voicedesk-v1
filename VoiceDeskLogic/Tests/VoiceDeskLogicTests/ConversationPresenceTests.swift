@@ -254,11 +254,37 @@ final class ConversationPresenceTests: XCTestCase {
             context: context
         )
         XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertNotNil(evidence?.gmailQuery)
         XCTAssertTrue(evidence?.gmailQuery?.contains("murray") == true)
         XCTAssertTrue(evidence?.cards.isEmpty == true)
         XCTAssertFalse(evidence?.claimsCardWithoutAttaching == true)
-        XCTAssertFalse((evidence?.text ?? "").lowercased().contains("not in last sync"))
-        XCTAssertFalse((evidence?.text ?? "").lowercased().contains("not in my last sync"))
+        assertNotFakeSearchCapability(evidence?.text ?? "")
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("Hey, show me Murray's latest email."))
+    }
+
+    func testFindClosingNoteWithoutEmailWordStillSearches() {
+        let context = DeskContext(isConnected: true, snapshot: .empty)
+        XCTAssertTrue(ConversationPresence.looksLikeMailAsk("find Murray's closing note"))
+        let evidence = ConversationPresence.deskEvidence(
+            for: "find Murray's closing note",
+            context: context
+        )
+        XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertTrue(evidence?.gmailQuery?.contains("murray") == true)
+        assertNotFakeSearchCapability(evidence?.text ?? "")
+    }
+
+    func testConnectedMailAskWithoutTokensStaysLocal() {
+        let context = DeskContext(isConnected: true, snapshot: .empty)
+        let evidence = ConversationPresence.deskEvidence(
+            for: "Can you summarize the full thread?",
+            context: context
+        )
+        XCTAssertNotNil(evidence)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("Can you summarize the full thread?"))
+        assertNotFakeSearchCapability(evidence?.text ?? "")
+        XCTAssertFalse((evidence?.text ?? "").lowercased().contains("i can search"))
     }
 
     func testCalendarReservationDoesNotSearchGmail() {
@@ -267,7 +293,10 @@ final class ConversationPresenceTests: XCTestCase {
             for: "details for Massimo's reservation",
             context: context
         )
+        XCTAssertNotNil(evidence)
         XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertEqual(evidence?.text, ConversationPresence.calendarMissReply)
+        assertNotFakeSearchCapability(evidence?.text ?? "")
     }
 
     func testConnectedInboxUsesCacheNotSampleDesk() {
@@ -389,6 +418,16 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse(lower.contains("settings"), ask)
         XCTAssertFalse(text.contains("Integrations"), ask)
         XCTAssertFalse(lower.contains("do it yourself"), ask)
+    }
+
+    private func assertNotFakeSearchCapability(_ text: String) {
+        let lower = text.lowercased()
+        XCTAssertFalse(lower.contains("i can search"))
+        XCTAssertFalse(lower.contains("i will search"))
+        XCTAssertFalse(lower.contains("can search gmail"))
+        XCTAssertFalse(lower.contains("looking in gmail"))
+        XCTAssertFalse(lower.contains("not in last sync"))
+        XCTAssertFalse(lower.contains("not in my last sync"))
     }
 
     private func assertNotGrokThreadInvention(_ text: String) {

@@ -31,11 +31,11 @@ public enum GrokRealtime {
         }
 
         let deskObjective = context.isConnected
-            ? "When the topic is their desk, stay concrete about the last-synced Google facts below. Never invent mail. The iOS app owns inbox, email-body, and full-thread asks — you will not handle those turns."
+            ? "When the topic is their desk, stay concrete about the last-synced Google facts below. Never invent mail. The iOS app owns every Gmail, calendar, and task ask — you will not handle those turns. Stay silent; the client interrupts you."
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, or tasks, use only the synced facts. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. The iOS app intercepts email, inbox, full-thread, and Gmail-search asks and attaches cards. You will not handle those turns. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread, that a thread is not in the last sync, or that all you have is the latest note."
+            ? "If they ask about inbox, calendar, or tasks, do not answer. The client owns those turns. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread, that a thread is not in the last sync, or that all you have is the latest note. NEVER say you are searching, will search, can search Gmail, or are looking anything up."
             : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
         let googleConnectGuard: String
@@ -76,6 +76,7 @@ public enum GrokRealtime {
         NEVER mention an Email card or that a full message is waiting on a card. The client attaches cards. NEVER say pull-to-refresh.
         NEVER paste a full email body or quoted thread into the conversation.
         NEVER say you cannot pull a thread or that a thread is not in the last sync. The client fetches full threads.
+        NEVER say you are searching, will search, can search Gmail, or are looking anything up. The client handles all Gmail reads.
         \(context.isConnected
             ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
             : "How to connect Google — say exactly: Tap Connect Google on the card below.")
@@ -84,7 +85,7 @@ public enum GrokRealtime {
 
     public static func connectedDeskFacts(_ snapshot: DeskSnapshot) -> String {
         var lines: [String] = [
-            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts. The iOS app can search Gmail for other mail. Do not invent mail or say a message is not synced."
+            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts. The client handles all Gmail reads. You do not search. You do not look anything up. Do not invent mail or say a message is not synced."
         ]
         if let synced = snapshot.lastSyncedAt {
             lines.append("Last synced: \(DeskSnapshot.timeLabel(synced)).")

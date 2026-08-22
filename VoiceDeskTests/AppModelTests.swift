@@ -394,6 +394,9 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.deskSnapshot.emails.first?.fromName, "Murray Mitchell")
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("not in last sync"))
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("not in my last sync"))
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("i can search"))
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("can search gmail"))
+        XCTAssertFalse(model.turns.contains { $0.text.lowercased().contains("i can search gmail") })
     }
 
     func testGmailSearchEmptyIsHonest() async {

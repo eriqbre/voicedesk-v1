@@ -16,7 +16,7 @@ final class LiveGoogleSync: GoogleSyncing {
     let session: URLSession
     let recentMessageLimit: Int
 
-    init(session: URLSession = .shared, recentMessageLimit: Int = 8) {
+    init(session: URLSession = .shared, recentMessageLimit: Int = GoogleSyncPolicy.recentInboxLimit) {
         self.session = session
         self.recentMessageLimit = recentMessageLimit
     }
