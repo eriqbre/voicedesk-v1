@@ -28,6 +28,25 @@ final class XcodeProjectLayoutTests: XCTestCase {
         XCTAssertTrue(plist.contains("$(GOOGLE_CLIENT_ID)"))
     }
 
+    func testGoogleSignInPackageIsPinned() throws {
+        let pbx = try XCTUnwrap(pbxprojContents(), "VoiceDesk.xcodeproj should sit next to VoiceDeskLogic")
+        XCTAssertTrue(pbx.contains("XCRemoteSwiftPackageReference \"GoogleSignIn-iOS\""))
+        XCTAssertTrue(pbx.contains("https://github.com/google/GoogleSignIn-iOS"))
+        XCTAssertTrue(pbx.contains("minimumVersion = 9.0.0"))
+        XCTAssertTrue(pbx.contains("productName = GoogleSignIn"))
+        XCTAssertFalse(pbx.contains("productName = GoogleSignInSwift"))
+
+        let resolved = try XCTUnwrap(
+            repoFile("VoiceDesk.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"),
+            "Package.resolved must be committed so Xcode can find GoogleSignIn"
+        )
+        XCTAssertTrue(resolved.contains("\"identity\" : \"googlesignin-ios\""))
+        XCTAssertTrue(resolved.contains("\"version\" : \"9.2.0\""))
+        XCTAssertTrue(resolved.contains("appauth-ios"))
+        XCTAssertTrue(resolved.contains("gtmappauth"))
+        XCTAssertTrue(resolved.contains("gtm-session-fetcher"))
+    }
+
     private func pbxprojContents() -> String? {
         repoFile("VoiceDesk.xcodeproj/project.pbxproj")
     }

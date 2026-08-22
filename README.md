@@ -18,7 +18,7 @@ SwiftUI is the scaffold. Style C is a conversation thread with inline cards — 
 This cloud environment is Linux. It cannot compile or run an iOS target. Open the project on a Mac.
 
 1. Install Xcode 16 or newer (iOS 17 SDK).
-2. Open `VoiceDesk.xcodeproj`. First open resolves Swift packages (VoiceDeskLogic + [GoogleSignIn-iOS](https://github.com/google/GoogleSignIn-iOS) 9.x).
+2. Open `VoiceDesk.xcodeproj`. First open resolves Swift packages (VoiceDeskLogic + [GoogleSignIn-iOS](https://github.com/google/GoogleSignIn-iOS) 9.x, pinned in `project.xcworkspace/xcshareddata/swiftpm/Package.resolved`). If Xcode shows `Missing package product 'GoogleSignIn'` or the UI stalls, run `xcodebuild -resolvePackageDependencies -project VoiceDesk.xcodeproj -scheme VoiceDesk`.
 3. Select the **VoiceDesk** scheme and an **iPhone** simulator (or a device).
 4. Signing: set your Team under the VoiceDesk target. Bundle ID is `app.voicedesk.ios`.
 5. Put secrets on the live path (never commit them):
