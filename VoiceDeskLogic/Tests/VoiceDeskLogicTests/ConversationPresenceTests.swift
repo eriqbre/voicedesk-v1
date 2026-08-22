@@ -65,6 +65,46 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse(ConversationPresence.wantsConnectGoogle("What's for dinner?"))
     }
 
+    func testConnectGoogleWhenAlreadyConnectedDoesNotMentionSettings() {
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(accountEmail: "bridgetsaiassistant@gmail.com"),
+            auth: GoogleAuthSnapshot.reduce(.signedOut, .connectSucceeded(email: "bridgetsaiassistant@gmail.com"))
+        )
+        let plan = ConversationPresence.plan(for: "Connect google", context: context)
+        XCTAssertEqual(plan.topic, .google)
+        XCTAssertTrue(plan.text.contains("bridgetsaiassistant@gmail.com"))
+        XCTAssertTrue(plan.text.contains("already connected"))
+        XCTAssertTrue(plan.text.contains("Disconnect"))
+        XCTAssertFalse(plan.text.lowercased().contains("settings"))
+        XCTAssertFalse(plan.text.contains("Integrations"))
+        XCTAssertEqual(ConversationPresence.cards(for: .google, context: context).map(\.kind), [.connectGoogle])
+    }
+
+    func testEmailDetailAskMatchesSenderAndDoesNotInventBody() {
+        let murray = EmailItem(
+            providerID: "m-murray",
+            fromName: "Murray Cole",
+            fromEmail: "murray@example.com",
+            sentAtLabel: "Today 9:00 AM",
+            subject: "Lot walk",
+            preview: "Snippet only",
+            filterTag: "Inbox"
+        )
+        XCTAssertTrue(ConversationPresence.wantsEmailBody("details on Murray's email"))
+        XCTAssertEqual(
+            ConversationPresence.matchingEmail(for: "details on Murray's email", in: [murray])?.providerID,
+            "m-murray"
+        )
+        let withoutBody = ConversationPresence.emailBodyReply(murray)
+        XCTAssertTrue(withoutBody.contains("Lot walk"))
+        XCTAssertTrue(withoutBody.contains("won’t invent"))
+        var loaded = murray
+        loaded.body = "Walk the lot Saturday at 10."
+        XCTAssertTrue(ConversationPresence.emailBodyReply(loaded).contains("Walk the lot Saturday"))
+        XCTAssertFalse(ConversationPresence.emailBodyReply(loaded).contains("won’t invent the body"))
+    }
+
     func testConnectedInboxUsesCacheNotSampleDesk() {
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
         let context = DeskContext(isConnected: true, snapshot: snapshot)

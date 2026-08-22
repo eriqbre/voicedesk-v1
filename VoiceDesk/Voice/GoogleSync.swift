@@ -6,6 +6,7 @@ import VoiceDeskLogic
 @MainActor
 protocol GoogleSyncing: AnyObject, Sendable {
     func sync(token: String, accountEmail: String, now: Date) async throws -> DeskSnapshot
+    func fetchMessage(token: String, messageID: String, now: Date) async throws -> EmailItem
 }
 
 /// Gmail / Calendar / Tasks reads. Mapping stays in VoiceDeskLogic.
@@ -32,6 +33,30 @@ final class LiveGoogleSync: GoogleSyncing {
             events: try await events,
             tasks: try await tasks
         )
+    }
+
+    func fetchMessage(token: String, messageID: String, now: Date) async throws -> EmailItem {
+        try await Self.message(
+            session: session,
+            token: token,
+            messageID: messageID,
+            now: now
+        )
+    }
+
+    private nonisolated static func message(
+        session: URLSession,
+        token: String,
+        messageID: String,
+        now: Date
+    ) async throws -> EmailItem {
+        let encoded = messageID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageID
+        let url = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(encoded)?format=full")!
+        let payload = try await Self.object(try await getData(session: session, url: url, token: token))
+        guard let email = GoogleJSONMapping.email(from: payload, now: now) else {
+            throw GoogleJSONMapping.MappingError.invalidJSON
+        }
+        return email
     }
 
     private nonisolated static func recentEmails(
@@ -109,6 +134,8 @@ final class MockGoogleSync: GoogleSyncing {
         self.result = result
     }
 
+    var bodies: [String: String] = [:]
+
     func sync(token: String, accountEmail: String, now: Date) async throws -> DeskSnapshot {
         _ = token
         if let error { throw GoogleSignInError.failed(error) }
@@ -116,5 +143,21 @@ final class MockGoogleSync: GoogleSyncing {
         next.accountEmail = accountEmail
         next.lastSyncedAt = now
         return next
+    }
+
+    func fetchMessage(token: String, messageID: String, now: Date) async throws -> EmailItem {
+        _ = token
+        _ = now
+        if let error { throw GoogleSignInError.failed(error) }
+        guard var email = result.emails.first(where: { $0.providerID == messageID }) else {
+            throw GoogleSignInError.failed("No synced message \(messageID).")
+        }
+        if let body = bodies[messageID] {
+            email.body = body
+        }
+        guard email.hasFullBody else {
+            throw GoogleSignInError.failed("No body for \(messageID).")
+        }
+        return email
     }
 }

@@ -128,6 +128,39 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse((assistant?.text ?? "").contains("Integrations"))
     }
 
+    func testTypedConnectGoogleWhenConnectedDoesNotAskGrok() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true, email: "bridgetsaiassistant@gmail.com")
+        )
+        await model.applyUserTurn("Connect google")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("bridgetsaiassistant@gmail.com"))
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("already connected"))
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("settings"))
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .connectGoogle } == true)
+    }
+
+    func testEmailDetailsLoadsBodyFromSync() async {
+        var email = SampleData.syncedEmail()
+        email.fromName = "Murray Cole"
+        email.providerID = "msg-murray"
+        let sync = MockGoogleSync(result: DeskSnapshot(emails: [email]))
+        sync.bodies["msg-murray"] = "Walk the lot Saturday at 10."
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [email])),
+            sync: sync
+        )
+        await model.applyUserTurn("details on Murray's email")
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot Saturday"))
+        XCTAssertTrue(model.deskSnapshot.emails.first?.hasFullBody == true)
+        XCTAssertEqual(model.deskSnapshot.emails.first?.body, "Walk the lot Saturday at 10.")
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("won’t invent the body"))
+    }
+
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)

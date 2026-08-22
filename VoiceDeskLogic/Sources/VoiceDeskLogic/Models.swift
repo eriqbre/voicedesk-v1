@@ -112,9 +112,14 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
     public var sentAtLabel: String
     public var subject: String
     public var preview: String
+    public var body: String?
     public var filterTag: String
     public var relatedListing: String?
     public var relatedPeople: [String]
+
+    public var hasFullBody: Bool {
+        !(body ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     public init(
         id: UUID = UUID(),
@@ -125,6 +130,7 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
         sentAtLabel: String,
         subject: String,
         preview: String,
+        body: String? = nil,
         filterTag: String,
         relatedListing: String? = nil,
         relatedPeople: [String] = []
@@ -137,6 +143,7 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
         self.sentAtLabel = sentAtLabel
         self.subject = subject
         self.preview = preview
+        self.body = body
         self.filterTag = filterTag
         self.relatedListing = relatedListing
         self.relatedPeople = relatedPeople

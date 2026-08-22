@@ -319,6 +319,10 @@ final class AppModel {
         if surfaceConnectGoogleIfAsked(text) {
             return
         }
+        if ConversationPresence.wantsEmailBody(text) {
+            Task { await revealEmailBody(for: text) }
+            return
+        }
         pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
@@ -404,6 +408,11 @@ final class AppModel {
             return
         }
 
+        if ConversationPresence.wantsEmailBody(text) {
+            await revealEmailBody(for: text)
+            return
+        }
+
         if voice.usesLiveLoop {
             pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
             await voice.sendTextTurn(text)
@@ -478,14 +487,74 @@ final class AppModel {
     @discardableResult
     private func surfaceConnectGoogleIfAsked(_ text: String) -> Bool {
         let plan = ConversationPresence.plan(for: text, context: deskContext)
-        guard plan.topic == .google, !google.isConnected else { return false }
+        guard plan.topic == .google else { return false }
         pendingDeskTopic = nil
         appendAssistant(
             plan.text,
             cards: ConversationPresence.cards(for: .google, context: deskContext)
         )
-        playbook.hasSeenConnectOffer = true
+        if !google.isConnected {
+            playbook.hasSeenConnectOffer = true
+        }
         return true
+    }
+
+    func openEmail(_ item: EmailItem) {
+        Task { await revealEmailBody(item) }
+    }
+
+    private func revealEmailBody(for text: String) async {
+        guard let email = ConversationPresence.matchingEmail(for: text, in: deskSnapshot.emails) else {
+            appendAssistant(
+                ConversationPresence.emailBodyUnknownReply(hasInbox: !deskSnapshot.emails.isEmpty),
+                cards: ConversationPresence.cards(for: .inbox, context: deskContext)
+            )
+            return
+        }
+        await revealEmailBody(email)
+    }
+
+    private func revealEmailBody(_ email: EmailItem) async {
+        if email.hasFullBody {
+            applyLoadedEmail(email)
+            return
+        }
+        guard google.isConnected, let token = google.accessToken, let id = email.providerID, !id.isEmpty else {
+            appendAssistant(ConversationPresence.emailBodyReply(email), cards: [.email(email)])
+            return
+        }
+        do {
+            let full = try await sync.fetchMessage(token: token, messageID: id, now: Date())
+            applyLoadedEmail(full)
+        } catch {
+            appendAssistant(
+                "I couldn’t load the body for \(email.fromName). I only have the subject: \(email.subject). I won’t invent the rest.",
+                cards: [.email(email)]
+            )
+        }
+    }
+
+    private func applyLoadedEmail(_ email: EmailItem) {
+        if let index = deskSnapshot.emails.firstIndex(where: { $0.providerID == email.providerID && $0.providerID != nil }) {
+            deskSnapshot.emails[index] = email
+        } else if let index = deskSnapshot.emails.firstIndex(where: { $0.id == email.id }) {
+            deskSnapshot.emails[index] = email
+        }
+        cache.save(deskSnapshot)
+        refreshPresence()
+        refreshEmailCards(email)
+        appendAssistant(ConversationPresence.emailBodyReply(email), cards: [.email(email)])
+    }
+
+    private func refreshEmailCards(_ email: EmailItem) {
+        for index in turns.indices {
+            for cardIndex in turns[index].cards.indices {
+                if case .email(let existing) = turns[index].cards[cardIndex],
+                   existing.providerID == email.providerID || existing.id == email.id {
+                    turns[index].cards[cardIndex] = .email(email)
+                }
+            }
+        }
     }
 
     private func offerConnectIfNeeded() {

@@ -39,6 +39,7 @@ struct CardChrome<Content: View>: View {
 }
 
 struct EmailCardView: View {
+    @Environment(AppModel.self) private var model
     let item: EmailItem
 
     var body: some View {
@@ -64,10 +65,22 @@ struct EmailCardView: View {
                 Text(item.subject)
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
-                Text(item.preview)
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.ink.opacity(0.85))
-                    .lineLimit(3)
+                if item.hasFullBody, let body = item.body {
+                    Text(body)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.ink.opacity(0.85))
+                        .lineLimit(12)
+                } else {
+                    Text(item.preview)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.ink.opacity(0.85))
+                        .lineLimit(3)
+                    if item.providerID != nil, model.google.isConnected {
+                        Button("Read email") { model.openEmail(item) }
+                            .buttonStyle(SecondaryCardButton())
+                            .accessibilityIdentifier("email.read")
+                    }
+                }
                 HStack(spacing: 8) {
                     TagChip(text: item.filterTag, systemImage: "tray")
                     if let listing = item.relatedListing {

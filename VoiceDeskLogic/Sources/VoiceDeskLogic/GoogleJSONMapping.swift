@@ -29,19 +29,80 @@ public enum GoogleJSONMapping: Sendable {
         let headers = headerMap(message)
         let fromRaw = headers["from"] ?? ""
         let parsed = parseFrom(fromRaw)
-        let subject = headers["subject"] ?? "(no subject)"
-        let snippet = string(message["snippet"]) ?? ""
+        let subject = decodeHTMLEntities(headers["subject"] ?? "(no subject)")
+        let snippet = decodeHTMLEntities(string(message["snippet"]) ?? "")
         let dateLabel = sentLabel(headers["date"], internalDate: string(message["internalDate"]), now: now)
+        let body = plainTextBody(from: message)
         return EmailItem(
             providerID: id,
             threadID: string(message["threadId"]) ?? id,
-            fromName: parsed.name,
+            fromName: decodeHTMLEntities(parsed.name),
             fromEmail: parsed.email,
             sentAtLabel: dateLabel,
             subject: subject,
             preview: snippet,
+            body: body,
             filterTag: "Inbox"
         )
+    }
+
+    /// Gmail snippets encode quotes as `&quot;`. Decode named + numeric entities.
+    public static func decodeHTMLEntities(_ raw: String) -> String {
+        var result = raw
+        let numeric = try? NSRegularExpression(pattern: #"&#(x[0-9a-fA-F]+|\d+);"#)
+        if let numeric {
+            let matches = numeric.matches(in: result, range: NSRange(result.startIndex..., in: result))
+            for match in matches.reversed() {
+                guard let whole = Range(match.range, in: result),
+                      let valueRange = Range(match.range(at: 1), in: result)
+                else { continue }
+                let token = String(result[valueRange])
+                let scalar: UInt32?
+                if token.lowercased().hasPrefix("x") {
+                    scalar = UInt32(token.dropFirst(), radix: 16)
+                } else {
+                    scalar = UInt32(token)
+                }
+                if let scalar, let char = UnicodeScalar(scalar) {
+                    result.replaceSubrange(whole, with: String(Character(char)))
+                }
+            }
+        }
+        let named: [(String, String)] = [
+            ("&quot;", "\""),
+            ("&apos;", "'"),
+            ("&#39;", "'"),
+            ("&lt;", "<"),
+            ("&gt;", ">"),
+            ("&nbsp;", " "),
+            ("&amp;", "&")
+        ]
+        for (entity, replacement) in named {
+            result = result.replacingOccurrences(of: entity, with: replacement)
+            result = result.replacingOccurrences(of: entity.uppercased(), with: replacement)
+        }
+        return result
+    }
+
+    public static func decodeBase64URL(_ raw: String) -> Data? {
+        var encoded = raw
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let pad = (4 - encoded.count % 4) % 4
+        encoded += String(repeating: "=", count: pad)
+        return Data(base64Encoded: encoded)
+    }
+
+    /// Walk a `users.messages.get` `format=full` payload. Returns nil if no body is present.
+    public static func plainTextBody(from message: [String: Any]) -> String? {
+        guard let payload = message["payload"] as? [String: Any] else { return nil }
+        if let text = firstPart(payload, mime: "text/plain") {
+            return decodeHTMLEntities(collapseWhitespace(text))
+        }
+        if let html = firstPart(payload, mime: "text/html") {
+            return decodeHTMLEntities(collapseWhitespace(stripHTMLTags(html)))
+        }
+        return nil
     }
 
     public static func event(from item: [String: Any], now: Date = Date()) -> CalendarItem? {
@@ -235,6 +296,39 @@ public enum GoogleJSONMapping: Sendable {
         guard let value = value as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func firstPart(_ part: [String: Any], mime: String) -> String? {
+        if let type = string(part["mimeType"])?.lowercased(), type == mime,
+           let data = (part["body"] as? [String: Any]).flatMap({ string($0["data"]) }),
+           let decoded = decodeBase64URL(data),
+           let text = String(data: decoded, encoding: .utf8),
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return text
+        }
+        let children = part["parts"] as? [[String: Any]] ?? []
+        for child in children {
+            if let text = firstPart(child, mime: mime) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private static func stripHTMLTags(_ html: String) -> String {
+        var text = html
+        if let regex = try? NSRegularExpression(pattern: "<[^>]+>") {
+            text = regex.stringByReplacingMatches(
+                in: text,
+                range: NSRange(text.startIndex..., in: text),
+                withTemplate: " "
+            )
+        }
+        return text
+    }
+
+    private static func collapseWhitespace(_ raw: String) -> String {
+        raw.split { $0.isNewline || $0.isWhitespace }.joined(separator: " ")
     }
 
     public enum MappingError: Error, Sendable {

@@ -202,15 +202,95 @@ public enum ConversationPresence {
         return "Here’s exactly what I’d send. Nothing leaves until you confirm."
     }
 
+    public static func alreadyConnectedReply(email: String) -> String {
+        "Google is already connected as \(email). Disconnect from the card in this thread or Disconnect Google at the top. That’s the only place."
+    }
+
     public static func googleReply(context: DeskContext) -> String {
         if context.isConnected {
             let email = context.auth.email ?? context.snapshot.accountEmail ?? "your Google account"
-            return "Google is connected as \(email). Ask about inbox, calendar, or tasks — I’ll only use the last sync."
+            return alreadyConnectedReply(email: email)
         }
         if !context.clientIDConfigured {
             return GoogleAuthSnapshot.missingClientIDCopy
         }
         return connectHowToReply
+    }
+
+    public static func wantsEmailBody(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        return contains(lower, [
+            "details",
+            "the body",
+            "read it",
+            "read the",
+            "read that",
+            "what does it say",
+            "what's it say",
+            "whats it say",
+            "tell me more",
+            "full email",
+            "open the email",
+            "open that email",
+            "read the email",
+            "read that email",
+            "show me the email",
+            "what's in the email",
+            "whats in the email"
+        ])
+    }
+
+    public static func matchingEmail(for raw: String, in emails: [EmailItem]) -> EmailItem? {
+        let lower = raw.lowercased()
+        let stop: Set<String> = [
+            "the", "and", "for", "from", "you", "your", "this", "that",
+            "email", "mail", "with", "about", "inbox", "details", "body", "read"
+        ]
+        for email in emails {
+            let nameWords = email.fromName.lowercased()
+                .split { !$0.isLetter }
+                .map(String.init)
+                .filter { $0.count >= 3 }
+            if nameWords.contains(where: { lower.contains($0) }) {
+                return email
+            }
+            let local = email.fromEmail.split(separator: "@").first.map(String.init)?.lowercased() ?? ""
+            if local.count >= 3, lower.contains(local) {
+                return email
+            }
+        }
+        for email in emails {
+            let subjectWords = email.subject.lowercased()
+                .split { !$0.isLetter }
+                .map(String.init)
+                .filter { $0.count >= 4 && !stop.contains($0) }
+            if subjectWords.contains(where: { lower.contains($0) }) {
+                return email
+            }
+        }
+        if wantsEmailBody(raw),
+           contains(lower, ["latest", "first", "that email", "this email", "the email"]) {
+            return emails.first
+        }
+        if wantsEmailBody(raw), emails.count == 1 {
+            return emails.first
+        }
+        return nil
+    }
+
+    public static func emailBodyReply(_ email: EmailItem) -> String {
+        if let body = email.body?.trimmingCharacters(in: .whitespacesAndNewlines), !body.isEmpty {
+            let clipped = body.count > 420 ? String(body.prefix(420)).trimmingCharacters(in: .whitespacesAndNewlines) + "…" : body
+            return "From \(email.fromName): \(clipped) I’m reading the synced message — not inventing."
+        }
+        return "I only have the subject for \(email.fromName) — \(email.subject). I won’t invent the body."
+    }
+
+    public static func emailBodyUnknownReply(hasInbox: Bool) -> String {
+        if hasInbox {
+            return "Which message? Say the sender or subject. I only read synced mail, and I won’t invent a body."
+        }
+        return "I don’t have a synced thread to open. I won’t invent a body."
     }
 
     /// Connecting / linking Google or Gmail — never a Settings or Integrations path.

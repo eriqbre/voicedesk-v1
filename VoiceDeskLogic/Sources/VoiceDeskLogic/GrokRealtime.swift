@@ -35,8 +35,20 @@ public enum GrokRealtime {
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, or tasks, use only the synced facts. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail."
+            ? "If they ask about inbox, calendar, or tasks, use only the synced facts. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. If they ask for an email body you do not have below, say you only have the subject and the app is opening the message — never invent body text."
             : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail."
+
+        let googleConnectGuard: String
+        if context.isConnected {
+            let email = context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"
+            googleConnectGuard = """
+            Google is ALREADY connected as \(email). There is NO Settings screen, no Account menu, and no Integrations page. If they say “connect Google” or ask how to connect, tell them they are already connected as \(email) and they can Disconnect from the Connect Google card in this thread or Disconnect Google at the top of the conversation. NEVER invent Settings, Account, or Integrations menus. NEVER tell them to open app settings or Google sign-in settings.
+            """
+        } else {
+            googleConnectGuard = """
+            There is NO Settings screen for Google. There is no Account menu and no Integrations page. To connect Google, the user taps the Connect Google button on the card in this conversation (or the Connect Google chip). If they ask how to connect, tell them to tap Connect Google in the thread / on the card. NEVER invent Settings, Account, or Integrations menus. NEVER tell them to open app settings or Google sign-in settings.
+            """
+        }
 
         return """
         ## Role & Persona
@@ -52,14 +64,17 @@ public enum GrokRealtime {
 
         ## Guardrails & Escalation
         NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You have no tools this slice — do not pretend to call functions. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
-        There is NO Settings screen for Google. There is no Account menu and no Integrations page. To connect Google, the user taps the Connect Google button on the card in this conversation (or the Connect Google chip). If they ask how to connect, tell them to tap Connect Google in the thread / on the card. NEVER invent Settings, Account, or Integrations menus.
+        \(googleConnectGuard)
 
         ## Voice & Communication Style
         Spoken word only: no markdown, no bullets, no emojis. One or two short sentences unless they want more. Warm, direct, English. Vary phrasing.
 
         ## CRITICAL INSTRUCTIONS
         NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above. The iOS app attaches evidence cards separately — you just talk.
-        NEVER tell them to open Settings, Account, or Integrations. Those screens do not exist. How to connect Google: tap Connect Google on the card in the thread.
+        NEVER tell them to open Settings, Account, or Integrations. Those screens do not exist.
+        \(context.isConnected
+            ? "If they ask to connect Google, they are already connected. Point them at Disconnect on the card or the top control."
+            : "How to connect Google: tap Connect Google on the card in the thread.")
         """
     }
 
@@ -75,7 +90,12 @@ public enum GrokRealtime {
         } else {
             lines.append("Inbox (only these):")
             for email in snapshot.emails.prefix(8) {
-                lines.append("- \(email.fromName): \(email.subject)")
+                if email.hasFullBody, let body = email.body {
+                    let clip = body.count > 280 ? String(body.prefix(280)) + "…" : body
+                    lines.append("- \(email.fromName): \(email.subject). Body: \(clip)")
+                } else {
+                    lines.append("- \(email.fromName): \(email.subject). Snippet only: \(email.preview). Do not invent a longer body.")
+                }
             }
         }
         if snapshot.events.isEmpty {

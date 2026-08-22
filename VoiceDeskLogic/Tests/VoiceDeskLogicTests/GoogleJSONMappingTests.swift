@@ -98,4 +98,60 @@ final class GoogleJSONMappingTests: XCTestCase {
         XCTAssertEqual(parsed.name, "ada@example.com")
         XCTAssertEqual(parsed.email, "ada@example.com")
     }
+
+    func testDecodesHTMLEntitiesInSubjectAndSnippet() throws {
+        XCTAssertEqual(GoogleJSONMapping.decodeHTMLEntities("&quot;Deal&quot; &amp; more"), "\"Deal\" & more")
+        XCTAssertEqual(GoogleJSONMapping.decodeHTMLEntities("it&#39;s &lt;ok&gt;"), "it's <ok>")
+        XCTAssertEqual(GoogleJSONMapping.decodeHTMLEntities("&#x27;hex&#x27;"), "'hex'")
+
+        let json = """
+        {
+          "messages": [
+            {
+              "id": "amz1",
+              "threadId": "tamz",
+              "snippet": "Your Amazon.com order of &quot;Echo&quot; has shipped.",
+              "payload": {
+                "headers": [
+                  {"name": "From", "value": "Amazon <auto@amazon.com>"},
+                  {"name": "Subject", "value": "Your Amazon.com order of &quot;Echo&quot;"}
+                ]
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let emails = try GoogleJSONMapping.emails(fromMessagesJSON: json, now: now)
+        XCTAssertEqual(emails[0].subject, "Your Amazon.com order of \"Echo\"")
+        XCTAssertEqual(emails[0].preview, "Your Amazon.com order of \"Echo\" has shipped.")
+        XCTAssertFalse(emails[0].subject.contains("&quot;"))
+        XCTAssertFalse(emails[0].preview.contains("&quot;"))
+        XCTAssertNil(emails[0].body)
+    }
+
+    func testExtractsPlainTextBodyFromFullMessage() {
+        let plain = "Murray here — walk the lot Saturday."
+        let encoded = Data(plain.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let message: [String: Any] = [
+            "id": "m-murray",
+            "threadId": "t-murray",
+            "snippet": "Murray here",
+            "payload": [
+                "mimeType": "multipart/alternative",
+                "parts": [
+                    [
+                        "mimeType": "text/plain",
+                        "body": ["data": encoded]
+                    ]
+                ]
+            ]
+        ]
+        XCTAssertEqual(GoogleJSONMapping.plainTextBody(from: message), plain)
+        let email = GoogleJSONMapping.email(from: message, now: now)
+        XCTAssertEqual(email?.body, plain)
+        XCTAssertTrue(email?.hasFullBody == true)
+    }
 }

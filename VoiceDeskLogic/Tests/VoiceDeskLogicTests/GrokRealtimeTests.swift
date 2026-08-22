@@ -70,8 +70,10 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(text.contains("Jordan Hale"))
         XCTAssertFalse(text.contains("1842 Beach Drive"))
         XCTAssertTrue(text.contains("Do not mention any sample listing"))
+        XCTAssertTrue(text.contains("ALREADY connected as ada@example.com"))
         XCTAssertTrue(text.contains("NO Settings screen"))
-        XCTAssertTrue(text.contains("NEVER invent Settings, Account, or Integrations"))
+        XCTAssertTrue(text.contains("NEVER tell them to open app settings"))
+        XCTAssertTrue(text.contains("Disconnect from the Connect Google card"))
     }
 
     func testAppendAudioJSONIsHotPathSafe() {
