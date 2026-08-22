@@ -12,33 +12,50 @@ final class AppModel {
     var showActivity = false
     var isTourRunning = false
     var showVoiceSetup = false
+    var hasCompletedPlaybook = false
 
     let voice: VoiceBox
     let google: StubGoogleAuth
     let wakeWord: WakeWordPlaceholder
     let sendClient: RecordingSendClient
+    let playbook: PlaybookStoring
 
     private var liveAssistantID: UUID?
     private var pendingDeskTopic: ConversationPresence.Topic?
+    private var userDedupe = TranscriptDedupe()
+
+    var showsTalkCoach: Bool {
+        !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
+    }
 
     init(
         voice: (any VoiceServicing)? = nil,
         google: StubGoogleAuth? = nil,
         wakeWord: WakeWordPlaceholder? = nil,
-        sendClient: RecordingSendClient? = nil
+        sendClient: RecordingSendClient? = nil,
+        playbook: PlaybookStoring? = nil
     ) {
         self.voice = VoiceBox(service: voice ?? VoiceRuntime.makeService())
         self.google = google ?? StubGoogleAuth()
         self.wakeWord = wakeWord ?? WakeWordPlaceholder()
         self.sendClient = sendClient ?? RecordingSendClient()
+        self.playbook = playbook ?? InMemoryPlaybookStore(completed: false)
+        self.hasCompletedPlaybook = self.playbook.hasCompleted
         self.voice.transcriptHandler = { [weak self] event in
             self?.handleLiveTranscript(event)
         }
         startWelcome()
     }
 
+    private static func makeLaunchPlaybookStore() -> PlaybookStoring {
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing") {
+            return InMemoryPlaybookStore(completed: false)
+        }
+        return UserDefaultsPlaybookStore()
+    }
+
     static func makeForLaunch() -> AppModel {
-        AppModel(voice: VoiceRuntime.makeService())
+        AppModel(voice: VoiceRuntime.makeService(), playbook: makeLaunchPlaybookStore())
     }
 
     func applyUserTurn(_ text: String) async {
@@ -48,17 +65,19 @@ final class AppModel {
     var lastTurnID: UUID? { turns.last?.id }
 
     func startWelcome() {
+        let firstRun = !hasCompletedPlaybook
         turns = [
             ConversationTurn(
                 role: .assistant,
-                text: ConversationPresence.welcomeText,
-                suggestions: [ConversationPresence.tourOffer]
+                text: firstRun ? ConversationPresence.firstRunWelcome : ConversationPresence.returningWelcome,
+                suggestions: firstRun ? ConversationPresence.starterChips : []
             )
         ]
         phase = .welcome
     }
 
     func tapTalk() {
+        completePlaybook()
         if voice.needsCredentials {
             showVoiceSetup = true
             return
@@ -184,15 +203,15 @@ final class AppModel {
         switch event.role {
         case .user:
             guard event.isFinal else { return }
-            handleLiveUser(event.text)
+            handleLiveUser(event.text, itemID: event.itemID)
         case .assistant:
             upsertLiveAssistant(event.text, isFinal: event.isFinal)
         }
     }
 
-    private func handleLiveUser(_ raw: String) {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+    private func handleLiveUser(_ raw: String, itemID: String?) {
+        guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
+        completePlaybook()
 
         if matchesCancel(text) {
             voice.cancel()
@@ -254,8 +273,8 @@ final class AppModel {
     }
 
     private func handleUserText(_ raw: String) async {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard let text = userDedupe.accept(text: raw, itemID: nil) else { return }
+        completePlaybook()
 
         if matchesCancel(text) {
             voice.cancel()
@@ -266,6 +285,11 @@ final class AppModel {
         }
 
         appendUser(text)
+
+        if ConversationPresence.isJustTalk(text) {
+            appendAssistant(ConversationPresence.justTalkReply)
+            return
+        }
 
         if ConversationPresence.wantsTour(text) {
             await runTour()
@@ -282,6 +306,12 @@ final class AppModel {
         }
 
         await replyReady(to: text)
+    }
+
+    private func completePlaybook() {
+        guard !hasCompletedPlaybook else { return }
+        hasCompletedPlaybook = true
+        playbook.hasCompleted = true
     }
 
     private func runTour() async {

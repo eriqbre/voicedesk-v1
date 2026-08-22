@@ -38,15 +38,27 @@ final class ConversationPresenceTests: XCTestCase {
     }
 
     func testWelcomeIsAPersonNotAMenu() {
-        XCTAssertTrue(ConversationPresence.welcomeText.lowercased().contains("ask me anything"))
-        XCTAssertFalse(ConversationPresence.welcomeText.lowercased().contains("pick"))
-        XCTAssertEqual(ConversationPresence.tourOffer, "Sure, show me")
+        XCTAssertTrue(ConversationPresence.firstRunWelcome.lowercased().contains("tap talk"))
+        XCTAssertTrue(ConversationPresence.firstRunWelcome.lowercased().contains("speak"))
+        XCTAssertFalse(ConversationPresence.firstRunWelcome.lowercased().contains("pick"))
+        XCTAssertEqual(ConversationPresence.starterChips.count, 3)
+        XCTAssertTrue(ConversationPresence.starterChips.contains(ConversationPresence.justTalk))
+        XCTAssertTrue(ConversationPresence.starterChips.contains(ConversationPresence.deskStarter))
+        XCTAssertTrue(ConversationPresence.starterChips.contains(ConversationPresence.draftStarter))
+        XCTAssertEqual(ConversationPresence.chipAccessibilityID(ConversationPresence.deskStarter), "suggestion.tour")
     }
 
     func testTourOfferIsConversational() {
         XCTAssertTrue(ConversationPresence.wantsTour("Sure, show me"))
+        XCTAssertTrue(ConversationPresence.wantsTour("What’s on my desk?"))
         XCTAssertTrue(ConversationPresence.wantsTour("give me a tour"))
+        XCTAssertTrue(ConversationPresence.isJustTalk("Just talk to me"))
         XCTAssertFalse(ConversationPresence.wantsTour("yes I want pizza"))
         XCTAssertFalse(ConversationPresence.wantsTour("start the car"))
+    }
+
+    func testDraftStarterMapsToDraftCard() {
+        let plan = ConversationPresence.plan(for: ConversationPresence.draftStarter)
+        XCTAssertEqual(plan.topic, .draft)
     }
 }

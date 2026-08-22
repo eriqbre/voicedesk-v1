@@ -120,7 +120,7 @@ private struct FlexibleChipRow: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(Palette.accentSoft, in: Capsule())
-                            .accessibilityIdentifier(item == ConversationPresence.tourOffer ? "suggestion.tour" : "suggestion.\(item)")
+                            .accessibilityIdentifier(ConversationPresence.chipAccessibilityID(item))
                     }
                 }
             }
@@ -180,13 +180,24 @@ struct VoiceBar: View {
                 .accessibilityLabel("Send typed turn")
             }
 
+            if model.showsTalkCoach {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.down")
+                    Text(ConversationPresence.talkHint)
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.accent)
+                .accessibilityIdentifier("voice.coach")
+                .accessibilityLabel(ConversationPresence.talkHint)
+            }
+
             Button(action: model.tapTalk) {
                 VStack(spacing: 8) {
                     ZStack {
                         Circle()
                             .fill(Palette.accentSoft)
                             .frame(width: 84, height: 84)
-                            .scaleEffect(model.voice.state == .listening ? 1.08 : 1)
+                            .scaleEffect(model.voice.state == .listening || model.showsTalkCoach ? 1.08 : 1)
                         Circle()
                             .fill(micFill)
                             .frame(width: 68, height: 68)
@@ -214,7 +225,9 @@ struct VoiceBar: View {
 
             Text(model.voice.needsCredentials
                  ? "Grok is not connected yet. Add a key to talk."
-                 : "Tap when you want to talk. Ask anything.")
+                 : (model.showsTalkCoach
+                    ? "This is a voice assistant. Tap Talk and speak."
+                    : "Tap when you want to talk. Ask anything."))
                 .font(.caption2)
                 .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)

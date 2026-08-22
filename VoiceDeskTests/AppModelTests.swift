@@ -8,8 +8,9 @@ final class AppModelTests: XCTestCase {
         let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
         XCTAssertEqual(model.phase, .welcome)
         XCTAssertEqual(model.turns.first?.role, .assistant)
-        XCTAssertEqual(model.turns.first?.text, ConversationPresence.welcomeText)
-        XCTAssertTrue(model.turns.first?.suggestions.contains(ConversationPresence.tourOffer) == true)
+        XCTAssertEqual(model.turns.first?.text, ConversationPresence.firstRunWelcome)
+        XCTAssertEqual(model.turns.first?.suggestions, ConversationPresence.starterChips)
+        XCTAssertTrue(model.showsTalkCoach)
         XCTAssertTrue(model.turns.first?.cards.isEmpty == true)
         XCTAssertTrue(model.sendClient.sentDrafts.isEmpty)
     }
@@ -74,7 +75,7 @@ final class AppModelTests: XCTestCase {
         await Task.yield()
         XCTAssertTrue(model.showVoiceSetup)
         XCTAssertEqual(model.turns.count, 1)
-        XCTAssertEqual(model.turns.first?.text, ConversationPresence.welcomeText)
+        XCTAssertEqual(model.turns.first?.text, ConversationPresence.firstRunWelcome)
         XCTAssertEqual(model.voice.state, .idle)
     }
 
@@ -85,11 +86,14 @@ final class AppModelTests: XCTestCase {
         await waitUntil { fake.started }
         XCTAssertTrue(model.voice.usesLiveLoop)
 
-        fake.emitUser("What’s in my inbox?")
+        fake.emitUser("What’s in my inbox?", itemID: "item_1")
+        fake.emitUser("What’s in my inbox?", itemID: "item_1")
+        fake.emitUser("What’s in my inbox?", itemID: "item_echo")
         fake.emitAssistant("Jordan wrote this morning about Saturday.", isFinal: false)
         fake.emitAssistant("", isFinal: true)
 
         XCTAssertEqual(model.turns.map(\.role), [.assistant, .user, .assistant])
+        XCTAssertEqual(model.turns.filter { $0.role == .user }.count, 1)
         XCTAssertEqual(model.turns[1].text, "What’s in my inbox?")
         XCTAssertTrue(model.turns[2].text.contains("Jordan wrote"))
         XCTAssertTrue(model.turns[2].cards.contains { $0.kind == .email })
@@ -101,6 +105,28 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("What's for dinner?")
         XCTAssertEqual(fake.sentTurns, ["What's for dinner?"])
         XCTAssertEqual(model.turns.last?.role, .user)
+        XCTAssertEqual(model.turns.filter { $0.role == .user }.count, 1)
+        XCTAssertTrue(model.turns.flatMap(\.cards).isEmpty)
+
+        fake.emitUser("What's for dinner?", itemID: "typed_echo")
+        XCTAssertEqual(model.turns.filter { $0.role == .user }.count, 1)
+    }
+
+    func testReturningLaunchSkipsPlaybookChips() {
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            playbook: InMemoryPlaybookStore(completed: true)
+        )
+        XCTAssertEqual(model.turns.first?.text, ConversationPresence.returningWelcome)
+        XCTAssertTrue(model.turns.first?.suggestions.isEmpty == true)
+        XCTAssertFalse(model.showsTalkCoach)
+    }
+
+    func testJustTalkChipPointsAtTalkWithoutTour() async {
+        let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
+        await model.applyUserTurn(ConversationPresence.justTalk)
+        XCTAssertTrue(model.hasCompletedPlaybook)
+        XCTAssertEqual(model.turns.last?.text, ConversationPresence.justTalkReply)
         XCTAssertTrue(model.turns.flatMap(\.cards).isEmpty)
     }
 
@@ -176,8 +202,8 @@ final class FakeLiveVoiceService: VoiceServicing {
         eventHandler?(.state(session.state))
     }
 
-    func emitUser(_ text: String) {
-        eventHandler?(.userTranscript(text, isFinal: true))
+    func emitUser(_ text: String, itemID: String? = nil) {
+        eventHandler?(.userTranscript(text, isFinal: true, itemID: itemID))
     }
 
     func emitAssistant(_ text: String, isFinal: Bool) {

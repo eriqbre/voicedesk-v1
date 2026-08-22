@@ -5,7 +5,7 @@ import VoiceDeskLogic
 
 enum VoiceServiceEvent: Sendable {
     case state(VoiceState)
-    case userTranscript(String, isFinal: Bool)
+    case userTranscript(String, isFinal: Bool, itemID: String?)
     case assistantTranscript(String, isFinal: Bool)
     case failed(String)
     case setupRequired
@@ -20,6 +20,7 @@ struct VoiceTranscript: Sendable {
     var role: Role
     var text: String
     var isFinal: Bool
+    var itemID: String?
 }
 
 @MainActor
@@ -100,8 +101,8 @@ final class VoiceBox {
         switch event {
         case .state(let next):
             state = next
-        case .userTranscript(let text, let isFinal):
-            transcriptHandler?(VoiceTranscript(role: .user, text: text, isFinal: isFinal))
+        case .userTranscript(let text, let isFinal, let itemID):
+            transcriptHandler?(VoiceTranscript(role: .user, text: text, isFinal: isFinal, itemID: itemID))
         case .assistantTranscript(let text, let isFinal):
             transcriptHandler?(VoiceTranscript(role: .assistant, text: text, isFinal: isFinal))
         case .failed(let message):

@@ -3,10 +3,27 @@ import Foundation
 /// Spoken presence: a person, not a command menu.
 /// Cards attach only when the ask maps to desk evidence.
 public enum ConversationPresence {
-    public static let welcomeText =
-        "Hey — I’m here. Talk like you would to someone who already knows your day. Ask me anything. If it’s about your desk, I’ll put the proof on a card."
+    /// First-open coach. Next action is tap Talk.
+    public static let firstRunWelcome =
+        "I’m a voice assistant. Tap Talk and speak — that’s the whole thing. I’ll answer anything. Cards only show up when it’s about your desk."
 
-    public static let tourOffer = "Sure, show me"
+    /// Returning presence. Short. No wizard.
+    public static let returningWelcome =
+        "Hey — I’m here. Tap Talk whenever you want."
+
+    /// Tests and first-run default.
+    public static let welcomeText = firstRunWelcome
+
+    public static let justTalk = "Just talk to me"
+    public static let deskStarter = "What’s on my desk?"
+    public static let draftStarter = "Show me a draft confirm"
+    public static let justTalkReply = "Tap Talk below and say anything. I’ll answer."
+    public static let talkHint = "Tap Talk and speak"
+
+    /// Kept so existing tour matching / a11y IDs still resolve.
+    public static let tourOffer = deskStarter
+
+    public static let starterChips = [justTalk, deskStarter, draftStarter]
 
     public enum Topic: String, Sendable, Equatable {
         case inbox
@@ -33,6 +50,10 @@ public enum ConversationPresence {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = text.lowercased()
 
+        if isJustTalk(text) {
+            return Plan(topic: .general, text: justTalkReply)
+        }
+
         if contains(lower, ["inbox", "my email", "my mail", "jordan hale", "jordan wrote"])
             || (contains(lower, ["email", "mail"]) && contains(lower, ["my", "inbox", "jordan"])) {
             return Plan(
@@ -49,8 +70,8 @@ public enum ConversationPresence {
             )
         }
 
-        if contains(lower, ["draft a reply", "reply to jordan", "send that", "write him back", "write her back"])
-            || (contains(lower, ["reply", "draft"]) && contains(lower, ["email", "jordan", "send"])) {
+        if contains(lower, ["draft confirm", "show me a draft", "draft a reply", "reply to jordan", "send that", "write him back", "write her back"])
+            || (contains(lower, ["reply", "draft"]) && contains(lower, ["email", "jordan", "send", "confirm"])) {
             return Plan(
                 topic: .draft,
                 text: "Here’s exactly what I’d send. Nothing leaves until you confirm."
@@ -94,8 +115,32 @@ public enum ConversationPresence {
 
     public static func wantsTour(_ raw: String) -> Bool {
         let lower = raw.lowercased()
-        if lower == tourOffer.lowercased() { return true }
-        return contains(lower, ["show me around", "sure, show me", "give me a tour", "the tour", "start the tour"])
+        if lower == tourOffer.lowercased() || lower == deskStarter.lowercased() { return true }
+        return contains(lower, [
+            "show me around",
+            "sure, show me",
+            "give me a tour",
+            "the tour",
+            "start the tour",
+            "what's on my desk",
+            "what’s on my desk",
+            "what is on my desk",
+            "whats on my desk"
+        ])
+    }
+
+    public static func isJustTalk(_ raw: String) -> Bool {
+        let lower = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower == justTalk.lowercased()
+            || lower == "just talk"
+            || contains(lower, ["just talk to me"])
+    }
+
+    public static func chipAccessibilityID(_ item: String) -> String {
+        if wantsTour(item) || item == deskStarter { return "suggestion.tour" }
+        if item == justTalk { return "suggestion.justTalk" }
+        if item == draftStarter { return "suggestion.draft" }
+        return "suggestion.\(item)"
     }
 
     private static func generalReply(for text: String, lower: String) -> String {

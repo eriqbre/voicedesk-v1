@@ -62,16 +62,36 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertEqual(
             GrokRealtime.parse(
                 type: "conversation.item.input_audio_transcription.completed",
-                json: ["transcript": "What’s in my inbox?"]
+                json: ["transcript": "What’s in my inbox?", "item_id": "item_1"]
             ),
-            .userTranscript("What’s in my inbox?")
+            .userTranscript(text: "What’s in my inbox?", itemID: "item_1")
+        )
+        XCTAssertEqual(
+            GrokRealtime.parse(
+                type: "conversation.item.created",
+                json: [
+                    "item": [
+                        "id": "item_1",
+                        "role": "user",
+                        "content": [["type": "input_text", "text": "What’s in my inbox?"]]
+                    ] as [String: Any]
+                ]
+            ),
+            .userTranscript(text: "What’s in my inbox?", itemID: "item_1")
         )
         XCTAssertEqual(
             GrokRealtime.parse(
                 type: "response.output_audio_transcript.delta",
                 json: ["delta": "Jordan wrote "]
             ),
-            .assistantTranscriptDelta("Jordan wrote ")
+            .assistantTranscriptDelta("Jordan wrote ", source: .audio)
+        )
+        XCTAssertEqual(
+            GrokRealtime.parse(
+                type: "response.output_text.delta",
+                json: ["delta": "Jordan wrote "]
+            ),
+            .assistantTranscriptDelta("Jordan wrote ", source: .outputText)
         )
         XCTAssertEqual(
             GrokRealtime.parse(type: "response.audio.delta", json: ["delta": "AAAA"]),

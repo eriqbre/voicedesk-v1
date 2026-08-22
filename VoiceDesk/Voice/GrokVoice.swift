@@ -2,6 +2,13 @@ import Foundation
 import VoiceDeskLogic
 
 /// Where the app looks for an xAI key. Never log the value. Never commit it.
+final class UserDefaultsPlaybookStore: PlaybookStoring {
+    var hasCompleted: Bool {
+        get { UserDefaults.standard.bool(forKey: VoicePlaybook.defaultsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: VoicePlaybook.defaultsKey) }
+    }
+}
+
 enum VoiceDeskSecrets {
     /// Scheme env `XAI_API_KEY`, then gitignored `Secrets.plist` in the app bundle.
     static var xaiAPIKey: String? {

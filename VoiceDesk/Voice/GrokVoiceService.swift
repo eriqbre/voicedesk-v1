@@ -22,6 +22,7 @@ final class GrokVoiceService: VoiceServicing {
 
     private var currentResponseID: String?
     private var audioDeltaCount = 0
+    private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var isTearingDown = false
 
@@ -195,18 +196,18 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             }
         case .audioCommitted:
             break
-        case .userTranscript(let text):
+        case .userTranscript(let text, let itemID):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                eventHandler?(.userTranscript(trimmed, isFinal: true))
+                eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
             }
         case .responseCreated(let id):
             currentResponseID = id
+            assistantGate.reset()
             apply(.speakStarted)
-        case .assistantTranscriptDelta(let delta):
-            if !delta.isEmpty {
-                eventHandler?(.assistantTranscript(delta, isFinal: false))
-            }
+        case .assistantTranscriptDelta(let delta, let source):
+            guard !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
+            eventHandler?(.assistantTranscript(delta, isFinal: false))
         case .assistantTranscriptDone:
             break
         case .outputAudioDelta(let delta):
@@ -220,6 +221,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             apply(.turnFinished)
             currentResponseID = nil
             audioDeltaCount = 0
+            assistantGate.reset()
             eventHandler?(.assistantTranscript("", isFinal: true))
         case .ping(let timestamp):
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))

@@ -119,9 +119,9 @@ public enum GrokRealtime {
         case speechStarted
         case speechStopped
         case audioCommitted
-        case userTranscript(String)
+        case userTranscript(text: String, itemID: String?)
         case responseCreated(id: String)
-        case assistantTranscriptDelta(String)
+        case assistantTranscriptDelta(String, source: AssistantTranscriptSource)
         case assistantTranscriptDone
         case outputAudioDelta(String)
         case outputAudioDone
@@ -143,15 +143,20 @@ public enum GrokRealtime {
             return .speechStopped
         case "input_audio_buffer.committed":
             return .audioCommitted
-        case "conversation.item.input_audio_transcription.completed":
-            return .userTranscript((json["transcript"] as? String) ?? "")
+        case "conversation.item.input_audio_transcription.completed",
+             "input_audio_transcription.completed":
+            let text = userText(in: json) ?? ""
+            return .userTranscript(text: text, itemID: itemID(in: json))
+        case "conversation.item.created", "conversation.item.added":
+            guard let text = userText(in: json), !text.isEmpty else { return .ignored }
+            return .userTranscript(text: text, itemID: itemID(in: json))
         case "response.created":
             let id = (json["response"] as? [String: Any])?["id"] as? String ?? ""
             return .responseCreated(id: id)
-        case "response.output_audio_transcript.delta",
-             "response.audio_transcript.delta",
-             "response.output_text.delta":
-            return .assistantTranscriptDelta((json["delta"] as? String) ?? "")
+        case "response.output_audio_transcript.delta", "response.audio_transcript.delta":
+            return .assistantTranscriptDelta((json["delta"] as? String) ?? "", source: .audio)
+        case "response.output_text.delta":
+            return .assistantTranscriptDelta((json["delta"] as? String) ?? "", source: .outputText)
         case "response.output_audio_transcript.done", "response.audio_transcript.done":
             return .assistantTranscriptDone
         case "response.output_audio.delta", "response.audio.delta":
@@ -173,6 +178,34 @@ public enum GrokRealtime {
         default:
             return .ignored
         }
+    }
+
+    public static func itemID(in json: [String: Any]) -> String? {
+        if let id = json["item_id"] as? String, !id.isEmpty { return id }
+        if let item = json["item"] as? [String: Any], let id = item["id"] as? String, !id.isEmpty {
+            return id
+        }
+        return nil
+    }
+
+    public static func userText(in json: [String: Any]) -> String? {
+        if let text = nonempty(json["transcript"]) { return text }
+        guard let item = json["item"] as? [String: Any],
+              (item["role"] as? String) == "user"
+        else { return nil }
+        if let text = nonempty(item["transcript"]) { return text }
+        guard let content = item["content"] as? [[String: Any]] else { return nil }
+        for part in content {
+            if let text = nonempty(part["transcript"]) { return text }
+            if let text = nonempty(part["text"]) { return text }
+        }
+        return nil
+    }
+
+    private static func nonempty(_ value: Any?) -> String? {
+        guard let text = value as? String else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func int64(_ value: Any?) -> Int64? {
