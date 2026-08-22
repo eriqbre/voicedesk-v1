@@ -223,6 +223,8 @@ public enum ConversationPresence {
         public var expandEarlierMessages: Bool
         public var shouldSearchGmail: Bool
         public var gmailQuery: String?
+        public var gmailPlan: GmailSearchPlan?
+        public var searchAsk: String?
 
         public init(
             topic: Topic,
@@ -232,7 +234,9 @@ public enum ConversationPresence {
             shouldFetchBody: Bool = false,
             expandEarlierMessages: Bool = false,
             shouldSearchGmail: Bool = false,
-            gmailQuery: String? = nil
+            gmailQuery: String? = nil,
+            gmailPlan: GmailSearchPlan? = nil,
+            searchAsk: String? = nil
         ) {
             self.topic = topic
             self.text = text
@@ -242,6 +246,8 @@ public enum ConversationPresence {
             self.expandEarlierMessages = expandEarlierMessages
             self.shouldSearchGmail = shouldSearchGmail
             self.gmailQuery = gmailQuery
+            self.gmailPlan = gmailPlan
+            self.searchAsk = searchAsk
         }
 
         public var claimsCardWithoutAttaching: Bool {
@@ -351,8 +357,8 @@ public enum ConversationPresence {
             if let email = resolveThreadEmail(for: raw, context: context, focusedEmail: focusedEmail) {
                 return threadEvidence(email)
             }
-            if context.isConnected, let query = GmailSearchQuery.query(from: raw) {
-                return searchEvidence(query: query, expandEarlier: true)
+            if context.isConnected, let plan = GmailSearchQuery.plan(from: raw) {
+                return searchEvidence(ask: raw, plan: plan, expandEarlier: true)
             }
             if !context.snapshot.emails.isEmpty {
                 return inboxEvidence(context: context, followUp: true)
@@ -378,8 +384,8 @@ public enum ConversationPresence {
                     return inboxEvidence(context: context, followUp: true)
                 }
                 if context.isConnected, GmailSearchQuery.hasSenderPattern(raw),
-                   let query = GmailSearchQuery.query(from: raw) {
-                    return searchEvidence(query: query, expandEarlier: false)
+                   let plan = GmailSearchQuery.plan(from: raw) {
+                    return searchEvidence(ask: raw, plan: plan, expandEarlier: false)
                 }
                 return DeskEvidence(
                     topic: .inbox,
@@ -390,8 +396,8 @@ public enum ConversationPresence {
             if wantsInbox(raw), isBareInboxList(raw) {
                 return inboxEvidence(context: context, followUp: false)
             }
-            if context.isConnected, let query = GmailSearchQuery.query(from: raw) {
-                return searchEvidence(query: query, expandEarlier: wantsFullThread(raw))
+            if context.isConnected, let plan = GmailSearchQuery.plan(from: raw) {
+                return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
             }
             if context.isConnected {
                 return DeskEvidence(
@@ -546,37 +552,24 @@ public enum ConversationPresence {
     }
 
     public static func matchingEmail(for raw: String, in emails: [EmailItem]) -> EmailItem? {
-        let lower = raw.lowercased()
-        let stop: Set<String> = [
-            "the", "and", "for", "from", "you", "your", "this", "that",
-            "email", "mail", "note", "message", "thread", "with", "about",
-            "inbox", "details", "body", "read", "show", "latest", "other",
-            "have", "today", "what", "can"
-        ]
-        for email in emails {
-            let nameWords = email.fromName.lowercased()
-                .split { !$0.isLetter }
-                .map(String.init)
-                .filter { $0.count >= 3 }
-            if nameWords.contains(where: { lower.contains($0) }) {
+        if let plan = GmailSearchQuery.plan(from: raw) {
+            switch GmailSearchQuery.pick(emails, plan: plan) {
+            case .one(let email):
                 return email
-            }
-            let local = email.fromEmail.split(separator: "@").first.map(String.init)?.lowercased() ?? ""
-            if local.count >= 3, lower.contains(local) {
-                return email
+            case .several(let list):
+                return list.first
+            case .none:
+                if GmailSearchQuery.hasSenderPattern(raw) {
+                    return nil
+                }
             }
         }
-        for email in emails {
-            let subjectWords = email.subject.lowercased()
-                .split { !$0.isLetter }
-                .map(String.init)
-                .filter { $0.count >= 4 && !stop.contains($0) }
-            if subjectWords.contains(where: { lower.contains($0) }) {
-                return email
-            }
+        let lower = raw.lowercased()
+        if GmailSearchQuery.hasSenderPattern(raw) {
+            return nil
         }
         if wantsEmailBody(raw),
-           contains(lower, ["latest", "first", "that email", "this email", "the email"]) {
+           contains(lower, ["that email", "this email", "the email"]) {
             return emails.first
         }
         if wantsEmailBody(raw), emails.count == 1, !wantsInbox(raw) {
@@ -631,7 +624,7 @@ public enum ConversationPresence {
         )
     }
 
-    private static func searchEvidence(query: String, expandEarlier: Bool) -> DeskEvidence {
+    private static func searchEvidence(ask: String, plan: GmailSearchPlan, expandEarlier: Bool) -> DeskEvidence {
         DeskEvidence(
             topic: .inbox,
             text: gmailSearchingBeat,
@@ -639,7 +632,9 @@ public enum ConversationPresence {
             shouldFetchBody: false,
             expandEarlierMessages: expandEarlier,
             shouldSearchGmail: true,
-            gmailQuery: query
+            gmailQuery: plan.primary,
+            gmailPlan: plan,
+            searchAsk: ask
         )
     }
 

@@ -399,6 +399,93 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.turns.contains { $0.text.lowercased().contains("i can search gmail") })
     }
 
+    func testMarieLastEmailDoesNotAndLastToken() async {
+        var marie = SampleData.syncedEmail()
+        marie.fromName = "Marie Chen"
+        marie.fromEmail = "marie@example.com"
+        marie.providerID = "msg-marie"
+        marie.subject = "Walk-through notes"
+        marie.body = "Here is the latest on the lot."
+        var waterfront = SampleData.syncedEmail()
+        waterfront.fromName = "Bridget Breland"
+        waterfront.fromEmail = "bridget@waterfrontsearch.com"
+        waterfront.providerID = "msg-waterfront"
+        waterfront.subject = "Waterfront Search"
+        waterfront.body = "New waterfront matches this week."
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = [marie, waterfront]
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(),
+            sync: sync
+        )
+        await model.applyUserTurn("Hey, can you give me a full summary of Marie’s last email?")
+        XCTAssertFalse(sync.searchQueries.isEmpty)
+        for query in sync.searchQueries {
+            XCTAssertTrue(query.contains("from:marie"), query)
+            XCTAssertFalse(GmailSearchQuery.bareLetterTokens(in: query).contains("last"), query)
+        }
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Marie Chen")
+        } else {
+            XCTFail("expected Marie email card")
+        }
+    }
+
+    func testShowingTimeSearchDoesNotAttachWaterfront() async {
+        var waterfront = SampleData.syncedEmail()
+        waterfront.fromName = "Bridget Breland"
+        waterfront.fromEmail = "bridget@waterfrontsearch.com"
+        waterfront.providerID = "msg-waterfront"
+        waterfront.subject = "Waterfront Search"
+        waterfront.body = "New waterfront matches this week."
+        var showing = SampleData.syncedEmail()
+        showing.fromName = "ShowingTime"
+        showing.fromEmail = "noreply@showingtime.com"
+        showing.providerID = "msg-showingtime"
+        showing.subject = "New showing confirmed"
+        showing.body = "A buyer booked a showing."
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = [waterfront, showing]
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [waterfront])),
+            sync: sync
+        )
+        await model.applyUserTurn("You search my inbox for emails from showing time?")
+        XCTAssertFalse(sync.searchQueries.isEmpty)
+        let query = sync.searchQueries[0]
+        XCTAssertTrue(query.contains("\"showing time\"") || query.contains("showingtime"), query)
+        XCTAssertNotEqual(query, "from:showing")
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "ShowingTime")
+        } else {
+            XCTFail("expected ShowingTime card, not waterfront")
+        }
+    }
+
+    func testShowingTimeWrongHitsStayEmpty() async {
+        var waterfront = SampleData.syncedEmail()
+        waterfront.fromName = "Bridget Breland"
+        waterfront.fromEmail = "bridget@waterfrontsearch.com"
+        waterfront.providerID = "msg-waterfront"
+        waterfront.subject = "Waterfront Search"
+        waterfront.body = "New waterfront matches this week."
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = [waterfront]
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(),
+            sync: sync
+        )
+        await model.applyUserTurn("You search my inbox for emails from showing time?")
+        XCTAssertEqual(model.turns.last?.text, ConversationPresence.gmailSearchEmptyReply)
+        XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+    }
+
     func testGmailSearchEmptyIsHonest() async {
         let sync = MockGoogleSync(result: .empty)
         sync.searchable = []

@@ -609,7 +609,7 @@ final class AppModel {
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
         rememberEvidence(evidence)
         if evidence.shouldSearchGmail, let query = evidence.gmailQuery, !query.isEmpty {
-            await searchGmail(query)
+            await searchGmail(query, plan: evidence.gmailPlan, ask: evidence.searchAsk)
             return
         }
         if evidence.shouldFetchBody, let email = evidence.focusedEmail {
@@ -619,7 +619,7 @@ final class AppModel {
         appendAssistant(evidence.text, cards: evidence.cards)
     }
 
-    private func searchGmail(_ query: String) async {
+    private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {
         guard google.isConnected, let token = google.accessToken else {
             appendAssistant(
                 ConversationPresence.connectHowToReply,
@@ -628,29 +628,44 @@ final class AppModel {
             return
         }
         let beatID = appendSearchingBeat()
+        let variants = (plan?.variants.isEmpty == false) ? plan!.variants : [query]
         do {
-            let found = try await sync.searchMessages(token: token, query: query, now: Date())
-            if found.isEmpty {
+            var found: [EmailItem] = []
+            for variant in variants {
+                found = try await sync.searchMessages(token: token, query: variant, now: Date())
+                if !found.isEmpty { break }
+            }
+            let picked: GmailSearchPick
+            if let plan {
+                picked = GmailSearchQuery.pick(found, plan: plan)
+            } else if let ask {
+                picked = GmailSearchQuery.pick(found, ask: ask)
+            } else if found.isEmpty {
+                picked = .none
+            } else if found.count == 1 {
+                picked = .one(found[0])
+            } else {
+                picked = .several(Array(found.prefix(3)))
+            }
+            switch picked {
+            case .none:
                 replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchEmptyReply)
-                return
-            }
-            if found.count == 1 {
+            case .one(let email):
                 removeTurn(id: beatID)
-                applyLoadedEmail(found[0])
-                return
+                applyLoadedEmail(email)
+            case .several(let emails):
+                for email in emails {
+                    upsertSnapshotEmail(email)
+                }
+                cache.save(deskSnapshot)
+                refreshPresence()
+                lastFocusedEmail = emails.first
+                replaceAssistant(
+                    id: beatID,
+                    text: ConversationPresence.gmailSearchSeveralReply,
+                    cards: emails.map { .email($0) }
+                )
             }
-            let top = Array(found.prefix(3))
-            for email in top {
-                upsertSnapshotEmail(email)
-            }
-            cache.save(deskSnapshot)
-            refreshPresence()
-            lastFocusedEmail = top.first
-            replaceAssistant(
-                id: beatID,
-                text: ConversationPresence.gmailSearchSeveralReply,
-                cards: top.map { .email($0) }
-            )
         } catch {
             replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchFailedReply)
         }

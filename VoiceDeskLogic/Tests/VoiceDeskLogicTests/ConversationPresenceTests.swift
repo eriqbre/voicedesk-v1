@@ -262,6 +262,52 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("Hey, show me Murray's latest email."))
     }
 
+    func testMarieLastEmailSearchesFromMarieWithoutBareLast() {
+        let ask = "Hey, can you give me a full summary of Marie’s last email?"
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask))
+        XCTAssertTrue(ConversationPresence.looksLikeMailAsk(ask))
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: .empty)
+        )
+        XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertEqual(evidence?.gmailQuery, "from:marie")
+        XCTAssertEqual(evidence?.searchAsk, ask)
+        XCTAssertTrue(evidence?.gmailPlan?.variants.contains(where: { $0.contains("from:marie") }) == true)
+        for variant in evidence?.gmailPlan?.variants ?? [] {
+            XCTAssertFalse(GmailSearchQuery.bareLetterTokens(in: variant).contains("last"), variant)
+        }
+        XCTAssertTrue(evidence?.cards.isEmpty == true)
+        XCTAssertEqual(evidence?.text, ConversationPresence.gmailSearchingBeat)
+        assertNotFakeSearchCapability(evidence?.text ?? "")
+    }
+
+    func testShowingTimeAskUsesQuotedBrandAndDoesNotAttachWaterfront() {
+        let ask = "You search my inbox for emails from showing time?"
+        let waterfront = EmailItem(
+            providerID: "msg-waterfront",
+            fromName: "Bridget Breland",
+            fromEmail: "bridget@waterfrontsearch.com",
+            sentAtLabel: "Today 8:02 AM",
+            subject: "Waterfront Search",
+            preview: "New waterfront matches this week.",
+            filterTag: "Inbox"
+        )
+        XCTAssertNil(ConversationPresence.matchingEmail(for: ask, in: [waterfront]))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask))
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: DeskSnapshot(emails: [waterfront]))
+        )
+        XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertTrue(evidence?.cards.isEmpty == true)
+        let query = evidence?.gmailQuery ?? ""
+        XCTAssertTrue(query.contains("\"showing time\"") || query.contains("showingtime"), query)
+        XCTAssertNotEqual(query, "from:showing")
+        XCTAssertFalse(query.contains("from:showing "))
+        assertNotFakeSearchCapability(evidence?.text ?? "")
+    }
+
     func testFindClosingNoteWithoutEmailWordStillSearches() {
         let context = DeskContext(isConnected: true, snapshot: .empty)
         XCTAssertTrue(ConversationPresence.looksLikeMailAsk("find Murray's closing note"))

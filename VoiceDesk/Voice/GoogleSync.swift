@@ -214,19 +214,8 @@ final class MockGoogleSync: GoogleSyncing {
         _ = now
         searchQueries.append(query)
         if let error { throw GoogleSignInError.failed(error) }
-        let tokens = query.lowercased().split { $0.isWhitespace }.map { token -> String in
-            token.hasPrefix("from:") ? String(token.dropFirst(5)) : String(token)
-        }.filter { !$0.isEmpty }
         let pool = searchable.isEmpty ? result.emails : searchable
-        return pool.filter { email in
-            tokens.allSatisfy { token in
-                email.fromName.lowercased().contains(token)
-                    || email.fromEmail.lowercased().contains(token)
-                    || email.subject.lowercased().contains(token)
-                    || email.preview.lowercased().contains(token)
-                    || (email.body ?? "").lowercased().contains(token)
-            }
-        }
+        return pool.filter { GmailSearchQuery.matches($0, gmailQuery: query) }
     }
 
     private func fetchOnce(token: String, messageID: String, now: Date) throws -> EmailItem {
