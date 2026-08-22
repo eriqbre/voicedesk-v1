@@ -89,6 +89,22 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(text.contains("I can search Gmail"))
         XCTAssertFalse(text.contains("waiting on the Email card"))
         XCTAssertFalse(text.contains("only have the subject"))
+        XCTAssertFalse(text.contains("Snippet only"))
+        XCTAssertFalse(text.contains("Can we walk the punch list"))
+        XCTAssertTrue(text.contains("from / subject / when only"))
+        XCTAssertTrue(text.contains("stay silent"))
+    }
+
+    func testConnectedDeskFactsNeverLabelSnippetOnly() {
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let facts = GrokRealtime.connectedDeskFacts(snapshot)
+        XCTAssertTrue(facts.contains("Ada Cole"))
+        XCTAssertTrue(facts.contains("Inspection questions"))
+        XCTAssertTrue(facts.contains("Today 8:02 AM"))
+        XCTAssertFalse(facts.contains("Snippet only"))
+        XCTAssertFalse(facts.contains("Can we walk the punch list"))
+        XCTAssertFalse(facts.localizedCaseInsensitiveContains("preview"))
+        XCTAssertTrue(facts.contains("stay silent"))
     }
 
     func testAppendAudioJSONIsHotPathSafe() {

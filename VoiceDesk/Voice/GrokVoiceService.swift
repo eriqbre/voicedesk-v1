@@ -27,6 +27,7 @@ final class GrokVoiceService: VoiceServicing {
     private var isTearingDown = false
     private var isRecovering = false
     private var reconnectsUsed = 0
+    private var dropAssistantOutput = false
     private var instructions = GrokRealtime.presenceInstructions
 
     var state: VoiceState { session.state }
@@ -97,6 +98,13 @@ final class GrokVoiceService: VoiceServicing {
 
     func interruptResponse() {
         interruptAssistant(sendCancel: true)
+    }
+
+    func suppressAssistantOutput(_ suppress: Bool) {
+        dropAssistantOutput = suppress
+        if suppress {
+            interruptAssistant(sendCancel: true)
+        }
     }
 
     func cancel() {
@@ -236,6 +244,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
+        guard !dropAssistantOutput else { return }
         audio.playPCM16(data)
     }
 
@@ -266,11 +275,12 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             assistantGate.reset()
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
-            guard !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
+            guard !dropAssistantOutput, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
             eventHandler?(.assistantTranscript(delta, isFinal: false))
         case .assistantTranscriptDone:
             break
         case .outputAudioDelta(let delta):
+            guard !dropAssistantOutput else { break }
             if json["response_id"] as? String == currentResponseID || currentResponseID == nil {
                 audio.playAudioDelta(base64: delta)
                 audioDeltaCount += 1

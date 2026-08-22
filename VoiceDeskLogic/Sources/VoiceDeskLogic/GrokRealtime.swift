@@ -31,11 +31,11 @@ public enum GrokRealtime {
         }
 
         let deskObjective = context.isConnected
-            ? "When the topic is their desk, stay concrete about the last-synced Google facts below. Never invent mail. The iOS app owns every Gmail, calendar, and task ask — you will not handle those turns. Stay silent; the client interrupts you."
+            ? "When the topic is their desk, stay silent. The iOS app owns every Gmail, calendar, and task ask, including full email, body, and summary. You will not handle those turns. The client interrupts you."
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, or tasks, do not answer. The client owns those turns. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread, that a thread is not in the last sync, or that all you have is the latest note. NEVER say you are searching, will search, can search Gmail, or are looking anything up."
+            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, do not answer. Stay silent. The client owns those turns. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER say you are searching, will search, can search Gmail, or are looking anything up. NEVER describe mail as snippet-only."
             : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
         let googleConnectGuard: String
@@ -75,8 +75,9 @@ public enum GrokRealtime {
         NEVER say you cannot connect Google. NEVER bounce them to Gmail for a message body.
         NEVER mention an Email card or that a full message is waiting on a card. The client attaches cards. NEVER say pull-to-refresh.
         NEVER paste a full email body or quoted thread into the conversation.
-        NEVER say you cannot pull a thread or that a thread is not in the last sync. The client fetches full threads.
+        NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, or that all you have is a snippet. The client fetches full bodies.
         NEVER say you are searching, will search, can search Gmail, or are looking anything up. The client handles all Gmail reads.
+        If they ask for a full email, summary, or body, stay silent. Body pulls are client-owned.
         \(context.isConnected
             ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
             : "How to connect Google — say exactly: Tap Connect Google on the card below.")
@@ -85,22 +86,17 @@ public enum GrokRealtime {
 
     public static func connectedDeskFacts(_ snapshot: DeskSnapshot) -> String {
         var lines: [String] = [
-            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts. The client handles all Gmail reads. You do not search. You do not look anything up. Do not invent mail or say a message is not synced."
+            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts: from, subject, and when only. The client handles all Gmail reads, including full body and summary. You do not search. You do not look anything up. Do not invent mail. Do not say a message is not synced or that you only have a snippet. If they ask for a full email, summary, or body, stay silent — the client interrupts you."
         ]
         if let synced = snapshot.lastSyncedAt {
             lines.append("Last synced: \(DeskSnapshot.timeLabel(synced)).")
         }
         if snapshot.emails.isEmpty {
-            lines.append("Inbox: nothing synced. If they ask what’s in their inbox, say you do not have synced threads yet.")
+            lines.append("Inbox list is empty. If they ask about mail, stay silent; the client owns the turn.")
         } else {
-            lines.append("Inbox (only these):")
+            lines.append("Inbox (from / subject / when only — no bodies, no snippets):")
             for email in snapshot.emails.prefix(8) {
-                if email.hasFullBody {
-                    let beat = EmailBodyFormatting.spokenSummary(from: email.body, fallback: email.preview)
-                    lines.append("- \(email.fromName): \(email.subject). Latest (do not read the full body aloud): \(beat).")
-                } else {
-                    lines.append("- \(email.fromName): \(email.subject). Snippet only: \(email.preview). Never send them to Gmail.")
-                }
+                lines.append("- \(email.fromName): \(email.subject) (\(email.sentAtLabel)).")
             }
         }
         if snapshot.events.isEmpty {

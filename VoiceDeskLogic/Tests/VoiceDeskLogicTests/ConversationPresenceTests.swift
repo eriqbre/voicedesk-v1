@@ -519,6 +519,28 @@ final class ConversationPresenceTests: XCTestCase {
         assertDoesNotContradictConnectCard(plan.text)
     }
 
+    func testOwnsConnectedDeskTurnForFullEmailPhrases() {
+        for ask in [
+            "pull the full email",
+            "read the whole email",
+            "full body of Murray's note",
+            "give me a full summary of Murray’s latest email",
+            "full email from Marie"
+        ] {
+            XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask), ask)
+            XCTAssertTrue(ConversationPresence.looksLikeMailAsk(ask), ask)
+        }
+    }
+
+    func testGrokDeskRefusalFilter() {
+        XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("I can’t pull the full email from here."))
+        XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("That’s not in my last sync."))
+        XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("All I have is the latest note."))
+        XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("I don’t have the full body."))
+        XCTAssertFalse(ConversationPresence.isGrokDeskRefusal("Murray wrote: Need you to notarize today."))
+        XCTAssertFalse(ConversationPresence.isGrokDeskRefusal(ConversationPresence.gmailSearchingBeat))
+    }
+
     private func assertDoesNotContradictConnectCard(_ text: String, _ ask: String = "") {
         let lower = text.lowercased()
         XCTAssertFalse(lower.contains("can't connect") || lower.contains("cannot connect") || lower.contains("can’t connect"), ask)

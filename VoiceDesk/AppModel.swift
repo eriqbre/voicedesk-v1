@@ -302,7 +302,10 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            guard event.isFinal else { return }
+            if !event.isFinal {
+                preemptGrokIfDeskTurn(event.text)
+                return
+            }
             handleLiveUser(event.text, itemID: event.itemID)
         case .assistant:
             upsertLiveAssistant(event.text, isFinal: event.isFinal)
@@ -359,7 +362,7 @@ final class AppModel {
             surfaceDeskEvidence(evidence)
             return
         }
-        suppressLiveAssistant = false
+        unmuteGrokAssistant()
         pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
@@ -479,6 +482,7 @@ final class AppModel {
         }
 
         if voice.usesLiveLoop {
+            unmuteGrokAssistant()
             pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
             await voice.sendTextTurn(text)
             return
@@ -551,11 +555,37 @@ final class AppModel {
     private func claimLocalAssistantReply() {
         suppressLiveAssistant = true
         voice.interruptResponse()
+        voice.suppressAssistantOutput(true)
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
             turns.remove(at: index)
         }
         liveAssistantID = nil
         pendingDeskTopic = nil
+        scrubGrokDeskRefusals()
+    }
+
+    private func unmuteGrokAssistant() {
+        suppressLiveAssistant = false
+        voice.suppressAssistantOutput(false)
+    }
+
+    /// Interrupt as soon as a partial transcript looks like a connected desk ask.
+    private func preemptGrokIfDeskTurn(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, google.isConnected else { return }
+        if ConversationPresence.ownsConnectedDeskTurn(text) {
+            claimLocalAssistantReply()
+        }
+    }
+
+    private func scrubGrokDeskRefusals() {
+        let cutoff = Date().addingTimeInterval(-60)
+        turns.removeAll { turn in
+            turn.role == .assistant
+                && turn.cards.isEmpty
+                && turn.createdAt >= cutoff
+                && ConversationPresence.isGrokDeskRefusal(turn.text)
+        }
     }
 
     /// Live voice and typed path: attach the Connect Google card on the user ask.
@@ -621,6 +651,7 @@ final class AppModel {
             Task { await applyDeskEvidence(evidence) }
             return
         }
+        scrubGrokDeskRefusals()
         appendAssistant(evidence.text, cards: evidence.cards)
     }
 
@@ -678,6 +709,7 @@ final class AppModel {
                 cache.save(deskSnapshot)
                 refreshPresence()
                 lastFocusedEmail = emails.first
+                scrubGrokDeskRefusals()
                 replaceAssistant(
                     id: beatID,
                     text: ConversationPresence.gmailSearchSeveralReply,
@@ -745,6 +777,7 @@ final class AppModel {
             ? ConversationPresence.emailThreadReply(email)
             : ConversationPresence.emailBodyReply(email)
         pendingThreadSummary = false
+        scrubGrokDeskRefusals()
         appendAssistant(reply, cards: [.email(email)])
     }
 

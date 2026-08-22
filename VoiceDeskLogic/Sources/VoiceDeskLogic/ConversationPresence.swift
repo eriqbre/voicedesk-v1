@@ -269,6 +269,30 @@ public enum ConversationPresence {
         looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw)
     }
 
+    /// Grok refusal that must never stay on the transcript after a local desk fetch.
+    public static func isGrokDeskRefusal(_ raw: String) -> Bool {
+        contains(raw.lowercased(), [
+            "can't pull",
+            "cannot pull",
+            "can’t pull",
+            "not in my last sync",
+            "not in the last sync",
+            "not in last sync",
+            "all i have is",
+            "all I have is",
+            "don't have the full",
+            "don’t have the full",
+            "do not have the full",
+            "don't have the entire",
+            "don’t have the entire",
+            "can't get the full",
+            "cannot get the full",
+            "only have the snippet",
+            "only have a snippet",
+            "snippet only"
+        ])
+    }
+
     public static func looksLikeMailAsk(_ raw: String) -> Bool {
         if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
             return false
@@ -517,6 +541,11 @@ public enum ConversationPresence {
             "entire thread",
             "whole thread",
             "full summary",
+            "full email",
+            "full body",
+            "pull the full",
+            "read the whole email",
+            "entire email",
             "summarize the thread",
             "summarize this thread",
             "summarize the full thread",
@@ -548,7 +577,11 @@ public enum ConversationPresence {
             "whats it say",
             "tell me more",
             "full email",
+            "full body",
+            "pull the full",
+            "read the whole",
             "whole email",
+            "entire email",
             "latest email",
             "that email",
             "this email",

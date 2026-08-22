@@ -583,6 +583,29 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
     }
 
+    func testLiveRefusalIsScrubbedWhenLocalEmailAttaches() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-scrub"
+        murray.body = "Need you to notarize the closing package today."
+        let snapshot = DeskSnapshot(emails: [murray])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies["msg-murray-scrub"] = murray.body
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        fake.emitAssistant("I can’t pull the full email — that’s not in my last sync.", isFinal: true)
+        XCTAssertTrue(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
+        await model.applyUserTurn("full summary of Murray’s latest email")
+        XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Need you to notarize"))
+    }
+
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)
@@ -708,6 +731,10 @@ final class FakeLiveVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {}
+
+    func suppressAssistantOutput(_ suppress: Bool) {
+        _ = suppress
+    }
 }
 
 @MainActor
