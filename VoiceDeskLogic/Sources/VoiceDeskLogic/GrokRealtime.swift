@@ -35,18 +35,18 @@ public enum GrokRealtime {
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, or tasks, use only the synced facts. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. If they ask for an email body you do not have below, say you only have the subject and the app is opening the message — never invent body text."
-            : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail."
+            ? "If they ask about inbox, calendar, or tasks, use only the synced facts. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. Email bodies display on the Email card in VoiceDesk. When they ask for details, summarize from the body on the card. If the body is missing, say sync failed and they can retry on the card. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
+            : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
         let googleConnectGuard: String
         if context.isConnected {
             let email = context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"
             googleConnectGuard = """
-            Google is ALREADY connected as \(email). There is NO Settings screen, no Account menu, and no Integrations page. If they say “connect Google” or ask how to connect, tell them they are already connected as \(email) and they can Disconnect from the Connect Google card in this thread or Disconnect Google at the top of the conversation. NEVER invent Settings, Account, or Integrations menus. NEVER tell them to open app settings or Google sign-in settings.
+            Google is ALREADY connected as \(email). There is NO Settings screen, no Account menu, and no Integrations page. If they say “connect Google” or ask how to connect, say exactly: You’re already connected as \(email). Use Disconnect on the card if you need to switch. NEVER say you cannot connect it. NEVER invent Settings, Account, or Integrations menus. NEVER tell them to open app settings or Google sign-in settings. NEVER tell them to do it themselves in Integrations.
             """
         } else {
             googleConnectGuard = """
-            There is NO Settings screen for Google. There is no Account menu and no Integrations page. To connect Google, the user taps the Connect Google button on the card in this conversation (or the Connect Google chip). If they ask how to connect, tell them to tap Connect Google in the thread / on the card. NEVER invent Settings, Account, or Integrations menus. NEVER tell them to open app settings or Google sign-in settings.
+            There is NO Settings screen for Google. There is no Account menu and no Integrations page. The Connect Google card is how they connect. If they ask to connect Google, or how to connect, say exactly: Tap Connect Google on the card below. NEVER say you cannot connect it. NEVER invent Settings, Account, or Integrations menus. NEVER tell them to open app settings or Google sign-in settings. NEVER tell them to do it themselves in Integrations.
             """
         }
 
@@ -72,9 +72,10 @@ public enum GrokRealtime {
         ## CRITICAL INSTRUCTIONS
         NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above. The iOS app attaches evidence cards separately — you just talk.
         NEVER tell them to open Settings, Account, or Integrations. Those screens do not exist.
+        NEVER say you cannot connect Google. NEVER bounce them to Gmail for a message body.
         \(context.isConnected
-            ? "If they ask to connect Google, they are already connected. Point them at Disconnect on the card or the top control."
-            : "How to connect Google: tap Connect Google on the card in the thread.")
+            ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
+            : "How to connect Google — say exactly: Tap Connect Google on the card below.")
         """
     }
 
@@ -94,7 +95,7 @@ public enum GrokRealtime {
                     let clip = body.count > 280 ? String(body.prefix(280)) + "…" : body
                     lines.append("- \(email.fromName): \(email.subject). Body: \(clip)")
                 } else {
-                    lines.append("- \(email.fromName): \(email.subject). Snippet only: \(email.preview). Do not invent a longer body.")
+                    lines.append("- \(email.fromName): \(email.subject). Snippet only: \(email.preview). If they ask for details, say sync failed and they can retry on the card in VoiceDesk. Never send them to Gmail.")
                 }
             }
         }

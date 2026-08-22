@@ -50,8 +50,12 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("475.278"))
         XCTAssertFalse(text.contains("web_search"))
         XCTAssertTrue(text.contains("NO Settings screen"))
-        XCTAssertTrue(text.contains("Connect Google"))
+        XCTAssertTrue(text.contains("Tap Connect Google on the card below."))
         XCTAssertTrue(text.contains("NEVER invent Settings, Account, or Integrations"))
+        XCTAssertTrue(text.contains("NEVER say you cannot connect"))
+        XCTAssertTrue(text.contains("NEVER say open it in Gmail"))
+        XCTAssertTrue(text.contains("NEVER say they need Gmail for the rest"))
+        XCTAssertFalse(text.contains("only have the subject"))
     }
 
     func testConnectedPresenceDropsSampleDeskLies() {
@@ -73,7 +77,10 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("ALREADY connected as ada@example.com"))
         XCTAssertTrue(text.contains("NO Settings screen"))
         XCTAssertTrue(text.contains("NEVER tell them to open app settings"))
-        XCTAssertTrue(text.contains("Disconnect from the Connect Google card"))
+        XCTAssertTrue(text.contains("You’re already connected as ada@example.com. Use Disconnect on the card if you need to switch."))
+        XCTAssertTrue(text.contains("NEVER say open it in Gmail"))
+        XCTAssertTrue(text.contains("sync failed"))
+        XCTAssertFalse(text.contains("only have the subject"))
     }
 
     func testAppendAudioJSONIsHotPathSafe() {

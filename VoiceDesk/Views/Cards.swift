@@ -41,6 +41,7 @@ struct CardChrome<Content: View>: View {
 struct EmailCardView: View {
     @Environment(AppModel.self) private var model
     let item: EmailItem
+    @State private var showingBody = false
 
     var body: some View {
         CardChrome {
@@ -66,20 +67,32 @@ struct EmailCardView: View {
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
                 if item.hasFullBody, let body = item.body {
-                    Text(body)
-                        .font(.subheadline)
-                        .foregroundStyle(Palette.ink.opacity(0.85))
-                        .lineLimit(12)
+                    DisclosureGroup(isExpanded: $showingBody) {
+                        Text(body)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.ink.opacity(0.85))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 4)
+                    } label: {
+                        Text("Message")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Palette.muted)
+                    }
+                    .onAppear { showingBody = true }
+                    .onChange(of: item.body) { _, _ in
+                        showingBody = true
+                    }
                 } else {
                     Text(item.preview)
                         .font(.subheadline)
                         .foregroundStyle(Palette.ink.opacity(0.85))
                         .lineLimit(3)
-                    if item.providerID != nil, model.google.isConnected {
-                        Button("Read email") { model.openEmail(item) }
-                            .buttonStyle(SecondaryCardButton())
-                            .accessibilityIdentifier("email.read")
-                    }
+                }
+                if item.providerID != nil, model.google.isConnected {
+                    Button(item.hasFullBody ? "Refresh email" : "Read email") { model.openEmail(item) }
+                        .buttonStyle(SecondaryCardButton())
+                        .accessibilityIdentifier("email.read")
                 }
                 HStack(spacing: 8) {
                     TagChip(text: item.filterTag, systemImage: "tray")
@@ -95,8 +108,15 @@ struct EmailCardView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Email from \(item.fromName). \(item.subject). \(item.preview)")
+        .accessibilityLabel(emailAccessibilityLabel)
         .accessibilityIdentifier("card.email")
+    }
+
+    private var emailAccessibilityLabel: String {
+        if let body = item.body, item.hasFullBody {
+            return "Email from \(item.fromName). \(item.subject). \(body)"
+        }
+        return "Email from \(item.fromName). \(item.subject). \(item.preview)"
     }
 }
 

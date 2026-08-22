@@ -38,6 +38,8 @@ final class ConversationPresenceTests: XCTestCase {
         let google = ConversationPresence.plan(for: "Connect Google")
         XCTAssertEqual(google.topic, .google)
         XCTAssertEqual(google.text, ConversationPresence.connectHowToReply)
+        XCTAssertEqual(ConversationPresence.connectHowToReply, "Tap Connect Google on the card below.")
+        XCTAssertEqual(ConversationPresence.connectCoach, ConversationPresence.connectHowToReply)
     }
 
     func testHowDoIConnectGoogleMapsToConnectCard() {
@@ -54,9 +56,8 @@ final class ConversationPresenceTests: XCTestCase {
             let plan = ConversationPresence.plan(for: ask)
             XCTAssertEqual(plan.topic, .google, ask)
             XCTAssertTrue(plan.attachesCards, ask)
-            XCTAssertEqual(plan.text, ConversationPresence.connectHowToReply, ask)
-            XCTAssertFalse(plan.text.lowercased().contains("settings"), ask)
-            XCTAssertFalse(plan.text.contains("Integrations"), ask)
+            XCTAssertEqual(plan.text, "Tap Connect Google on the card below.", ask)
+            assertDoesNotContradictConnectCard(plan.text, ask)
             XCTAssertTrue(plan.text.contains("Tap Connect Google"), ask)
             let cards = ConversationPresence.cards(for: plan.topic, googleConnected: false)
             XCTAssertEqual(cards.map(\.kind), [.connectGoogle], ask)
@@ -73,15 +74,15 @@ final class ConversationPresenceTests: XCTestCase {
         )
         let plan = ConversationPresence.plan(for: "Connect google", context: context)
         XCTAssertEqual(plan.topic, .google)
-        XCTAssertTrue(plan.text.contains("bridgetsaiassistant@gmail.com"))
-        XCTAssertTrue(plan.text.contains("already connected"))
-        XCTAssertTrue(plan.text.contains("Disconnect"))
-        XCTAssertFalse(plan.text.lowercased().contains("settings"))
-        XCTAssertFalse(plan.text.contains("Integrations"))
+        XCTAssertEqual(
+            plan.text,
+            "You’re already connected as bridgetsaiassistant@gmail.com. Use Disconnect on the card if you need to switch."
+        )
+        assertDoesNotContradictConnectCard(plan.text)
         XCTAssertEqual(ConversationPresence.cards(for: .google, context: context).map(\.kind), [.connectGoogle])
     }
 
-    func testEmailDetailAskMatchesSenderAndDoesNotInventBody() {
+    func testEmailDetailAskMatchesSenderAndStaysInVoiceDesk() {
         let murray = EmailItem(
             providerID: "m-murray",
             fromName: "Murray Cole",
@@ -92,17 +93,25 @@ final class ConversationPresenceTests: XCTestCase {
             filterTag: "Inbox"
         )
         XCTAssertTrue(ConversationPresence.wantsEmailBody("details on Murray's email"))
+        XCTAssertTrue(ConversationPresence.wantsEmailBody("pull up details on Murray's email"))
         XCTAssertEqual(
-            ConversationPresence.matchingEmail(for: "details on Murray's email", in: [murray])?.providerID,
+            ConversationPresence.matchingEmail(for: "pull up details on Murray's email", in: [murray])?.providerID,
             "m-murray"
         )
         let withoutBody = ConversationPresence.emailBodyReply(murray)
-        XCTAssertTrue(withoutBody.contains("Lot walk"))
-        XCTAssertTrue(withoutBody.contains("won’t invent"))
+        XCTAssertEqual(withoutBody, ConversationPresence.emailBodySyncFailedReply(murray))
+        XCTAssertTrue(withoutBody.contains("couldn’t sync"))
+        XCTAssertTrue(withoutBody.lowercased().contains("retry"))
+        XCTAssertTrue(withoutBody.contains("VoiceDesk"))
+        assertDoesNotBounceToGmail(withoutBody)
         var loaded = murray
         loaded.body = "Walk the lot Saturday at 10."
-        XCTAssertTrue(ConversationPresence.emailBodyReply(loaded).contains("Walk the lot Saturday"))
-        XCTAssertFalse(ConversationPresence.emailBodyReply(loaded).contains("won’t invent the body"))
+        let withBody = ConversationPresence.emailBodyReply(loaded)
+        XCTAssertTrue(withBody.contains("Walk the lot Saturday"))
+        XCTAssertTrue(withBody.contains("The full message is on the card below."))
+        assertDoesNotBounceToGmail(withBody)
+        assertDoesNotBounceToGmail(ConversationPresence.emailBodyUnknownReply(hasInbox: true))
+        assertDoesNotBounceToGmail(ConversationPresence.emailBodyUnknownReply(hasInbox: false))
     }
 
     func testConnectedInboxUsesCacheNotSampleDesk() {
@@ -175,5 +184,28 @@ final class ConversationPresenceTests: XCTestCase {
     func testDraftStarterMapsToDraftCard() {
         let plan = ConversationPresence.plan(for: ConversationPresence.draftStarter)
         XCTAssertEqual(plan.topic, .draft)
+    }
+
+    func testDisconnectedInboxPointsAtConnectCard() {
+        let plan = ConversationPresence.plan(for: "What's in my inbox?")
+        XCTAssertTrue(plan.text.contains("Tap Connect Google on the card below."))
+        assertDoesNotContradictConnectCard(plan.text)
+    }
+
+    private func assertDoesNotContradictConnectCard(_ text: String, _ ask: String = "") {
+        let lower = text.lowercased()
+        XCTAssertFalse(lower.contains("can't connect") || lower.contains("cannot connect") || lower.contains("can’t connect"), ask)
+        XCTAssertFalse(lower.contains("settings"), ask)
+        XCTAssertFalse(text.contains("Integrations"), ask)
+        XCTAssertFalse(lower.contains("do it yourself"), ask)
+    }
+
+    private func assertDoesNotBounceToGmail(_ text: String) {
+        let lower = text.lowercased()
+        XCTAssertFalse(lower.contains("open it in gmail"))
+        XCTAssertFalse(lower.contains("open in gmail"))
+        XCTAssertFalse(lower.contains("need gmail for the rest"))
+        XCTAssertFalse(lower.contains("you'll need gmail") || lower.contains("you’ll need gmail"))
+        XCTAssertFalse(lower.contains("go to gmail"))
     }
 }

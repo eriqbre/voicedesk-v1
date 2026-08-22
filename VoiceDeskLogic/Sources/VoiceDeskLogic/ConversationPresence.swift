@@ -28,11 +28,9 @@ public enum ConversationPresence {
 
     public static let starterChips = [justTalk, deskPreview, draftStarter]
     public static let connectGoogleChip = "Connect Google"
-    public static let connectCoach =
-        "Connect Google so I can see your inbox, calendar, and tasks."
-    /// Honest how-to. There is no Settings / Integrations screen.
-    public static let connectHowToReply =
-        "Tap Connect Google on the card in this thread. That’s the only way to connect."
+    /// Shown with the Connect Google card. Never contradicts the button.
+    public static let connectHowToReply = "Tap Connect Google on the card below."
+    public static let connectCoach = connectHowToReply
     public static let returningConnectChipHint = "Connect Google when you’re ready — no rush."
 
     public enum Topic: String, Sendable, Equatable {
@@ -159,7 +157,7 @@ public enum ConversationPresence {
             return GoogleAuthSnapshot.missingClientIDCopy
         }
         if !context.isConnected {
-            return "I don’t have your live inbox yet. Connect Google so I can see your mail — I won’t invent any."
+            return "I don’t have your live inbox yet. Tap Connect Google on the card below."
         }
         if context.snapshot.emails.isEmpty {
             if context.isOnline {
@@ -176,7 +174,7 @@ public enum ConversationPresence {
 
     public static func calendarReply(context: DeskContext) -> String {
         if !context.isConnected {
-            return "I don’t have your live calendar yet. Connect Google and I’ll put upcoming events on a card."
+            return "I don’t have your live calendar yet. Tap Connect Google on the card below."
         }
         if context.snapshot.events.isEmpty {
             return "Google is connected. Nothing upcoming is in the last sync — I’m not inventing events."
@@ -187,7 +185,7 @@ public enum ConversationPresence {
 
     public static func taskReply(context: DeskContext) -> String {
         if !context.isConnected {
-            return "I don’t have your live tasks yet. Connect Google and I’ll show open ones."
+            return "I don’t have your live tasks yet. Tap Connect Google on the card below."
         }
         if context.snapshot.tasks.isEmpty {
             return "Google is connected. No open tasks in the last sync."
@@ -203,7 +201,7 @@ public enum ConversationPresence {
     }
 
     public static func alreadyConnectedReply(email: String) -> String {
-        "Google is already connected as \(email). Disconnect from the card in this thread or Disconnect Google at the top. That’s the only place."
+        "You’re already connected as \(email). Use Disconnect on the card if you need to switch."
     }
 
     public static func googleReply(context: DeskContext) -> String {
@@ -221,6 +219,7 @@ public enum ConversationPresence {
         let lower = raw.lowercased()
         return contains(lower, [
             "details",
+            "pull up",
             "the body",
             "read it",
             "read the",
@@ -230,11 +229,13 @@ public enum ConversationPresence {
             "whats it say",
             "tell me more",
             "full email",
+            "whole email",
             "open the email",
             "open that email",
             "read the email",
             "read that email",
             "show me the email",
+            "show details",
             "what's in the email",
             "whats in the email"
         ])
@@ -281,16 +282,20 @@ public enum ConversationPresence {
     public static func emailBodyReply(_ email: EmailItem) -> String {
         if let body = email.body?.trimmingCharacters(in: .whitespacesAndNewlines), !body.isEmpty {
             let clipped = body.count > 420 ? String(body.prefix(420)).trimmingCharacters(in: .whitespacesAndNewlines) + "…" : body
-            return "From \(email.fromName): \(clipped) I’m reading the synced message — not inventing."
+            return "From \(email.fromName): \(clipped) The full message is on the card below."
         }
-        return "I only have the subject for \(email.fromName) — \(email.subject). I won’t invent the body."
+        return emailBodySyncFailedReply(email)
+    }
+
+    public static func emailBodySyncFailedReply(_ email: EmailItem) -> String {
+        "I couldn’t sync \(email.fromName)’s message. Tap Read email on the card to retry — I’ll show it here in VoiceDesk."
     }
 
     public static func emailBodyUnknownReply(hasInbox: Bool) -> String {
         if hasInbox {
-            return "Which message? Say the sender or subject. I only read synced mail, and I won’t invent a body."
+            return "Which message? Say the sender or subject. I’ll open it on a card here — I won’t send you out of VoiceDesk."
         }
-        return "I don’t have a synced thread to open. I won’t invent a body."
+        return "I don’t have a synced thread yet. I’ll show it on a card here once it syncs — I won’t send you out of VoiceDesk."
     }
 
     /// Connecting / linking Google or Gmail — never a Settings or Integrations path.

@@ -30,6 +30,8 @@ final class AppModel {
     private var pendingDeskTopic: ConversationPresence.Topic?
     private var userDedupe = TranscriptDedupe()
     private var waitingToOfferConnectAfterTalk = false
+    /// After we script Connect / email-body locally, drop Grok’s spoken contradiction.
+    private var suppressLiveAssistant = false
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -320,9 +322,11 @@ final class AppModel {
             return
         }
         if ConversationPresence.wantsEmailBody(text) {
+            claimLocalAssistantReply()
             Task { await revealEmailBody(for: text) }
             return
         }
+        suppressLiveAssistant = false
         pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
@@ -331,6 +335,9 @@ final class AppModel {
     }
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
+        if suppressLiveAssistant {
+            return
+        }
         if text.isEmpty, isFinal {
             if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
                 attachPendingCards(to: index)
@@ -409,6 +416,7 @@ final class AppModel {
         }
 
         if ConversationPresence.wantsEmailBody(text) {
+            claimLocalAssistantReply()
             await revealEmailBody(for: text)
             return
         }
@@ -482,12 +490,24 @@ final class AppModel {
         await voice.speak(plan.text)
     }
 
+    /// Stop Grok from contradicting a local Connect / email-body reply on the thread.
+    private func claimLocalAssistantReply() {
+        suppressLiveAssistant = true
+        voice.interruptResponse()
+        if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+            turns.remove(at: index)
+        }
+        liveAssistantID = nil
+        pendingDeskTopic = nil
+    }
+
     /// Live voice and typed path: attach the Connect Google card on the user ask.
     /// Do not wait for Grok — there is no Settings screen to invent.
     @discardableResult
     private func surfaceConnectGoogleIfAsked(_ text: String) -> Bool {
         let plan = ConversationPresence.plan(for: text, context: deskContext)
         guard plan.topic == .google else { return false }
+        claimLocalAssistantReply()
         pendingDeskTopic = nil
         appendAssistant(
             plan.text,
@@ -528,7 +548,7 @@ final class AppModel {
             applyLoadedEmail(full)
         } catch {
             appendAssistant(
-                "I couldn’t load the body for \(email.fromName). I only have the subject: \(email.subject). I won’t invent the rest.",
+                ConversationPresence.emailBodySyncFailedReply(email),
                 cards: [.email(email)]
             )
         }

@@ -86,6 +86,10 @@ final class GrokVoiceService: VoiceServicing {
         }
     }
 
+    func interruptResponse() {
+        interruptAssistant(sendCancel: true)
+    }
+
     func cancel() {
         teardown(sendCancel: true)
     }

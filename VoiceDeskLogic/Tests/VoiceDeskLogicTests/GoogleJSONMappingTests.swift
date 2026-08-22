@@ -154,4 +154,25 @@ final class GoogleJSONMappingTests: XCTestCase {
         XCTAssertEqual(email?.body, plain)
         XCTAssertTrue(email?.hasFullBody == true)
     }
+
+    func testStripsHTMLBodyAndDecodesEntities() {
+        let html = "<p>Murray said &quot;walk the lot&quot; Saturday.</p><br>See you &#39;there&#39;."
+        let encoded = Data(html.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let message: [String: Any] = [
+            "id": "m-html",
+            "threadId": "t-html",
+            "snippet": "Murray said",
+            "payload": [
+                "mimeType": "text/html",
+                "body": ["data": encoded]
+            ]
+        ]
+        let body = GoogleJSONMapping.plainTextBody(from: message)
+        XCTAssertEqual(body, "Murray said \"walk the lot\" Saturday. See you 'there'.")
+        XCTAssertFalse((body ?? "").contains("&quot;"))
+        XCTAssertFalse((body ?? "").contains("<p>"))
+    }
 }

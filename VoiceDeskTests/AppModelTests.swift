@@ -122,10 +122,15 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.turns.filter { $0.role == .user }.last?.text, "how do I connect my Google account?")
         let assistant = model.turns.last
         XCTAssertEqual(assistant?.role, .assistant)
-        XCTAssertEqual(assistant?.text, ConversationPresence.connectHowToReply)
+        XCTAssertEqual(assistant?.text, "Tap Connect Google on the card below.")
         XCTAssertTrue(assistant?.cards.contains { $0.kind == .connectGoogle } == true)
         XCTAssertFalse((assistant?.text ?? "").lowercased().contains("settings"))
         XCTAssertFalse((assistant?.text ?? "").contains("Integrations"))
+        XCTAssertFalse((assistant?.text ?? "").lowercased().contains("can't connect"))
+
+        fake.emitAssistant("I can’t connect it — go to Settings or Integrations.", isFinal: true)
+        XCTAssertEqual(model.turns.last?.text, "Tap Connect Google on the card below.")
+        XCTAssertFalse(model.turns.contains { $0.text.contains("Settings") && $0.role == .assistant })
     }
 
     func testTypedConnectGoogleWhenConnectedDoesNotAskGrok() async {
@@ -136,8 +141,10 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("Connect google")
         XCTAssertTrue(fake.sentTurns.isEmpty)
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("bridgetsaiassistant@gmail.com"))
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("already connected"))
+        XCTAssertEqual(
+            model.turns.last?.text,
+            "You’re already connected as bridgetsaiassistant@gmail.com. Use Disconnect on the card if you need to switch."
+        )
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("settings"))
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .connectGoogle } == true)
     }
@@ -154,11 +161,34 @@ final class AppModelTests: XCTestCase {
             cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [email])),
             sync: sync
         )
-        await model.applyUserTurn("details on Murray's email")
+        await model.applyUserTurn("pull up details on Murray's email")
         XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot Saturday"))
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("The full message is on the card below."))
         XCTAssertTrue(model.deskSnapshot.emails.first?.hasFullBody == true)
         XCTAssertEqual(model.deskSnapshot.emails.first?.body, "Walk the lot Saturday at 10.")
-        XCTAssertFalse((model.turns.last?.text ?? "").contains("won’t invent the body"))
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("gmail"))
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+    }
+
+    func testEmailDetailsFetchFailureRetriesInVoiceDesk() async {
+        var email = SampleData.syncedEmail()
+        email.fromName = "Murray Cole"
+        email.providerID = "msg-murray"
+        let sync = MockGoogleSync(result: DeskSnapshot(emails: [email]))
+        sync.error = "network down"
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [email])),
+            sync: sync
+        )
+        await model.applyUserTurn("pull up details on Murray's email")
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(reply.contains("couldn’t sync"))
+        XCTAssertTrue(reply.lowercased().contains("retry"))
+        XCTAssertTrue(reply.contains("VoiceDesk"))
+        XCTAssertFalse(reply.lowercased().contains("gmail"))
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
@@ -284,6 +314,8 @@ final class FakeLiveVoiceService: VoiceServicing {
     func updatePresenceInstructions(_ text: String) {
         _ = text
     }
+
+    func interruptResponse() {}
 }
 
 @MainActor

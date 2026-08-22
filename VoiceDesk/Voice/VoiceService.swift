@@ -36,6 +36,7 @@ protocol VoiceServicing: AnyObject {
     func speak(_ text: String) async
     func sendTextTurn(_ text: String) async
     func updatePresenceInstructions(_ text: String)
+    func interruptResponse()
     func cancel()
 }
 
@@ -96,6 +97,10 @@ final class VoiceBox {
 
     func updatePresenceInstructions(_ text: String) {
         service.updatePresenceInstructions(text)
+    }
+
+    func interruptResponse() {
+        service.interruptResponse()
     }
 
     func cancel() {
@@ -169,6 +174,8 @@ final class MockVoiceService: VoiceServicing {
         _ = text
     }
 
+    func interruptResponse() {}
+
     func cancel() {
         apply(.cancel)
     }
@@ -210,6 +217,8 @@ final class UnconfiguredVoiceService: VoiceServicing {
     func updatePresenceInstructions(_ text: String) {
         _ = text
     }
+
+    func interruptResponse() {}
 
     func cancel() {
         state = .idle
