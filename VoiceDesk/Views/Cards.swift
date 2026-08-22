@@ -41,7 +41,7 @@ struct CardChrome<Content: View>: View {
 struct EmailCardView: View {
     @Environment(AppModel.self) private var model
     let item: EmailItem
-    @State private var showingBody = false
+    @State private var showingEarlier = false
 
     var body: some View {
         CardChrome {
@@ -66,28 +66,43 @@ struct EmailCardView: View {
                 Text(item.subject)
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
-                if item.hasFullBody, let body = item.body {
-                    DisclosureGroup(isExpanded: $showingBody) {
-                        Text(body)
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.ink.opacity(0.85))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 4)
-                    } label: {
-                        Text("Message")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Palette.muted)
-                    }
-                    .onAppear { showingBody = true }
-                    .onChange(of: item.body) { _, _ in
-                        showingBody = true
-                    }
+                if item.hasFullBody {
+                    EmailBodyReader(html: item.htmlBody, plain: item.body)
                 } else {
                     Text(item.preview)
                         .font(.subheadline)
                         .foregroundStyle(Palette.ink.opacity(0.85))
                         .lineLimit(3)
+                }
+                if item.hasEarlierMessages {
+                    Button(showingEarlier ? "Hide earlier messages" : "Show earlier messages") {
+                        showingEarlier.toggle()
+                    }
+                    .buttonStyle(SecondaryCardButton())
+                    .accessibilityIdentifier("email.thread.toggle")
+                    if showingEarlier {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(item.earlierMessages) { message in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(message.fromName)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(Palette.ink)
+                                        Spacer()
+                                        if !message.sentAtLabel.isEmpty {
+                                            Text(message.sentAtLabel)
+                                                .font(.caption2)
+                                                .foregroundStyle(Palette.muted)
+                                        }
+                                    }
+                                    EmailBodyReader(html: message.htmlBody, plain: message.plainBody)
+                                }
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Palette.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                        }
+                    }
                 }
                 if item.providerID != nil, model.google.isConnected {
                     Button(item.hasFullBody ? "Refresh email" : "Read email") { model.openEmail(item) }

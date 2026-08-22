@@ -157,22 +157,170 @@ final class GoogleJSONMappingTests: XCTestCase {
 
     func testStripsHTMLBodyAndDecodesEntities() {
         let html = "<p>Murray said &quot;walk the lot&quot; Saturday.</p><br>See you &#39;there&#39;."
-        let encoded = Data(html.utf8).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
         let message: [String: Any] = [
             "id": "m-html",
             "threadId": "t-html",
             "snippet": "Murray said",
             "payload": [
                 "mimeType": "text/html",
-                "body": ["data": encoded]
+                "body": ["data": b64url(html)]
             ]
         ]
         let body = GoogleJSONMapping.plainTextBody(from: message)
-        XCTAssertEqual(body, "Murray said \"walk the lot\" Saturday. See you 'there'.")
+        XCTAssertEqual(body, "Murray said \"walk the lot\" Saturday.\n\nSee you 'there'.")
         XCTAssertFalse((body ?? "").contains("&quot;"))
         XCTAssertFalse((body ?? "").contains("<p>"))
+        XCTAssertTrue((body ?? "").contains("\n"))
+    }
+
+    func testMurrayQuotedReplyKeepsLatestAndExposesEarlier() {
+        let plain = """
+        Hi Jordan,
+
+        Can we walk the lot Saturday at 10?
+
+        Thanks,
+        Murray
+
+        On Tue, Aug 19, 2026 at 4:02 PM Jordan Hale wrote:
+        > Sounds good
+        >> Let's lock Saturday
+        """
+        let message: [String: Any] = [
+            "id": "m-murray",
+            "threadId": "t-murray",
+            "snippet": "Can we walk the lot",
+            "payload": [
+                "mimeType": "text/plain",
+                "headers": [
+                    ["name": "From", "value": "Murray Cole <murray@example.com>"],
+                    ["name": "Subject", "value": "Lot walk"]
+                ],
+                "body": ["data": b64url(plain)]
+            ]
+        ]
+        let email = GoogleJSONMapping.email(from: message, now: now)
+        XCTAssertEqual(email?.fromName, "Murray Cole")
+        XCTAssertTrue(email?.body?.contains("walk the lot Saturday") == true)
+        XCTAssertTrue(email?.body?.contains("Thanks,") == true)
+        XCTAssertFalse(email?.body?.contains(">>") == true)
+        XCTAssertFalse(email?.body?.contains("Sounds good") == true)
+        XCTAssertEqual(email?.earlierMessages.count, 1)
+        XCTAssertTrue(email?.earlierMessages.first?.plainBody?.contains("Sounds good") == true)
+        XCTAssertTrue(email?.earlierMessages.first?.plainBody?.contains("Let's lock Saturday") == true)
+        XCTAssertFalse(email?.earlierMessages.first?.plainBody?.contains(">>") == true)
+    }
+
+    func testAmazonHTMLKeepsParagraphsAndPrefersHTML() {
+        let html = """
+        <html><body>
+        <p>Your Amazon.com order of &quot;Echo Dot&quot; has shipped.</p>
+        <p>Track it here:</p>
+        <p><a href="https://www.amazon.com/progress-tracker/package">https://www.amazon.com/progress-tracker/package</a></p>
+        <div class="gmail_quote">On Monday someone wrote:<br>&gt; thanks</div>
+        </body></html>
+        """
+        let message: [String: Any] = [
+            "id": "m-amz",
+            "threadId": "t-amz",
+            "snippet": "Your Amazon.com order of &quot;Echo Dot&quot; has shipped.",
+            "payload": [
+                "mimeType": "text/html",
+                "headers": [
+                    ["name": "From", "value": "Amazon <auto@amazon.com>"],
+                    ["name": "Subject", "value": "Your Amazon.com order of &quot;Echo Dot&quot;"]
+                ],
+                "body": ["data": b64url(html)]
+            ]
+        ]
+        let email = GoogleJSONMapping.email(from: message, now: now)
+        XCTAssertEqual(email?.subject, "Your Amazon.com order of \"Echo Dot\"")
+        XCTAssertTrue(email?.htmlBody?.contains("Echo Dot") == true)
+        XCTAssertFalse(email?.htmlBody?.contains("gmail_quote") == true)
+        XCTAssertTrue(email?.body?.contains("Echo Dot") == true)
+        XCTAssertTrue(email?.body?.contains("\n") == true)
+        XCTAssertFalse(email?.body?.contains("&quot;") == true)
+        XCTAssertFalse(email?.body?.contains("<p>") == true)
+        XCTAssertFalse(email?.body?.contains("thanks") == true)
+        let spoken = EmailBodyFormatting.spokenSummary(from: email?.body, fallback: email?.preview ?? "")
+        XCTAssertTrue(spoken.contains("Echo Dot"))
+        XCTAssertFalse(spoken.contains("https://"))
+        XCTAssertLessThan(spoken.count, 160)
+    }
+
+    func testThreadJSONUsesLatestByDefaultAndKeepsHistory() {
+        let older = """
+        Sounds good — Saturday works.
+        """
+        let latest = """
+        Walk the lot Saturday at 10.
+        """
+        let thread: [String: Any] = [
+            "id": "t-chain",
+            "messages": [
+                [
+                    "id": "m-old",
+                    "threadId": "t-chain",
+                    "internalDate": "1787300000000",
+                    "snippet": "Sounds good",
+                    "payload": [
+                        "mimeType": "text/plain",
+                        "headers": [
+                            ["name": "From", "value": "Jordan Hale <jordan@example.com>"],
+                            ["name": "Subject", "value": "Lot walk"]
+                        ],
+                        "body": ["data": b64url(older)]
+                    ]
+                ],
+                [
+                    "id": "m-new",
+                    "threadId": "t-chain",
+                    "internalDate": "1787400000000",
+                    "snippet": "Walk the lot",
+                    "payload": [
+                        "mimeType": "text/plain",
+                        "headers": [
+                            ["name": "From", "value": "Murray Cole <murray@example.com>"],
+                            ["name": "Subject", "value": "Re: Lot walk"]
+                        ],
+                        "body": ["data": b64url(latest)]
+                    ]
+                ]
+            ]
+        ]
+        let email = GoogleJSONMapping.email(fromThread: thread, now: now)
+        XCTAssertEqual(email?.providerID, "m-new")
+        XCTAssertEqual(email?.fromName, "Murray Cole")
+        XCTAssertEqual(email?.body, "Walk the lot Saturday at 10.")
+        XCTAssertFalse(email?.body?.contains("Sounds good") == true)
+        XCTAssertEqual(email?.earlierMessages.count, 1)
+        XCTAssertEqual(email?.earlierMessages.first?.fromName, "Jordan Hale")
+        XCTAssertEqual(email?.earlierMessages.first?.plainBody, "Sounds good — Saturday works.")
+    }
+
+    func testDoesNotDoubleEncodeEntities() {
+        XCTAssertEqual(GoogleJSONMapping.decodeHTMLEntities("&amp;quot;Deal&amp;quot;"), "\"Deal\"")
+        XCTAssertEqual(
+            EmailBodyFormatting.spokenSummary(from: "Track https://www.amazon.com/x shipped.", fallback: ""),
+            "Track shipped."
+        )
+    }
+
+    func testOldCachedEmailJSONStillDecodes() throws {
+        let json = """
+        {"id":"00000000-0000-0000-0000-000000000001","fromName":"Ada","fromEmail":"ada@example.com","sentAtLabel":"Today","subject":"Hi","preview":"Hello","filterTag":"Inbox"}
+        """.data(using: .utf8)!
+        let email = try JSONDecoder().decode(EmailItem.self, from: json)
+        XCTAssertEqual(email.fromName, "Ada")
+        XCTAssertNil(email.htmlBody)
+        XCTAssertTrue(email.earlierMessages.isEmpty)
+        XCTAssertFalse(email.hasFullBody)
+    }
+
+    private func b64url(_ text: String) -> String {
+        Data(text.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }

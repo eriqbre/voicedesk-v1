@@ -36,12 +36,21 @@ final class LiveGoogleSync: GoogleSyncing {
     }
 
     func fetchMessage(token: String, messageID: String, now: Date) async throws -> EmailItem {
-        try await Self.message(
-            session: session,
-            token: token,
-            messageID: messageID,
-            now: now
-        )
+        do {
+            return try await Self.message(
+                session: session,
+                token: token,
+                messageID: messageID,
+                now: now
+            )
+        } catch {
+            return try await Self.message(
+                session: session,
+                token: token,
+                messageID: messageID,
+                now: now
+            )
+        }
     }
 
     private nonisolated static func message(
@@ -53,6 +62,18 @@ final class LiveGoogleSync: GoogleSyncing {
         let encoded = messageID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageID
         let url = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(encoded)?format=full")!
         let payload = try await Self.object(try await getData(session: session, url: url, token: token))
+        if let threadID = payload["threadId"] as? String, !threadID.isEmpty {
+            let threadEncoded = threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID
+            let threadURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/threads/\(threadEncoded)?format=full")!
+            do {
+                let thread = try await Self.object(try await getData(session: session, url: threadURL, token: token))
+                if let email = GoogleJSONMapping.email(fromThread: thread, now: now) {
+                    return email
+                }
+            } catch {
+                // Fall back to the single full message so the reader is not blank.
+            }
+        }
         guard let email = GoogleJSONMapping.email(from: payload, now: now) else {
             throw GoogleJSONMapping.MappingError.invalidJSON
         }
@@ -135,6 +156,10 @@ final class MockGoogleSync: GoogleSyncing {
     }
 
     var bodies: [String: String] = [:]
+    var htmlBodies: [String: String] = [:]
+    var earlierMessages: [String: [EmailThreadMessage]] = [:]
+    var fetchCalls = 0
+    var failuresRemaining = 0
 
     func sync(token: String, accountEmail: String, now: Date) async throws -> DeskSnapshot {
         _ = token
@@ -146,14 +171,33 @@ final class MockGoogleSync: GoogleSyncing {
     }
 
     func fetchMessage(token: String, messageID: String, now: Date) async throws -> EmailItem {
+        do {
+            return try fetchOnce(token: token, messageID: messageID, now: now)
+        } catch {
+            return try fetchOnce(token: token, messageID: messageID, now: now)
+        }
+    }
+
+    private func fetchOnce(token: String, messageID: String, now: Date) throws -> EmailItem {
         _ = token
         _ = now
+        fetchCalls += 1
+        if failuresRemaining > 0 {
+            failuresRemaining -= 1
+            throw GoogleSignInError.failed(error ?? "transient fetch failure")
+        }
         if let error { throw GoogleSignInError.failed(error) }
         guard var email = result.emails.first(where: { $0.providerID == messageID }) else {
             throw GoogleSignInError.failed("No synced message \(messageID).")
         }
         if let body = bodies[messageID] {
             email.body = body
+        }
+        if let html = htmlBodies[messageID] {
+            email.htmlBody = html
+        }
+        if let earlier = earlierMessages[messageID] {
+            email.earlierMessages = earlier
         }
         guard email.hasFullBody else {
             throw GoogleSignInError.failed("No body for \(messageID).")

@@ -103,6 +103,37 @@ public enum ContentCard: Identifiable, Hashable, Sendable {
     }
 }
 
+public struct EmailThreadMessage: Identifiable, Hashable, Sendable, Codable {
+    public var id: String
+    public var fromName: String
+    public var fromEmail: String
+    public var sentAtLabel: String
+    public var htmlBody: String?
+    public var plainBody: String?
+
+    public init(
+        id: String,
+        fromName: String,
+        fromEmail: String = "",
+        sentAtLabel: String = "",
+        htmlBody: String? = nil,
+        plainBody: String? = nil
+    ) {
+        self.id = id
+        self.fromName = fromName
+        self.fromEmail = fromEmail
+        self.sentAtLabel = sentAtLabel
+        self.htmlBody = htmlBody
+        self.plainBody = plainBody
+    }
+
+    public var hasReadableBody: Bool {
+        let plain = (plainBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let html = (htmlBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !plain.isEmpty || !html.isEmpty
+    }
+}
+
 public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     public var providerID: String?
@@ -113,13 +144,19 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
     public var subject: String
     public var preview: String
     public var body: String?
+    public var htmlBody: String?
+    public var earlierMessages: [EmailThreadMessage]
     public var filterTag: String
     public var relatedListing: String?
     public var relatedPeople: [String]
 
     public var hasFullBody: Bool {
-        !(body ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let plain = (body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let html = (htmlBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !plain.isEmpty || !html.isEmpty
     }
+
+    public var hasEarlierMessages: Bool { !earlierMessages.isEmpty }
 
     public init(
         id: UUID = UUID(),
@@ -131,6 +168,8 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
         subject: String,
         preview: String,
         body: String? = nil,
+        htmlBody: String? = nil,
+        earlierMessages: [EmailThreadMessage] = [],
         filterTag: String,
         relatedListing: String? = nil,
         relatedPeople: [String] = []
@@ -144,6 +183,8 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
         self.subject = subject
         self.preview = preview
         self.body = body
+        self.htmlBody = htmlBody
+        self.earlierMessages = earlierMessages
         self.filterTag = filterTag
         self.relatedListing = relatedListing
         self.relatedPeople = relatedPeople
@@ -151,6 +192,48 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
 
     public var initials: String {
         fromName.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, providerID, threadID, fromName, fromEmail, sentAtLabel
+        case subject, preview, body, htmlBody, earlierMessages
+        case filterTag, relatedListing, relatedPeople
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        providerID = try container.decodeIfPresent(String.self, forKey: .providerID)
+        threadID = try container.decodeIfPresent(String.self, forKey: .threadID)
+        fromName = try container.decode(String.self, forKey: .fromName)
+        fromEmail = try container.decode(String.self, forKey: .fromEmail)
+        sentAtLabel = try container.decode(String.self, forKey: .sentAtLabel)
+        subject = try container.decode(String.self, forKey: .subject)
+        preview = try container.decode(String.self, forKey: .preview)
+        body = try container.decodeIfPresent(String.self, forKey: .body)
+        htmlBody = try container.decodeIfPresent(String.self, forKey: .htmlBody)
+        earlierMessages = try container.decodeIfPresent([EmailThreadMessage].self, forKey: .earlierMessages) ?? []
+        filterTag = try container.decode(String.self, forKey: .filterTag)
+        relatedListing = try container.decodeIfPresent(String.self, forKey: .relatedListing)
+        relatedPeople = try container.decodeIfPresent([String].self, forKey: .relatedPeople) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(providerID, forKey: .providerID)
+        try container.encodeIfPresent(threadID, forKey: .threadID)
+        try container.encode(fromName, forKey: .fromName)
+        try container.encode(fromEmail, forKey: .fromEmail)
+        try container.encode(sentAtLabel, forKey: .sentAtLabel)
+        try container.encode(subject, forKey: .subject)
+        try container.encode(preview, forKey: .preview)
+        try container.encodeIfPresent(body, forKey: .body)
+        try container.encodeIfPresent(htmlBody, forKey: .htmlBody)
+        try container.encode(earlierMessages, forKey: .earlierMessages)
+        try container.encode(filterTag, forKey: .filterTag)
+        try container.encodeIfPresent(relatedListing, forKey: .relatedListing)
+        try container.encode(relatedPeople, forKey: .relatedPeople)
     }
 }
 

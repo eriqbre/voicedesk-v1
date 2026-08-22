@@ -35,7 +35,7 @@ public enum GrokRealtime {
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, or tasks, use only the synced facts. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. Email bodies display on the Email card in VoiceDesk. When they ask for details, summarize from the body on the card. If the body is missing, say sync failed and they can retry on the card. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
+            ? "If they ask about inbox, calendar, or tasks, use only the synced facts. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. Email bodies display on the Email card in VoiceDesk. When they ask for details or a summary, speak one short sentence and leave the full message on the card. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
             : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
         let googleConnectGuard: String
@@ -73,6 +73,7 @@ public enum GrokRealtime {
         NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above. The iOS app attaches evidence cards separately — you just talk.
         NEVER tell them to open Settings, Account, or Integrations. Those screens do not exist.
         NEVER say you cannot connect Google. NEVER bounce them to Gmail for a message body.
+        NEVER paste a full email body or quoted thread into the conversation. The Email card is the source of truth.
         \(context.isConnected
             ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
             : "How to connect Google — say exactly: Tap Connect Google on the card below.")
@@ -91,11 +92,11 @@ public enum GrokRealtime {
         } else {
             lines.append("Inbox (only these):")
             for email in snapshot.emails.prefix(8) {
-                if email.hasFullBody, let body = email.body {
-                    let clip = body.count > 280 ? String(body.prefix(280)) + "…" : body
-                    lines.append("- \(email.fromName): \(email.subject). Body: \(clip)")
+                if email.hasFullBody {
+                    let beat = EmailBodyFormatting.spokenSummary(from: email.body, fallback: email.preview)
+                    lines.append("- \(email.fromName): \(email.subject). Latest (do not read the full body aloud): \(beat). Full message is on the Email card.")
                 } else {
-                    lines.append("- \(email.fromName): \(email.subject). Snippet only: \(email.preview). If they ask for details, say sync failed and they can retry on the card in VoiceDesk. Never send them to Gmail.")
+                    lines.append("- \(email.fromName): \(email.subject). Snippet only: \(email.preview). If they ask for details, the app loads the Email card. Never send them to Gmail.")
                 }
             }
         }

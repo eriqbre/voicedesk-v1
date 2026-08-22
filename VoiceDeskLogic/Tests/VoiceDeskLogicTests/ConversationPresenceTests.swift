@@ -94,21 +94,24 @@ final class ConversationPresenceTests: XCTestCase {
         )
         XCTAssertTrue(ConversationPresence.wantsEmailBody("details on Murray's email"))
         XCTAssertTrue(ConversationPresence.wantsEmailBody("pull up details on Murray's email"))
+        XCTAssertTrue(ConversationPresence.wantsEmailBody("summarize Murray's email"))
         XCTAssertEqual(
             ConversationPresence.matchingEmail(for: "pull up details on Murray's email", in: [murray])?.providerID,
             "m-murray"
         )
         let withoutBody = ConversationPresence.emailBodyReply(murray)
         XCTAssertEqual(withoutBody, ConversationPresence.emailBodySyncFailedReply(murray))
-        XCTAssertTrue(withoutBody.contains("couldn’t sync"))
         XCTAssertTrue(withoutBody.lowercased().contains("retry"))
+        XCTAssertTrue(withoutBody.contains("card"))
         XCTAssertTrue(withoutBody.contains("VoiceDesk"))
         assertDoesNotBounceToGmail(withoutBody)
         var loaded = murray
-        loaded.body = "Walk the lot Saturday at 10."
+        loaded.body = "Walk the lot Saturday at 10.\n\n> On Tuesday Jordan wrote:\n>> old quote"
         let withBody = ConversationPresence.emailBodyReply(loaded)
         XCTAssertTrue(withBody.contains("Walk the lot Saturday"))
-        XCTAssertTrue(withBody.contains("The full message is on the card below."))
+        XCTAssertTrue(withBody.contains("on the card"))
+        XCTAssertFalse(withBody.contains(">>"))
+        XCTAssertLessThan(withBody.count, 220)
         assertDoesNotBounceToGmail(withBody)
         assertDoesNotBounceToGmail(ConversationPresence.emailBodyUnknownReply(hasInbox: true))
         assertDoesNotBounceToGmail(ConversationPresence.emailBodyUnknownReply(hasInbox: false))
@@ -135,6 +138,25 @@ final class ConversationPresenceTests: XCTestCase {
         let plan = ConversationPresence.plan(for: "What's in my inbox?", context: context)
         XCTAssertTrue(plan.text.lowercased().contains("not inventing"))
         XCTAssertTrue(ConversationPresence.cards(for: .inbox, context: context).isEmpty)
+    }
+
+    func testCalendarDetailsMatchReservationNotEmail() {
+        let event = CalendarItem(
+            title: "Dinner reservation",
+            whenLabel: "Tonight 7:00 PM",
+            location: "Oak & Stone",
+            relatedPeople: ["Massimo Ricci"]
+        )
+        XCTAssertTrue(ConversationPresence.wantsCalendarDetails("details for Massimo's reservation"))
+        XCTAssertEqual(
+            ConversationPresence.matchingCalendar(for: "details for Massimo's reservation", in: [event])?.title,
+            "Dinner reservation"
+        )
+        XCTAssertNil(ConversationPresence.matchingEmail(for: "details for Massimo's reservation", in: []))
+        let reply = ConversationPresence.calendarDetailsReply(event)
+        XCTAssertTrue(reply.contains("Dinner reservation"))
+        XCTAssertTrue(reply.contains("calendar card"))
+        XCTAssertFalse(reply.lowercased().contains("which message"))
     }
 
     func testCalendarAndTasksWhenConnected() {

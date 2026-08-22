@@ -321,9 +321,9 @@ final class AppModel {
         if surfaceConnectGoogleIfAsked(text) {
             return
         }
-        if ConversationPresence.wantsEmailBody(text) {
+        if ConversationPresence.wantsEmailBody(text) || ConversationPresence.wantsCalendarDetails(text) {
             claimLocalAssistantReply()
-            Task { await revealEmailBody(for: text) }
+            Task { await revealDeskDetails(for: text) }
             return
         }
         suppressLiveAssistant = false
@@ -415,9 +415,9 @@ final class AppModel {
             return
         }
 
-        if ConversationPresence.wantsEmailBody(text) {
+        if ConversationPresence.wantsEmailBody(text) || ConversationPresence.wantsCalendarDetails(text) {
             claimLocalAssistantReply()
-            await revealEmailBody(for: text)
+            await revealDeskDetails(for: text)
             return
         }
 
@@ -523,34 +523,50 @@ final class AppModel {
         Task { await revealEmailBody(item) }
     }
 
-    private func revealEmailBody(for text: String) async {
-        guard let email = ConversationPresence.matchingEmail(for: text, in: deskSnapshot.emails) else {
+    private func revealDeskDetails(for text: String) async {
+        if ConversationPresence.wantsCalendarDetails(text),
+           let event = ConversationPresence.matchingCalendar(for: text, in: deskSnapshot.events) {
             appendAssistant(
-                ConversationPresence.emailBodyUnknownReply(hasInbox: !deskSnapshot.emails.isEmpty),
-                cards: ConversationPresence.cards(for: .inbox, context: deskContext)
+                ConversationPresence.calendarDetailsReply(event),
+                cards: [.calendar(event)]
             )
             return
         }
-        await revealEmailBody(email)
+        if let email = ConversationPresence.matchingEmail(for: text, in: deskSnapshot.emails) {
+            await revealEmailBody(email)
+            return
+        }
+        if let event = ConversationPresence.matchingCalendar(for: text, in: deskSnapshot.events) {
+            appendAssistant(
+                ConversationPresence.calendarDetailsReply(event),
+                cards: [.calendar(event)]
+            )
+            return
+        }
+        appendAssistant(
+            ConversationPresence.emailBodyUnknownReply(hasInbox: !deskSnapshot.emails.isEmpty),
+            cards: ConversationPresence.cards(for: .inbox, context: deskContext)
+        )
     }
 
     private func revealEmailBody(_ email: EmailItem) async {
-        if email.hasFullBody {
-            applyLoadedEmail(email)
-            return
-        }
         guard google.isConnected, let token = google.accessToken, let id = email.providerID, !id.isEmpty else {
-            appendAssistant(ConversationPresence.emailBodyReply(email), cards: [.email(email)])
+            applyLoadedEmail(email)
             return
         }
         do {
             let full = try await sync.fetchMessage(token: token, messageID: id, now: Date())
             applyLoadedEmail(full)
         } catch {
-            appendAssistant(
-                ConversationPresence.emailBodySyncFailedReply(email),
-                cards: [.email(email)]
-            )
+            refreshEmailCards(email)
+            if email.hasFullBody {
+                applyLoadedEmail(email)
+            } else {
+                appendAssistant(
+                    ConversationPresence.emailBodySyncFailedReply(email),
+                    cards: [.email(email)]
+                )
+            }
         }
     }
 

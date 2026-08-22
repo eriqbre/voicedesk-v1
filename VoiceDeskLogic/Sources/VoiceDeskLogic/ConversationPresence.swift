@@ -237,7 +237,10 @@ public enum ConversationPresence {
             "show me the email",
             "show details",
             "what's in the email",
-            "whats in the email"
+            "whats in the email",
+            "summarize",
+            "summary",
+            "what did they say"
         ])
     }
 
@@ -280,15 +283,58 @@ public enum ConversationPresence {
     }
 
     public static func emailBodyReply(_ email: EmailItem) -> String {
-        if let body = email.body?.trimmingCharacters(in: .whitespacesAndNewlines), !body.isEmpty {
-            let clipped = body.count > 420 ? String(body.prefix(420)).trimmingCharacters(in: .whitespacesAndNewlines) + "…" : body
-            return "From \(email.fromName): \(clipped) The full message is on the card below."
+        if email.hasFullBody {
+            let beat = EmailBodyFormatting.spokenSummary(from: email.body, fallback: email.preview)
+            if beat.isEmpty {
+                return "Latest from \(email.fromName) is on the card."
+            }
+            return "Latest from \(email.fromName) is on the card. \(beat)"
+        }
+        if !email.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return emailBodySyncFailedReply(email)
         }
         return emailBodySyncFailedReply(email)
     }
 
     public static func emailBodySyncFailedReply(_ email: EmailItem) -> String {
-        "I couldn’t sync \(email.fromName)’s message. Tap Read email on the card to retry — I’ll show it here in VoiceDesk."
+        "I still have \(email.fromName)’s email on the card. Tap Read email to retry — I’ll show the full message here in VoiceDesk."
+    }
+
+    public static func wantsCalendarDetails(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        return contains(lower, ["reservation", "that event", "the event", "calendar event"])
+            || (contains(lower, ["details", "pull up"]) && contains(lower, ["reservation", "event", "meeting", "calendar"]))
+    }
+
+    public static func matchingCalendar(for raw: String, in events: [CalendarItem]) -> CalendarItem? {
+        let lower = raw.lowercased()
+        for event in events {
+            let titleWords = event.title.lowercased()
+                .split { !$0.isLetter }
+                .map(String.init)
+                .filter { $0.count >= 4 }
+            if titleWords.contains(where: { lower.contains($0) }) {
+                return event
+            }
+            for person in event.relatedPeople {
+                let nameWords = person.lowercased()
+                    .split { !$0.isLetter }
+                    .map(String.init)
+                    .filter { $0.count >= 3 }
+                if nameWords.contains(where: { lower.contains($0) }) {
+                    return event
+                }
+            }
+        }
+        return nil
+    }
+
+    public static func calendarDetailsReply(_ event: CalendarItem) -> String {
+        var line = "Here’s \(event.title) — \(event.whenLabel)."
+        if let location = event.location, !location.isEmpty {
+            line += " \(location)."
+        }
+        return line + " It’s on the calendar card."
     }
 
     public static func emailBodyUnknownReply(hasInbox: Bool) -> String {

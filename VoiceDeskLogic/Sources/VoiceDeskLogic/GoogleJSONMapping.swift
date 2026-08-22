@@ -23,7 +23,11 @@ public enum GoogleJSONMapping: Sendable {
         return GoogleItemDedupe.tasks(items)
     }
 
-    public static func email(from message: [String: Any], now: Date = Date()) -> EmailItem? {
+    public static func email(
+        from message: [String: Any],
+        now: Date = Date(),
+        includeQuotedAsEarlier: Bool = true
+    ) -> EmailItem? {
         let id = string(message["id"])
         guard let id, !id.isEmpty else { return nil }
         let headers = headerMap(message)
@@ -32,7 +36,7 @@ public enum GoogleJSONMapping: Sendable {
         let subject = decodeHTMLEntities(headers["subject"] ?? "(no subject)")
         let snippet = decodeHTMLEntities(string(message["snippet"]) ?? "")
         let dateLabel = sentLabel(headers["date"], internalDate: string(message["internalDate"]), now: now)
-        let body = plainTextBody(from: message)
+        let extracted = EmailBodyFormatting.extracted(from: message, includeQuotedAsEarlier: includeQuotedAsEarlier)
         return EmailItem(
             providerID: id,
             threadID: string(message["threadId"]) ?? id,
@@ -41,8 +45,42 @@ public enum GoogleJSONMapping: Sendable {
             sentAtLabel: dateLabel,
             subject: subject,
             preview: snippet,
-            body: body,
+            body: extracted.latestPlain,
+            htmlBody: extracted.latestHTML,
+            earlierMessages: extracted.earlierFromQuotes,
             filterTag: "Inbox"
+        )
+    }
+
+    /// `users.threads.get` `format=full`. Latest message is the default body; older ones expand.
+    public static func email(fromThread thread: [String: Any], now: Date = Date()) -> EmailItem? {
+        let raw = thread["messages"] as? [[String: Any]] ?? []
+        let sorted = raw.sorted { lhs, rhs in
+            internalMillis(lhs) < internalMillis(rhs)
+        }
+        guard let latestRaw = sorted.last,
+              var latest = email(from: latestRaw, now: now, includeQuotedAsEarlier: sorted.count == 1)
+        else { return nil }
+        latest.threadID = string(thread["id"]) ?? latest.threadID
+        if sorted.count > 1 {
+            latest.earlierMessages = sorted.dropLast().compactMap { threadMessage(from: $0, now: now) }
+        }
+        return latest
+    }
+
+    public static func threadMessage(from message: [String: Any], now: Date = Date()) -> EmailThreadMessage? {
+        let id = string(message["id"])
+        guard let id, !id.isEmpty else { return nil }
+        let headers = headerMap(message)
+        let parsed = parseFrom(headers["from"] ?? "")
+        let extracted = EmailBodyFormatting.extracted(from: message, includeQuotedAsEarlier: false)
+        return EmailThreadMessage(
+            id: id,
+            fromName: decodeHTMLEntities(parsed.name),
+            fromEmail: parsed.email,
+            sentAtLabel: sentLabel(headers["date"], internalDate: string(message["internalDate"]), now: now),
+            htmlBody: extracted.latestHTML,
+            plainBody: extracted.latestPlain
         )
     }
 
@@ -81,6 +119,12 @@ public enum GoogleJSONMapping: Sendable {
             result = result.replacingOccurrences(of: entity, with: replacement)
             result = result.replacingOccurrences(of: entity.uppercased(), with: replacement)
         }
+        if result.contains("&quot;") || result.contains("&amp;") || result.contains("&#") {
+            for (entity, replacement) in named {
+                result = result.replacingOccurrences(of: entity, with: replacement)
+                result = result.replacingOccurrences(of: entity.uppercased(), with: replacement)
+            }
+        }
         return result
     }
 
@@ -93,16 +137,13 @@ public enum GoogleJSONMapping: Sendable {
         return Data(base64Encoded: encoded)
     }
 
-    /// Walk a `users.messages.get` `format=full` payload. Returns nil if no body is present.
+    /// Walk a `users.messages.get` `format=full` payload. Latest readable plain, quotes collapsed.
     public static func plainTextBody(from message: [String: Any]) -> String? {
-        guard let payload = message["payload"] as? [String: Any] else { return nil }
-        if let text = firstPart(payload, mime: "text/plain") {
-            return decodeHTMLEntities(collapseWhitespace(text))
-        }
-        if let html = firstPart(payload, mime: "text/html") {
-            return decodeHTMLEntities(collapseWhitespace(stripHTMLTags(html)))
-        }
-        return nil
+        EmailBodyFormatting.extracted(from: message).latestPlain
+    }
+
+    public static func htmlBody(from message: [String: Any]) -> String? {
+        EmailBodyFormatting.extracted(from: message).latestHTML
     }
 
     public static func event(from item: [String: Any], now: Date = Date()) -> CalendarItem? {
@@ -298,37 +339,8 @@ public enum GoogleJSONMapping: Sendable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func firstPart(_ part: [String: Any], mime: String) -> String? {
-        if let type = string(part["mimeType"])?.lowercased(), type == mime,
-           let data = (part["body"] as? [String: Any]).flatMap({ string($0["data"]) }),
-           let decoded = decodeBase64URL(data),
-           let text = String(data: decoded, encoding: .utf8),
-           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return text
-        }
-        let children = part["parts"] as? [[String: Any]] ?? []
-        for child in children {
-            if let text = firstPart(child, mime: mime) {
-                return text
-            }
-        }
-        return nil
-    }
-
-    private static func stripHTMLTags(_ html: String) -> String {
-        var text = html
-        if let regex = try? NSRegularExpression(pattern: "<[^>]+>") {
-            text = regex.stringByReplacingMatches(
-                in: text,
-                range: NSRange(text.startIndex..., in: text),
-                withTemplate: " "
-            )
-        }
-        return text
-    }
-
-    private static func collapseWhitespace(_ raw: String) -> String {
-        raw.split { $0.isNewline || $0.isWhitespace }.joined(separator: " ")
+    private static func internalMillis(_ message: [String: Any]) -> Double {
+        Double(string(message["internalDate"]) ?? "") ?? 0
     }
 
     public enum MappingError: Error, Sendable {

@@ -163,7 +163,8 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("pull up details on Murray's email")
         XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot Saturday"))
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("The full message is on the card below."))
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("on the card"))
+        XCTAssertLessThan((model.turns.last?.text ?? "").count, 220)
         XCTAssertTrue(model.deskSnapshot.emails.first?.hasFullBody == true)
         XCTAssertEqual(model.deskSnapshot.emails.first?.body, "Walk the lot Saturday at 10.")
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("gmail"))
@@ -184,11 +185,50 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("pull up details on Murray's email")
         let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.contains("couldn’t sync"))
         XCTAssertTrue(reply.lowercased().contains("retry"))
+        XCTAssertTrue(reply.contains("card"))
         XCTAssertTrue(reply.contains("VoiceDesk"))
         XCTAssertFalse(reply.lowercased().contains("gmail"))
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        XCTAssertEqual(model.deskSnapshot.emails.first?.preview, email.preview)
+    }
+
+    func testEmailDetailsRetriesOnceThenKeepsSnippet() async {
+        var email = SampleData.syncedEmail()
+        email.fromName = "Murray Cole"
+        email.providerID = "msg-murray"
+        let sync = MockGoogleSync(result: DeskSnapshot(emails: [email]))
+        sync.failuresRemaining = 1
+        sync.bodies["msg-murray"] = "Walk the lot Saturday at 10."
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [email])),
+            sync: sync
+        )
+        await model.applyUserTurn("summarize Murray's email")
+        XCTAssertEqual(sync.fetchCalls, 2)
+        XCTAssertEqual(model.deskSnapshot.emails.first?.body, "Walk the lot Saturday at 10.")
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("on the card"))
+    }
+
+    func testCalendarReservationDetailsOpensCalendarCard() async {
+        let event = CalendarItem(
+            title: "Dinner reservation",
+            whenLabel: "Tonight 7:00 PM",
+            location: "Oak & Stone",
+            relatedPeople: ["Massimo Ricci"]
+        )
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [SampleData.syncedEmail()], events: [event]))
+        )
+        await model.applyUserTurn("details for Massimo's reservation")
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Dinner reservation"))
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("which message"))
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
+        XCTAssertFalse(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
