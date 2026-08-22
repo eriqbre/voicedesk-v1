@@ -11,7 +11,7 @@ final class UIFixtureTests: XCTestCase {
         )
         XCTAssertEqual(document.turns.count, 1)
         XCTAssertEqual(document.turns[0].role, .assistant)
-        XCTAssertTrue(document.turns[0].suggestions.contains(ConversationPresence.deskStarter))
+        XCTAssertTrue(document.turns[0].suggestions.contains(ConversationPresence.deskPreview))
         XCTAssertTrue(document.insertedCards.isEmpty)
     }
 

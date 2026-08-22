@@ -226,6 +226,10 @@ final class AppModel {
         if phase == .welcome {
             phase = .ready
         }
+        if ConversationPresence.wantsDeskPreview(text) {
+            appendDeskPreview()
+            return
+        }
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
         }
@@ -291,6 +295,11 @@ final class AppModel {
             return
         }
 
+        if ConversationPresence.wantsDeskPreview(text) {
+            appendDeskPreview()
+            return
+        }
+
         if ConversationPresence.wantsTour(text) {
             await runTour()
             return
@@ -312,6 +321,14 @@ final class AppModel {
         guard !hasCompletedPlaybook else { return }
         hasCompletedPlaybook = true
         playbook.hasCompleted = true
+    }
+
+    private func appendDeskPreview() {
+        if phase == .welcome { phase = .ready }
+        appendAssistant(
+            ConversationPresence.deskPreviewReply,
+            cards: TourScript.deskPreviewCards()
+        )
     }
 
     private func runTour() async {

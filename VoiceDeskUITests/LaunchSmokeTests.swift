@@ -24,18 +24,15 @@ final class LaunchSmokeTests: XCTestCase {
 
         waitForCard("card.email")
         waitForCard("card.listing")
-        waitForCard("card.person")
-        waitForCard("card.draftConfirm")
-        waitForCard("card.statute")
-        waitForCard("card.connectGoogle")
         XCTAssertTrue(app.staticTexts["Saturday showing at Beach Drive?"].exists)
-        XCTAssertTrue(app.staticTexts["86%"].exists)
-        XCTAssertTrue(app.staticTexts["Firm"].exists)
+        let sample = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'samples'")).firstMatch
+        XCTAssertTrue(sample.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'live Gmail is connected'")).firstMatch.exists)
     }
 
     func testDraftConfirmDoesNotFakeSend() {
-        XCTAssertTrue(app.buttons["suggestion.tour"].waitForExistence(timeout: 5))
-        app.buttons["suggestion.tour"].tap()
+        XCTAssertTrue(app.buttons["suggestion.draft"].waitForExistence(timeout: 5))
+        app.buttons["suggestion.draft"].tap()
         XCTAssertTrue(app.buttons["draft.confirm"].waitForExistence(timeout: 10))
         app.buttons["draft.confirm"].tap()
         let notSent = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Not sent'")).firstMatch

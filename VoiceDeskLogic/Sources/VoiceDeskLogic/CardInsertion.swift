@@ -43,6 +43,11 @@ public enum TourScript {
         ]
     }
 
+    /// First-run evidence preview: email + listing only. Not live Gmail or MLS.
+    public static func deskPreviewCards() -> [ContentCard] {
+        [.email(SampleData.email()), .listing(SampleData.listing())]
+    }
+
     public static func draftCard() -> ContentCard {
         .draftConfirm(SampleData.draftReply())
     }

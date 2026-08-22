@@ -43,18 +43,30 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse(ConversationPresence.firstRunWelcome.lowercased().contains("pick"))
         XCTAssertEqual(ConversationPresence.starterChips.count, 3)
         XCTAssertTrue(ConversationPresence.starterChips.contains(ConversationPresence.justTalk))
-        XCTAssertTrue(ConversationPresence.starterChips.contains(ConversationPresence.deskStarter))
+        XCTAssertTrue(ConversationPresence.starterChips.contains(ConversationPresence.deskPreview))
         XCTAssertTrue(ConversationPresence.starterChips.contains(ConversationPresence.draftStarter))
-        XCTAssertEqual(ConversationPresence.chipAccessibilityID(ConversationPresence.deskStarter), "suggestion.tour")
+        XCTAssertEqual(ConversationPresence.chipAccessibilityID(ConversationPresence.deskPreview), "suggestion.tour")
+        XCTAssertTrue(ConversationPresence.firstRunWelcome.lowercased().contains("sample"))
+        XCTAssertFalse(ConversationPresence.deskPreviewReply.lowercased().contains("live gmail is"))
+        XCTAssertTrue(ConversationPresence.deskPreviewReply.lowercased().contains("samples"))
     }
 
     func testTourOfferIsConversational() {
         XCTAssertTrue(ConversationPresence.wantsTour("Sure, show me"))
-        XCTAssertTrue(ConversationPresence.wantsTour("What’s on my desk?"))
         XCTAssertTrue(ConversationPresence.wantsTour("give me a tour"))
+        XCTAssertTrue(ConversationPresence.wantsDeskPreview("Show me a sample email and listing"))
+        XCTAssertFalse(ConversationPresence.wantsTour(ConversationPresence.deskPreview))
         XCTAssertTrue(ConversationPresence.isJustTalk("Just talk to me"))
         XCTAssertFalse(ConversationPresence.wantsTour("yes I want pizza"))
         XCTAssertFalse(ConversationPresence.wantsTour("start the car"))
+    }
+
+    func testDeskPreviewPlanIsSampleNotLive() {
+        let plan = ConversationPresence.plan(for: ConversationPresence.deskPreview)
+        XCTAssertEqual(plan.text, ConversationPresence.deskPreviewReply)
+        XCTAssertFalse(plan.text.lowercased().contains("sent"))
+        let cards = TourScript.deskPreviewCards()
+        XCTAssertEqual(cards.map(\.kind), [.email, .listing])
     }
 
     func testDraftStarterMapsToDraftCard() {

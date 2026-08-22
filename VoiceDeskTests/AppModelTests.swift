@@ -22,9 +22,19 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("i can demo"))
     }
 
+    func testDeskPreviewInsertsSampleEmailAndListing() async {
+        let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
+        await model.applyUserTurn(ConversationPresence.deskPreview)
+        let kinds = model.turns.flatMap(\.cards).map(\.kind)
+        XCTAssertEqual(kinds, [.email, .listing])
+        XCTAssertEqual(model.turns.last?.text, ConversationPresence.deskPreviewReply)
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("live gmail is connected"))
+        XCTAssertEqual(model.phase, .ready)
+    }
+
     func testTourInsertsRequiredCards() async {
         let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
-        await model.applyUserTurn(ConversationPresence.tourOffer)
+        await model.applyUserTurn("give me a tour")
         let kinds = Set(model.turns.flatMap(\.cards).map(\.kind))
         for kind in TourScript.requiredKinds {
             XCTAssertTrue(kinds.contains(kind), "missing \(kind.rawValue)")

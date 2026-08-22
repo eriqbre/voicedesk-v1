@@ -5,7 +5,7 @@ import Foundation
 public enum ConversationPresence {
     /// First-open coach. Next action is tap Talk.
     public static let firstRunWelcome =
-        "I’m a voice assistant. Tap Talk and speak — that’s the whole thing. I’ll answer anything. Cards only show up when it’s about your desk."
+        "I’m a voice assistant. Tap Talk and speak — that’s the whole thing. Want to see how email and listings look once Google is connected? There’s a sample below. Not live Gmail. Not MLS."
 
     /// Returning presence. Short. No wizard.
     public static let returningWelcome =
@@ -15,15 +15,18 @@ public enum ConversationPresence {
     public static let welcomeText = firstRunWelcome
 
     public static let justTalk = "Just talk to me"
-    public static let deskStarter = "What’s on my desk?"
+    public static let deskPreview = "Show me a sample email and listing"
     public static let draftStarter = "Show me a draft confirm"
     public static let justTalkReply = "Tap Talk below and say anything. I’ll answer."
+    public static let deskPreviewReply =
+        "These are samples — not live Gmail, not MLS. Once Google is connected, your inbox and listings show up like this."
     public static let talkHint = "Tap Talk and speak"
 
-    /// Kept so existing tour matching / a11y IDs still resolve.
-    public static let tourOffer = deskStarter
+    /// First-run desk preview chip. XCUITest still uses `suggestion.tour`.
+    public static let tourOffer = deskPreview
+    public static let deskStarter = deskPreview
 
-    public static let starterChips = [justTalk, deskStarter, draftStarter]
+    public static let starterChips = [justTalk, deskPreview, draftStarter]
 
     public enum Topic: String, Sendable, Equatable {
         case inbox
@@ -52,6 +55,10 @@ public enum ConversationPresence {
 
         if isJustTalk(text) {
             return Plan(topic: .general, text: justTalkReply)
+        }
+
+        if wantsDeskPreview(text) {
+            return Plan(topic: .inbox, text: deskPreviewReply)
         }
 
         if contains(lower, ["inbox", "my email", "my mail", "jordan hale", "jordan wrote"])
@@ -113,19 +120,28 @@ public enum ConversationPresence {
         }
     }
 
-    public static func wantsTour(_ raw: String) -> Bool {
+    public static func wantsDeskPreview(_ raw: String) -> Bool {
         let lower = raw.lowercased()
-        if lower == tourOffer.lowercased() || lower == deskStarter.lowercased() { return true }
+        if lower == deskPreview.lowercased() { return true }
+        return contains(lower, [
+            "sample email and listing",
+            "sample email",
+            "sample listing",
+            "what email looks like",
+            "what emails look like",
+            "what listings look like"
+        ])
+    }
+
+    public static func wantsTour(_ raw: String) -> Bool {
+        if wantsDeskPreview(raw) { return false }
+        let lower = raw.lowercased()
         return contains(lower, [
             "show me around",
             "sure, show me",
             "give me a tour",
             "the tour",
-            "start the tour",
-            "what's on my desk",
-            "what’s on my desk",
-            "what is on my desk",
-            "whats on my desk"
+            "start the tour"
         ])
     }
 
@@ -137,7 +153,7 @@ public enum ConversationPresence {
     }
 
     public static func chipAccessibilityID(_ item: String) -> String {
-        if wantsTour(item) || item == deskStarter { return "suggestion.tour" }
+        if wantsDeskPreview(item) || item == deskPreview { return "suggestion.tour" }
         if item == justTalk { return "suggestion.justTalk" }
         if item == draftStarter { return "suggestion.draft" }
         return "suggestion.\(item)"
