@@ -29,15 +29,24 @@ final class XcodeProjectLayoutTests: XCTestCase {
 
         XCTAssertFalse(pbx.contains("$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"))
         XCTAssertFalse(pbx.contains("INFOPLIST_PATH"))
+        XCTAssertFalse(pbx.contains("PBXShellScriptBuildPhase"))
+        XCTAssertFalse(pbx.contains("Inject Google secrets"))
+        XCTAssertFalse(pbx.contains("shellScript"))
+        XCTAssertTrue(pbx.contains("GENERATE_INFOPLIST_FILE = YES"))
     }
 
-    func testInjectScriptDoesNotWriteBuiltInfoPlist() throws {
+    func testInjectScriptIsManualAndNotABuildPhase() throws {
         let script = try XCTUnwrap(repoFile("scripts/inject-google-secrets.sh"))
+        XCTAssertTrue(script.contains("Manual/dev helper"))
         XCTAssertTrue(script.contains("Config/Generated/GoogleSecrets.xcconfig"))
         XCTAssertFalse(script.contains("INFOPLIST_PATH"))
         XCTAssertFalse(script.contains("TARGET_BUILD_DIR"))
         XCTAssertFalse(script.contains("Set :GIDClientID"))
         XCTAssertFalse(script.contains("CFBundleURLTypes"))
+
+        let xcconfig = try XCTUnwrap(repoFile("Config/VoiceDesk.xcconfig"))
+        XCTAssertTrue(xcconfig.contains("#include? \"Generated/GoogleSecrets.xcconfig\""))
+        XCTAssertTrue(xcconfig.contains("INFOPLIST_FILE = Config/Info.plist"))
     }
 
     func testGoogleSignInPackageIsPinned() throws {

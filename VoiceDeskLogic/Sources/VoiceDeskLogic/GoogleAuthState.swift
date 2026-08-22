@@ -37,10 +37,10 @@ public struct GoogleAuthSnapshot: Equatable, Sendable, Codable {
     public static let signedOut = GoogleAuthSnapshot()
 
     public static let missingClientIDCopy =
-        "Add GOOGLE_CLIENT_ID to VoiceDesk/Secrets.plist (or the scheme env) and rebuild. The reversed URL scheme is derived automatically — you should not have to edit Build Settings. I will not pretend Google is connected."
+        "Add GOOGLE_CLIENT_ID to VoiceDesk/Secrets.plist (or the scheme env) and rebuild. Set GOOGLE_CLIENT_ID and GOOGLE_REVERSED_CLIENT_ID in Build Settings, or run scripts/inject-google-secrets.sh once. I will not pretend Google is connected."
 
     public static let missingReversedClientIDCopy =
-        "GOOGLE_CLIENT_ID is set, but this build still has a placeholder or missing Google URL scheme (com.googleusercontent.apps.REPLACE_ME). Rebuild so Secrets.plist can inject the reversed client ID. I will not open Google Sign-In until that scheme is registered."
+        "GOOGLE_CLIENT_ID is set, but this build still has a placeholder or missing Google URL scheme (com.googleusercontent.apps.REPLACE_ME). Set GOOGLE_REVERSED_CLIENT_ID in Build Settings (or run scripts/inject-google-secrets.sh once) and rebuild. I will not open Google Sign-In until that scheme is registered."
 
     public static let signInTimeoutCopy =
         "Google Sign-In timed out. If no Google window appeared, add GOOGLE_CLIENT_ID to Secrets.plist and rebuild. I did not stay on Connecting."

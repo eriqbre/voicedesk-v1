@@ -109,7 +109,6 @@
 				A10000000000000000000007 /* Sources */,
 				A10000000000000000000003 /* Frameworks */,
 				A10000000000000000000008 /* Resources */,
-				C10000000000000000000020 /* Inject Google secrets from Secrets.plist */,
 			);
 			buildRules = (
 			);
@@ -246,32 +245,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		C10000000000000000000020 /* Inject Google secrets from Secrets.plist */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/VoiceDesk/Secrets.plist",
-				"$(SRCROOT)/scripts/inject-google-secrets.sh",
-			);
-			name = "Inject Google secrets from Secrets.plist";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(SRCROOT)/Config/Generated/GoogleSecrets.xcconfig",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${SRCROOT}/scripts/inject-google-secrets.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A10000000000000000000007 /* Sources */ = {

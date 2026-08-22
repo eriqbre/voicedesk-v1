@@ -1,11 +1,14 @@
 #!/bin/sh
-# Reads gitignored VoiceDesk/Secrets.plist (if present) and writes
+# Manual/dev helper — not an Xcode build phase.
+# Reads VoiceDesk/Secrets.plist (if present) and writes
 # GOOGLE_CLIENT_ID / GOOGLE_REVERSED_CLIENT_ID into
 # Config/Generated/GoogleSecrets.xcconfig only.
-# Does NOT write or copy the built app Info.plist — that file is produced
-# solely by ProcessInfoPlistFile from Config/Info.plist + $(GOOGLE_*) substitution.
+# Config/VoiceDesk.xcconfig optionally includes that file so the next
+# Xcode evaluation substitutes $(GOOGLE_*) in Config/Info.plist.
+# Does NOT write or copy the built app Info.plist.
 # Derives the reversed client ID when it is empty or REPLACE_ME.
 # Never prints secret values.
+# Usage (from repo root): ./scripts/inject-google-secrets.sh
 
 set -eu
 
