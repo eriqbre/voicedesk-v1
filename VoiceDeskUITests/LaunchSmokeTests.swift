@@ -12,13 +12,13 @@ final class LaunchSmokeTests: XCTestCase {
 
     func testColdLaunchShowsConversationAndTalk() {
         XCTAssertTrue(app.navigationBars["VoiceDesk"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["suggestion.Start the tour"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["suggestion.tour"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["voice.talk"].exists)
     }
 
     func testTourRendersRequiredCards() {
-        XCTAssertTrue(app.buttons["suggestion.Start the tour"].waitForExistence(timeout: 5))
-        app.buttons["suggestion.Start the tour"].tap()
+        XCTAssertTrue(app.buttons["suggestion.tour"].waitForExistence(timeout: 5))
+        app.buttons["suggestion.tour"].tap()
 
         XCTAssertTrue(app.otherElements["card.email"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.otherElements["card.listing"].exists)
@@ -31,8 +31,8 @@ final class LaunchSmokeTests: XCTestCase {
     }
 
     func testDraftConfirmDoesNotFakeSend() {
-        XCTAssertTrue(app.buttons["suggestion.Start the tour"].waitForExistence(timeout: 5))
-        app.buttons["suggestion.Start the tour"].tap()
+        XCTAssertTrue(app.buttons["suggestion.tour"].waitForExistence(timeout: 5))
+        app.buttons["suggestion.tour"].tap()
         XCTAssertTrue(app.buttons["draft.confirm"].waitForExistence(timeout: 10))
         app.buttons["draft.confirm"].tap()
         let notSent = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Not sent'")).firstMatch

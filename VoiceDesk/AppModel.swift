@@ -49,8 +49,8 @@ final class AppModel {
         turns = [
             ConversationTurn(
                 role: .assistant,
-                text: "Hi — I’m VoiceDesk. Talk whenever you’re ready. Want a 30-second tour of how this works?",
-                suggestions: ["Start the tour"]
+                text: ConversationPresence.welcomeText,
+                suggestions: [ConversationPresence.tourOffer]
             )
         ]
         phase = .welcome
@@ -179,11 +179,7 @@ final class AppModel {
 
         appendUser(text)
 
-        if phase == .welcome, shouldStartTour(text) {
-            await runTour()
-            return
-        }
-        if shouldRestartTour(text) {
+        if ConversationPresence.wantsTour(text) {
             await runTour()
             return
         }
@@ -201,87 +197,41 @@ final class AppModel {
 
         await pause(320)
         appendAssistant(
-            "You talk, I answer, and I put the evidence on cards. Here’s a sample email about a listing — and the people on it.",
+            "You talk, I answer. When it’s your desk, I put the proof next to what I say — the email, the house, the people.",
             cards: TourScript.graphCards()
         )
-        await voice.speak("Here’s the email, the listing, and the people on it.")
+        await voice.speak("Here’s that Beach Drive thread, the listing, and who’s on it.")
 
         await pause(400)
         appendAssistant(
-            "If I need to send or change anything, you see the exact action first. Nothing goes out until you confirm.",
+            "If I need to send something, you’ll see the exact words first. I won’t go quiet and do it.",
             cards: [TourScript.draftCard()]
         )
-        await voice.speak("Writes always wait for your confirm.")
+        await voice.speak("Writes always wait for you.")
 
         await pause(400)
         appendAssistant(
-            "Florida law and broker rules show a confidence score and the source. I won’t bluff.",
+            "Law and broker rules come with how sure I am, and the source. I won’t bluff.",
             cards: [TourScript.statuteCard()]
         )
         await voice.speak("Legal answers show confidence and the citation.")
 
         await pause(400)
         appendAssistant(
-            "Connect Google for your real inbox, calendar, and tasks. Tap the mic anytime. Wake word is next — for now, tap to talk.",
-            cards: [TourScript.connectGoogleCard(isConnected: google.isConnected)],
-            suggestions: google.isConnected ? ["What’s in my inbox?"] : []
+            "When you want me to know your real day, connect Google. Until then I’m still here — ask me anything.",
+            cards: [TourScript.connectGoogleCard(isConnected: google.isConnected)]
         )
-        await voice.speak("Connect Google when you’re ready.")
+        await voice.speak("I’m here whenever you’re ready.")
 
         phase = .ready
         isTourRunning = false
     }
 
     private func replyReady(to text: String) async {
-        let lower = text.lowercased()
-        let reply: (String, [ContentCard], [String])
-
-        if matches(lower, ["inbox", "email", "mail", "jordan"]) {
-            reply = (
-                "Sample inbox thread — not live Gmail. Jordan wrote this morning about Beach Drive.",
-                [.email(SampleData.email()), .person(SampleData.buyer())],
-                ["Draft a reply", "Show the listing"]
-            )
-        } else if matches(lower, ["listing", "showing", "beach", "house", "property"]) {
-            reply = (
-                "1842 Beach Drive NE, inferred as yours from the thread. Claim/confirm lands with listing graph work.",
-                [.listing(SampleData.listing()), .person(SampleData.buyer()), .person(SampleData.partner())],
-                ["Draft a reply"]
-            )
-        } else if matches(lower, ["send", "reply", "draft", "write", "email them"]) {
-            reply = (
-                "Here’s the exact send. Confirm & Send logs it — it will not leave the device in this slice.",
-                [.draftConfirm(SampleData.draftReply())],
-                []
-            )
-        } else if matches(lower, ["law", "statute", "florida", "disclosure", "475", "legal", "compliance"]) {
-            reply = (
-                "Sample statute card. Confidence 86% — firm tone, still not legal advice.",
-                [.statute(SampleData.statute())],
-                []
-            )
-        } else if matches(lower, ["google", "connect", "gmail", "calendar", "tasks"]) {
-            reply = (
-                "Google is required for a real day. OAuth is stubbed here.",
-                [.connectGoogle(SampleData.connectGoogle(isConnected: google.isConnected))],
-                []
-            )
-        } else if matches(lower, ["calendar", "task", "todo", "schedule"]) {
-            reply = (
-                "Calendar and task cards are in the PRD; this slice stubs email, listing, people, draft-confirm, and statute. Next recommended slice is Google OAuth + sync.",
-                [],
-                ["What’s in my inbox?", "Show a listing"]
-            )
-        } else {
-            reply = (
-                "I can demo inbox, listing, people, a confirm-to-send draft, or a statute card. Live Grok answers wait for the voice wire-up.",
-                [],
-                ["What’s in my inbox?", "Show the listing", "Draft a reply", "Florida disclosure"]
-            )
-        }
-
-        appendAssistant(reply.0, cards: reply.1, suggestions: reply.2)
-        await voice.speak(reply.0)
+        let plan = ConversationPresence.plan(for: text)
+        let cards = ConversationPresence.cards(for: plan.topic, googleConnected: google.isConnected)
+        appendAssistant(plan.text, cards: cards)
+        await voice.speak(plan.text)
     }
 
     // MARK: - Mutations
@@ -355,20 +305,12 @@ final class AppModel {
     private func mockUtterance() -> String {
         switch phase {
         case .welcome:
-            return "Yes, show me."
+            return ConversationPresence.tourOffer
         case .touring:
             return "Keep going."
         case .ready:
             return "What’s in my inbox?"
         }
-    }
-
-    private func shouldStartTour(_ text: String) -> Bool {
-        matches(text.lowercased(), ["tour", "show me", "yes", "start"])
-    }
-
-    private func shouldRestartTour(_ text: String) -> Bool {
-        matches(text.lowercased(), ["start the tour", "give me a tour", "show me the tour"])
     }
 
     private func matchesCancel(_ text: String) -> Bool {

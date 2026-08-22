@@ -8,13 +8,22 @@ final class AppModelTests: XCTestCase {
         let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
         XCTAssertEqual(model.phase, .welcome)
         XCTAssertEqual(model.turns.first?.role, .assistant)
-        XCTAssertTrue(model.turns.first?.suggestions.contains("Start the tour") == true)
+        XCTAssertEqual(model.turns.first?.text, ConversationPresence.welcomeText)
+        XCTAssertTrue(model.turns.first?.suggestions.contains(ConversationPresence.tourOffer) == true)
+        XCTAssertTrue(model.turns.first?.cards.isEmpty == true)
         XCTAssertTrue(model.sendClient.sentDrafts.isEmpty)
+    }
+
+    func testGeneralChatDoesNotForceCards() async {
+        let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
+        await model.applyUserTurn("What's for dinner?")
+        XCTAssertTrue(model.turns.flatMap(\.cards).isEmpty)
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("i can demo"))
     }
 
     func testTourInsertsRequiredCards() async {
         let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
-        await model.applyUserTurn("Start the tour")
+        await model.applyUserTurn(ConversationPresence.tourOffer)
         let kinds = Set(model.turns.flatMap(\.cards).map(\.kind))
         for kind in TourScript.requiredKinds {
             XCTAssertTrue(kinds.contains(kind), "missing \(kind.rawValue)")
@@ -28,7 +37,7 @@ final class AppModelTests: XCTestCase {
             voice: MockVoiceService(label: "test", instant: true),
             sendClient: send
         )
-        await model.applyUserTurn("Draft a reply")
+        await model.applyUserTurn("Draft a reply to Jordan")
         let draft = model.turns.flatMap(\.cards).compactMap { card -> DraftConfirmItem? in
             if case .draftConfirm(let item) = card { return item }
             return nil
@@ -48,7 +57,7 @@ final class AppModelTests: XCTestCase {
             voice: MockVoiceService(label: "test", instant: true),
             sendClient: send
         )
-        await model.applyUserTurn("Draft a reply")
+        await model.applyUserTurn("Draft a reply to Jordan")
         let draft = model.turns.flatMap(\.cards).compactMap { card -> DraftConfirmItem? in
             if case .draftConfirm(let item) = card { return item }
             return nil

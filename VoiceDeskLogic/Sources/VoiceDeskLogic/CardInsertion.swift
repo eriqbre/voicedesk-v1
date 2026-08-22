@@ -57,19 +57,19 @@ public enum TourScript {
 
     public static func play(into document: inout ConversationDocument) {
         document.appendAssistant(
-            "You talk, I answer, and I put the evidence on cards.",
+            "You talk, I answer. When it’s your desk, I put the proof next to what I say.",
             cards: graphCards()
         )
         document.appendAssistant(
-            "Writes always wait for your confirm.",
+            "If I need to send something, you’ll see the exact words first.",
             cards: [draftCard()]
         )
         document.appendAssistant(
-            "Legal answers show confidence and the citation.",
+            "Law comes with how sure I am, and the source.",
             cards: [statuteCard()]
         )
         document.appendAssistant(
-            "Connect Google for your real inbox, calendar, and tasks.",
+            "When you want me to know your real day, connect Google. Until then, ask me anything.",
             cards: [connectGoogleCard()]
         )
     }

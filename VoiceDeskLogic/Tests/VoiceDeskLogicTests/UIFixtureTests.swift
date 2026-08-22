@@ -6,12 +6,13 @@ final class UIFixtureTests: XCTestCase {
     func testConversationMountFixture() {
         var document = ConversationDocument()
         document.appendAssistant(
-            "Hi — I’m VoiceDesk. Talk whenever you’re ready. Want a 30-second tour of how this works?",
-            suggestions: ["Start the tour"]
+            ConversationPresence.welcomeText,
+            suggestions: [ConversationPresence.tourOffer]
         )
         XCTAssertEqual(document.turns.count, 1)
         XCTAssertEqual(document.turns[0].role, .assistant)
-        XCTAssertTrue(document.turns[0].suggestions.contains("Start the tour"))
+        XCTAssertTrue(document.turns[0].suggestions.contains(ConversationPresence.tourOffer))
+        XCTAssertTrue(document.insertedCards.isEmpty)
     }
 
     func testEachCardTypeHasConfirmOrPrimaryAffordance() {

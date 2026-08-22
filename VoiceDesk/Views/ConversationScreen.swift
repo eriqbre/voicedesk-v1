@@ -37,14 +37,6 @@ struct ConversationScreen: View {
             .navigationTitle("VoiceDesk")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text(model.voice.backendLabel)
-                        .font(.caption2)
-                        .foregroundStyle(Palette.muted)
-                        .lineLimit(1)
-                        .frame(maxWidth: 160, alignment: .leading)
-                        .accessibilityLabel("Voice backend")
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         model.showActivity = true
@@ -125,7 +117,7 @@ private struct FlexibleChipRow: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(Palette.accentSoft, in: Capsule())
-                            .accessibilityIdentifier("suggestion.\(item)")
+                            .accessibilityIdentifier(item == ConversationPresence.tourOffer ? "suggestion.tour" : "suggestion.\(item)")
                     }
                 }
             }
@@ -161,7 +153,7 @@ struct VoiceBar: View {
         @Bindable var model = model
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                TextField("Or type a turn", text: $model.composerText, axis: .vertical)
+                TextField("Or say it here", text: $model.composerText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...4)
                     .padding(.horizontal, 14)
@@ -171,7 +163,7 @@ struct VoiceBar: View {
                     .focused($composerFocused)
                     .submitLabel(.send)
                     .onSubmit { model.sendComposer() }
-                    .accessibilityLabel("Type a turn")
+                    .accessibilityLabel("Type what you want to say")
 
                 Button {
                     model.sendComposer()
@@ -207,9 +199,9 @@ struct VoiceBar: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("voice.talk")
             .accessibilityLabel(micLabel)
-            .accessibilityHint("Starts a mocked listen, then a sample reply.")
+            .accessibilityHint("Talk to me. I’ll answer — cards only if it’s about your desk.")
 
-            Text("Wake word when the app is open is next. Tap to talk for now.")
+            Text("Tap when you want to talk. Ask anything.")
                 .font(.caption2)
                 .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
@@ -256,7 +248,7 @@ struct ActivitySheet: View {
         NavigationStack {
             List {
                 if model.activity.isEmpty {
-                    Text("No writes yet. Confirmed or cancelled actions land here.")
+                    Text("Nothing’s been sent or scheduled. When you confirm a write, it shows up here — I won’t pretend it went through.")
                         .foregroundStyle(Palette.muted)
                 } else {
                     ForEach(model.activity.reversed()) { entry in
@@ -278,6 +270,14 @@ struct ActivitySheet: View {
             }
             .navigationTitle("Activity")
             .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                Text(model.voice.backendLabel)
+                    .font(.caption2)
+                    .foregroundStyle(Palette.muted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 8)
+                    .accessibilityLabel("Voice backend")
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

@@ -37,7 +37,7 @@ iPhone only. iPad / Mac Catalyst / Android are off.
 - Sample cards: Email, Listing, Person, Draft-confirm, Statute/confidence, Connect Google.
 - Grok voice **interfaces** pointed at current xAI endpoints (`/v1/realtime`, `/v1/stt`, `/v1/tts`).
 
-After the tour, try: “What’s in my inbox?”, “Show the listing”, “Draft a reply”, “Florida disclosure”.
+Talk about anything. Cards show up when the ask is about the desk (inbox, Beach Drive, a reply, a statute). General chat stays in the thread.
 
 ## What’s stubbed
 
