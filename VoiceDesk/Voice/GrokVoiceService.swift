@@ -73,9 +73,10 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func speak(_ text: String) async {
-        // Tour / confirm copy is already on the thread. Do not fake timed TTS
-        // and do not send scripted lines through Grok as a user turn.
-        _ = text
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        // Client TTS. Does not unmute live Grok deltas.
+        ClientVoiceSpeech.shared.speak(trimmed)
     }
 
     func sendTextTurn(_ text: String) async {
@@ -143,6 +144,7 @@ final class GrokVoiceService: VoiceServicing {
         if sendCancel, currentResponseID != nil || session.state == .speaking {
             client.sendJSON(GrokRealtime.responseCancelObject())
         }
+        ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
         currentResponseID = nil
         audioDeltaCount = 0
@@ -159,6 +161,7 @@ final class GrokVoiceService: VoiceServicing {
             client.sendJSON(GrokRealtime.clearBufferObject())
         }
         failReady(GrokVoiceError.connectFailed("Cancelled"))
+        ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
         audio.stop()
         client.disconnect()

@@ -583,6 +583,65 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
     }
 
+    func testDeskReplyIsSpokenWhileLiveGrokStaysMuted() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-speak"
+        murray.body = "Need you to notarize the closing package today."
+        murray.earlierMessages = [
+            EmailThreadMessage(id: "e1", fromName: "Murray Mitchell", plainBody: "Can we walk the lot this week?")
+        ]
+        let snapshot = DeskSnapshot(emails: [murray])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies["msg-murray-speak"] = murray.body
+        sync.earlierMessages["msg-murray-speak"] = murray.earlierMessages
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        await model.applyUserTurn("full summary of Murray’s latest email")
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(reply.contains("Need you to notarize"))
+        XCTAssertEqual(fake.spoken, [reply])
+        XCTAssertFalse(fake.spoken.contains(ConversationPresence.gmailSearchingBeat))
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+
+        await model.applyUserTurn("full summary of Murray’s latest email")
+        XCTAssertEqual(fake.spoken, [reply], "same desk reply must not be spoken twice")
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+    }
+
+    func testNeedMoreAndSearchResultsAreSpokenNotTheSearchingBeat() async {
+        var showing = SampleData.syncedEmail()
+        showing.fromName = "ShowingTime"
+        showing.fromEmail = "noreply@showingtime.com"
+        showing.providerID = "msg-showing-speak"
+        showing.subject = "New showing confirmed"
+        showing.body = "A buyer booked a showing."
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = [showing]
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(),
+            sync: sync
+        )
+        await model.applyUserTurn("show me the email")
+        XCTAssertEqual(model.turns.last?.text, ConversationPresence.emailNeedMoreReply)
+        XCTAssertEqual(fake.spoken, [ConversationPresence.emailNeedMoreReply])
+
+        await model.applyUserTurn("Showing time")
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertEqual(fake.spoken, [ConversationPresence.emailNeedMoreReply, reply])
+        XCTAssertFalse(fake.spoken.contains(ConversationPresence.gmailSearchingBeat))
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+    }
+
     func testLiveRefusalIsScrubbedWhenLocalEmailAttaches() async {
         var murray = SampleData.syncedEmail()
         murray.fromName = "Murray Mitchell"
@@ -693,6 +752,8 @@ final class FakeLiveVoiceService: VoiceServicing {
     var started = false
     var cancelled = false
     var sentTurns: [String] = []
+    var spoken: [String] = []
+    var assistantOutputSuppressed = false
 
     var state: VoiceState { session.state }
 
@@ -705,7 +766,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     }
 
     func speak(_ text: String) async {
-        _ = text
+        spoken.append(text)
     }
 
     func sendTextTurn(_ text: String) async {
@@ -733,7 +794,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     func interruptResponse() {}
 
     func suppressAssistantOutput(_ suppress: Bool) {
-        _ = suppress
+        assistantOutputSuppressed = suppress
     }
 }
 

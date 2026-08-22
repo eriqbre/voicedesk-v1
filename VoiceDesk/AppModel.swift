@@ -37,6 +37,8 @@ final class AppModel {
     private var pendingThreadSummary = false
     /// Last local reply asked “Who’s it from?” — next utterance is the brand/sender.
     private var pendingSearchClarify = false
+    /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
+    private var lastSpokenDeskReply: String?
     private var expandEarlierEmailIDs: Set<UUID> = []
     private var expandEarlierProviderIDs: Set<String> = []
     var expandEarlierEpoch: Int = 0
@@ -349,6 +351,7 @@ final class AppModel {
                 } else {
                     pendingSearchClarify = true
                     appendAssistant(ConversationPresence.emailNeedMoreReply)
+                    speakDeskReplyLater(ConversationPresence.emailNeedMoreReply)
                 }
                 return
             }
@@ -466,6 +469,7 @@ final class AppModel {
                 } else {
                     pendingSearchClarify = true
                     appendAssistant(ConversationPresence.emailNeedMoreReply)
+                    await speakDeskReply(ConversationPresence.emailNeedMoreReply)
                 }
                 return
             }
@@ -653,6 +657,7 @@ final class AppModel {
         }
         scrubGrokDeskRefusals()
         appendAssistant(evidence.text, cards: evidence.cards)
+        speakDeskReplyLater(evidence.text)
     }
 
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
@@ -666,6 +671,7 @@ final class AppModel {
             return
         }
         appendAssistant(evidence.text, cards: evidence.cards)
+        await speakDeskReply(evidence.text)
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {
@@ -674,6 +680,7 @@ final class AppModel {
                 ConversationPresence.connectHowToReply,
                 cards: [.connectGoogle(deskContext.connectItem)]
             )
+            await speakDeskReply(ConversationPresence.connectHowToReply)
             return
         }
         let beatID = appendSearchingBeat()
@@ -699,9 +706,10 @@ final class AppModel {
             switch picked {
             case .none:
                 replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchEmptyReply)
+                await speakDeskReply(ConversationPresence.gmailSearchEmptyReply)
             case .one(let email):
                 removeTurn(id: beatID)
-                applyLoadedEmail(email)
+                await applyLoadedEmail(email)
             case .several(let emails):
                 for email in emails {
                     upsertSnapshotEmail(email)
@@ -715,9 +723,11 @@ final class AppModel {
                     text: ConversationPresence.gmailSearchSeveralReply,
                     cards: emails.map { .email($0) }
                 )
+                await speakDeskReply(ConversationPresence.gmailSearchSeveralReply)
             }
         } catch {
             replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchFailedReply)
+            await speakDeskReply(ConversationPresence.gmailSearchFailedReply)
         }
     }
 
@@ -745,26 +755,25 @@ final class AppModel {
 
     private func revealEmailBody(_ email: EmailItem) async {
         guard google.isConnected, let token = google.accessToken, let id = email.providerID, !id.isEmpty else {
-            applyLoadedEmail(email)
+            await applyLoadedEmail(email)
             return
         }
         do {
             let full = try await sync.fetchMessage(token: token, messageID: id, now: Date())
-            applyLoadedEmail(full)
+            await applyLoadedEmail(full)
         } catch {
             refreshEmailCards(email)
             if pendingThreadSummary || email.hasFullBody || email.hasEarlierMessages {
-                applyLoadedEmail(email)
+                await applyLoadedEmail(email)
             } else {
-                appendAssistant(
-                    ConversationPresence.emailBodySyncFailedReply(email),
-                    cards: [.email(email)]
-                )
+                let reply = ConversationPresence.emailBodySyncFailedReply(email)
+                appendAssistant(reply, cards: [.email(email)])
+                await speakDeskReply(reply)
             }
         }
     }
 
-    private func applyLoadedEmail(_ email: EmailItem) {
+    private func applyLoadedEmail(_ email: EmailItem) async {
         upsertSnapshotEmail(email)
         cache.save(deskSnapshot)
         refreshPresence()
@@ -779,6 +788,19 @@ final class AppModel {
         pendingThreadSummary = false
         scrubGrokDeskRefusals()
         appendAssistant(reply, cards: [.email(email)])
+        await speakDeskReply(reply)
+    }
+
+    private func speakDeskReplyLater(_ text: String) {
+        Task { await speakDeskReply(text) }
+    }
+
+    private func speakDeskReply(_ text: String) async {
+        guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {
+            return
+        }
+        lastSpokenDeskReply = spoken
+        await voice.speak(spoken)
     }
 
     private func upsertSnapshotEmail(_ email: EmailItem) {
