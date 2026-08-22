@@ -1,5 +1,8 @@
 // VoiceDesk target settings. Generated/GoogleSecrets.xcconfig is written by
 // scripts/inject-google-secrets.sh from VoiceDesk/Secrets.plist (gitignored).
+// Info.plist lives here — not in the synchronized VoiceDesk/ folder — so Xcode
+// cannot copy it as a resource and double ProcessInfoPlistFile.
+INFOPLIST_FILE = Config/Info.plist
 GOOGLE_CLIENT_ID =
 GOOGLE_REVERSED_CLIENT_ID =
 #include? "Generated/GoogleSecrets.xcconfig"

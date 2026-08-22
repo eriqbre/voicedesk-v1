@@ -42,7 +42,7 @@ Without `GOOGLE_CLIENT_ID` the app **does not** pretend to be connected. Connect
 5. Put the client ID in `Secrets.plist` or the scheme env as `GOOGLE_CLIENT_ID`, then **rebuild**.
 6. Reversed client ID URL scheme (required for the OAuth redirect) is derived automatically:
    - Client ID `123-abc.apps.googleusercontent.com` → scheme `com.googleusercontent.apps.123-abc`
-   - The inject script writes that scheme into the built Info.plist. iOS cannot register URL types at runtime.
+   - The inject script writes that scheme into the built Info.plist (`Config/Info.plist` is the source; it is not inside the synchronized `VoiceDesk/` folder). iOS cannot register URL types at runtime.
    - If the installed app still has `com.googleusercontent.apps.REPLACE_ME`, Connect Google fails immediately with setup copy — it will **not** call GIDSignIn and hang.
 7. Scopes requested (read only this slice): `gmail.readonly`, `calendar.readonly`, `tasks.readonly`. Confirmed writes queue; they do not call Gmail send yet.
 
@@ -102,7 +102,8 @@ Hardening after dogfood: ephemeral-token backend so the long-lived xAI key never
 
 ```
 VoiceDesk.xcodeproj      Xcode 16 project (app + unit + UI tests)
-VoiceDesk/               App sources (live Grok + Google Sign-In / sync)
+VoiceDesk/               App sources (live Grok + Google Sign-In / sync). Secrets.plist stays here (gitignored). Do not put Info.plist here — Xcode’s synchronized folder would copy it into the app and collide with ProcessInfoPlistFile.
+Config/Info.plist        App Info.plist (explicit PBXFileReference, INFOPLIST_FILE). URL types + GIDClientID with $(GOOGLE_*) substitution.
 VoiceDeskLogic/          Linux-runnable domain + `swift test`
 VoiceDeskTests/          Hosted app unit tests
 VoiceDeskUITests/        XCUITest launch / card smoke

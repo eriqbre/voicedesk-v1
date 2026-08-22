@@ -32,26 +32,14 @@
 /* Begin PBXFileReference section */
 		A10000000000000000000001 /* VoiceDesk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoiceDesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10000000000000000000021 /* VoiceDesk.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/VoiceDesk.xcconfig; sourceTree = "<group>"; };
+		C10000000000000000000022 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Config/Info.plist; sourceTree = "<group>"; };
 		B10000000000000000000001 /* VoiceDeskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceDeskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1000000000000000000000C /* VoiceDeskUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceDeskUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C10000000000000000000010 /* Exceptions for "VoiceDesk" folder in "VoiceDesk" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = A10000000000000000000006 /* VoiceDesk */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A10000000000000000000002 /* VoiceDesk */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				C10000000000000000000010 /* Exceptions for "VoiceDesk" folder in "VoiceDesk" target */,
-			);
 			explicitFileTypes = {};
 			explicitFolders = ();
 			path = VoiceDesk;
@@ -96,6 +84,7 @@
 				B10000000000000000000002 /* VoiceDeskTests */,
 				B1000000000000000000000D /* VoiceDeskUITests */,
 				C10000000000000000000021 /* VoiceDesk.xcconfig */,
+				C10000000000000000000022 /* Info.plist */,
 				A10000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -442,7 +431,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = VoiceDesk/Info.plist;
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_GIDClientID = "$(GOOGLE_CLIENT_ID)";
 				INFOPLIST_KEY_CFBundleDisplayName = VoiceDesk;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
@@ -483,7 +472,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = VoiceDesk/Info.plist;
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = VoiceDesk;
 				INFOPLIST_KEY_GIDClientID = "$(GOOGLE_CLIENT_ID)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
