@@ -25,6 +25,7 @@ final class GrokVoiceService: VoiceServicing {
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var isTearingDown = false
+    private var instructions = GrokRealtime.presenceInstructions
 
     var state: VoiceState { session.state }
 
@@ -78,6 +79,13 @@ final class GrokVoiceService: VoiceServicing {
         client.sendJSON(GrokRealtime.responseCreateObject())
     }
 
+    func updatePresenceInstructions(_ text: String) {
+        instructions = text
+        if client.isConnected {
+            sendSessionUpdate()
+        }
+    }
+
     func cancel() {
         teardown(sendCancel: true)
     }
@@ -94,7 +102,7 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     private func sendSessionUpdate() {
-        client.sendJSON(GrokRealtime.sessionUpdateObject(voice: voiceID))
+        client.sendJSON(GrokRealtime.sessionUpdateObject(voice: voiceID, instructions: instructions))
     }
 
     private func startAudioIfNeeded() {

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		B10000000000000000000019 /* VoiceDeskLogic in Frameworks */ = {isa = PBXBuildFile; productRef = B10000000000000000000018 /* VoiceDeskLogic */; };
 		B1000000000000000000001A /* VoiceDeskLogic in Frameworks */ = {isa = PBXBuildFile; productRef = B1000000000000000000001B /* VoiceDeskLogic */; };
+		C10000000000000000000003 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000002 /* GoogleSignIn */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,6 +47,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B10000000000000000000019 /* VoiceDeskLogic in Frameworks */,
+				C10000000000000000000003 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -108,6 +110,7 @@
 			name = VoiceDesk;
 			packageProductDependencies = (
 				B10000000000000000000018 /* VoiceDeskLogic */,
+				C10000000000000000000002 /* GoogleSignIn */,
 			);
 			productName = VoiceDesk;
 			productReference = A10000000000000000000001 /* VoiceDesk.app */;
@@ -195,6 +198,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				B10000000000000000000017 /* XCLocalSwiftPackageReference "VoiceDeskLogic" */,
+				C10000000000000000000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000005 /* Products */;
@@ -387,6 +391,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				GOOGLE_CLIENT_ID = "";
+				GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.REPLACE_ME;
+				INFOPLIST_FILE = VoiceDesk/Info.plist;
+				INFOPLIST_KEY_GIDClientID = "$(GOOGLE_CLIENT_ID)";
 				INFOPLIST_KEY_CFBundleDisplayName = VoiceDesk;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoiceDesk uses the microphone so you can talk to your assistant.";
@@ -401,6 +409,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = app.voicedesk.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -423,7 +432,11 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				GOOGLE_CLIENT_ID = "";
+				GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.REPLACE_ME;
+				INFOPLIST_FILE = VoiceDesk/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = VoiceDesk;
+				INFOPLIST_KEY_GIDClientID = "$(GOOGLE_CLIENT_ID)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoiceDesk uses the microphone so you can talk to your assistant.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -437,6 +450,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = app.voicedesk.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -587,7 +601,23 @@
 			package = B10000000000000000000017 /* XCLocalSwiftPackageReference "VoiceDeskLogic" */;
 			productName = VoiceDeskLogic;
 		};
+		C10000000000000000000002 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
 /* End XCSwiftPackageProductDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C10000000000000000000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = A10000000000000000000009 /* Project object */;
 }

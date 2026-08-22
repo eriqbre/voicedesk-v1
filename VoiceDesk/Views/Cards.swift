@@ -13,6 +13,8 @@ struct ContentCardView: View {
             case .draftConfirm(let item): DraftConfirmCardView(item: item)
             case .statute(let item): StatuteCardView(item: item)
             case .connectGoogle(let item): ConnectGoogleCardView(item: item)
+            case .calendar(let item): CalendarCardView(item: item)
+            case .task(let item): TaskCardView(item: item)
             }
         }
         // Outer ID is what made CI green (91b54e4). CardChrome must stay visual-only.
@@ -260,6 +262,7 @@ struct DraftConfirmCardView: View {
             Text("Confirmed — logged on Activity. Not sent.")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Palette.accent)
+                .accessibilityIdentifier("draft.queued")
         case .cancelled:
             Text("Cancelled. Nothing was sent.")
                 .font(.caption.weight(.semibold))
@@ -359,24 +362,34 @@ struct ConnectGoogleCardView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(item.headline)
                             .font(.headline)
-                        Text(item.isConnected ? "Connected (stub)" : "Required for a real day")
+                        Text(item.statusLine)
                             .font(.caption)
                             .foregroundStyle(Palette.muted)
                     }
                 }
-                Text(item.body)
+                Text(item.setupNeeded ? GoogleAuthSnapshot.missingClientIDCopy : item.body)
                     .font(.subheadline)
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Gmail — read + send on confirm", systemImage: "envelope")
-                    Label("Calendar — read + create on confirm", systemImage: "calendar")
-                    Label("Tasks — read + complete on confirm", systemImage: "checkmark.circle")
+                    Label("Gmail — read now; send only after confirm", systemImage: "envelope")
+                    Label("Calendar — upcoming events", systemImage: "calendar")
+                    Label("Tasks — open items", systemImage: "checkmark.circle")
                 }
                 .font(.caption)
                 .foregroundStyle(Palette.ink.opacity(0.8))
-                if item.isConnected || model.google.isConnected {
-                    Text("Stub only. Tokens are not stored. Next slice: OAuth + sync + offline cache.")
+                if item.setupNeeded {
+                    Text("I am not connected. Add GOOGLE_CLIENT_ID, then try again.")
                         .font(.caption)
                         .foregroundStyle(Palette.muted)
+                        .accessibilityIdentifier("google.setup")
+                } else if item.isConnected || model.google.isConnected {
+                    if let email = item.accountEmail ?? model.google.snapshot.email {
+                        Text(email)
+                            .font(.caption.weight(.semibold))
+                            .accessibilityIdentifier("google.account")
+                    }
+                    Button("Disconnect") { model.disconnectGoogle() }
+                        .buttonStyle(SecondaryCardButton())
+                        .accessibilityIdentifier("google.disconnect")
                 } else {
                     Button("Connect Google") { model.connectGoogle() }
                         .buttonStyle(PrimaryCardButton())
@@ -387,6 +400,66 @@ struct ConnectGoogleCardView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(item.headline)
         .accessibilityIdentifier("card.connectGoogle")
+    }
+}
+
+struct CalendarCardView: View {
+    let item: CalendarItem
+
+    var body: some View {
+        CardChrome {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Calendar", systemImage: "calendar")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.accent)
+                Text(item.title)
+                    .font(.headline)
+                Text(item.whenLabel)
+                    .font(.subheadline.weight(.semibold))
+                if let location = item.location, !location.isEmpty {
+                    Text(location)
+                        .font(.caption)
+                        .foregroundStyle(Palette.muted)
+                }
+                if !item.relatedPeople.isEmpty {
+                    Text(item.relatedPeople.joined(separator: " · "))
+                        .font(.caption)
+                        .foregroundStyle(Palette.muted)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Calendar \(item.title). \(item.whenLabel).")
+        .accessibilityIdentifier("card.calendar")
+    }
+}
+
+struct TaskCardView: View {
+    let item: TaskItem
+
+    var body: some View {
+        CardChrome {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Task", systemImage: "checkmark.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.accent)
+                Text(item.title)
+                    .font(.headline)
+                if let due = item.dueLabel {
+                    Text(due)
+                        .font(.caption)
+                        .foregroundStyle(Palette.muted)
+                }
+                if let notes = item.notes, !notes.isEmpty {
+                    Text(notes)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.ink.opacity(0.85))
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Task \(item.title).")
+        .accessibilityIdentifier("card.task")
     }
 }
 
@@ -480,6 +553,8 @@ struct SecondaryCardButton: ButtonStyle {
             DraftConfirmCardView(item: SampleData.draftReply())
             StatuteCardView(item: SampleData.statute())
             ConnectGoogleCardView(item: SampleData.connectGoogle())
+            CalendarCardView(item: SampleData.calendarEvent())
+            TaskCardView(item: SampleData.openTask())
         }
         .padding()
     }

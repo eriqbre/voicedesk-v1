@@ -51,6 +51,24 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(text.contains("web_search"))
     }
 
+    func testConnectedPresenceDropsSampleDeskLies() {
+        let snapshot = DeskSnapshot(
+            accountEmail: "ada@example.com",
+            emails: [SampleData.syncedEmail()],
+            events: [
+                CalendarItem(title: "Offer review", whenLabel: "Today 3:00 PM", location: "Coastal office")
+            ],
+            tasks: [TaskItem(title: "Call lender", dueLabel: "Tue")]
+        )
+        let text = GrokRealtime.presenceInstructions(for: DeskContext(isConnected: true, snapshot: snapshot))
+        XCTAssertTrue(text.contains("ada@example.com"))
+        XCTAssertTrue(text.contains("Inspection questions"))
+        XCTAssertTrue(text.contains("Offer review"))
+        XCTAssertFalse(text.contains("Jordan Hale"))
+        XCTAssertFalse(text.contains("1842 Beach Drive"))
+        XCTAssertTrue(text.contains("Do not mention any sample listing"))
+    }
+
     func testAppendAudioJSONIsHotPathSafe() {
         XCTAssertEqual(
             GrokRealtime.appendAudioJSON(base64: "ABC+12/="),

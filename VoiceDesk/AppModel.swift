@@ -13,38 +13,62 @@ final class AppModel {
     var isTourRunning = false
     var showVoiceSetup = false
     var hasCompletedPlaybook = false
+    var deskSnapshot = DeskSnapshot.empty
+    var isOnline = true
+    var isSyncing = false
 
     let voice: VoiceBox
-    let google: StubGoogleAuth
+    let google: GoogleSession
     let wakeWord: WakeWordPlaceholder
     let sendClient: RecordingSendClient
     let playbook: PlaybookStoring
+    let cache: DeskCaching
+    let sync: any GoogleSyncing
 
     private var liveAssistantID: UUID?
     private var pendingDeskTopic: ConversationPresence.Topic?
     private var userDedupe = TranscriptDedupe()
+    private var waitingToOfferConnectAfterTalk = false
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
     }
 
+    var deskContext: DeskContext {
+        DeskContext(
+            isConnected: google.isConnected,
+            clientIDConfigured: !google.setupNeeded,
+            isOnline: isOnline,
+            snapshot: deskSnapshot,
+            auth: google.snapshot
+        )
+    }
+
     init(
         voice: (any VoiceServicing)? = nil,
-        google: StubGoogleAuth? = nil,
+        google: GoogleSession? = nil,
         wakeWord: WakeWordPlaceholder? = nil,
         sendClient: RecordingSendClient? = nil,
-        playbook: PlaybookStoring? = nil
+        playbook: PlaybookStoring? = nil,
+        cache: DeskCaching? = nil,
+        sync: (any GoogleSyncing)? = nil,
+        isOnline: Bool = true
     ) {
         self.voice = VoiceBox(service: voice ?? VoiceRuntime.makeService())
-        self.google = google ?? StubGoogleAuth()
+        self.google = google ?? GoogleSession.mock()
         self.wakeWord = wakeWord ?? WakeWordPlaceholder()
-        self.sendClient = sendClient ?? RecordingSendClient()
+        self.sendClient = sendClient ?? RecordingSendClient(isOnline: isOnline)
         self.playbook = playbook ?? InMemoryPlaybookStore(completed: false)
+        self.cache = cache ?? MemoryDeskCache()
+        self.sync = sync ?? MockGoogleSync()
+        self.isOnline = isOnline
         self.hasCompletedPlaybook = self.playbook.hasCompleted
+        self.deskSnapshot = self.cache.load()
         self.voice.transcriptHandler = { [weak self] event in
             self?.handleLiveTranscript(event)
         }
         startWelcome()
+        refreshPresence()
     }
 
     private static func makeLaunchPlaybookStore() -> PlaybookStoring {
@@ -55,7 +79,14 @@ final class AppModel {
     }
 
     static func makeForLaunch() -> AppModel {
-        AppModel(voice: VoiceRuntime.makeService(), playbook: makeLaunchPlaybookStore())
+        let uiTesting = ProcessInfo.processInfo.arguments.contains("-ui-testing")
+        return AppModel(
+            voice: VoiceRuntime.makeService(),
+            google: GoogleSession.makeForLaunch(),
+            playbook: makeLaunchPlaybookStore(),
+            cache: uiTesting ? MemoryDeskCache() : FileDeskCache.applicationSupport(),
+            sync: uiTesting ? MockGoogleSync() : LiveGoogleSync()
+        )
     }
 
     func applyUserTurn(_ text: String) async {
@@ -66,18 +97,40 @@ final class AppModel {
 
     func startWelcome() {
         let firstRun = !hasCompletedPlaybook
+        var suggestions = firstRun ? ConversationPresence.starterChips : [String]()
+        if !firstRun,
+           ConnectOfferPolicy.shouldSoftPrompt(
+            isConnected: google.isConnected,
+            lastSoftPromptAt: playbook.lastConnectSoftPromptAt
+           ) {
+            suggestions = [ConversationPresence.connectGoogleChip]
+            playbook.lastConnectSoftPromptAt = Date()
+        }
         turns = [
             ConversationTurn(
                 role: .assistant,
                 text: firstRun ? ConversationPresence.firstRunWelcome : ConversationPresence.returningWelcome,
-                suggestions: firstRun ? ConversationPresence.starterChips : []
+                suggestions: suggestions
             )
         ]
         phase = .welcome
     }
 
+    func voiceBecame(_ state: VoiceState) {
+        guard state == .idle, waitingToOfferConnectAfterTalk else { return }
+        waitingToOfferConnectAfterTalk = false
+        offerConnectIfNeeded()
+    }
+
+    func handleOpenURL(_ url: URL) -> Bool {
+        google.handleURL(url)
+    }
+
     func tapTalk() {
         completePlaybook()
+        if !google.isConnected {
+            waitingToOfferConnectAfterTalk = true
+        }
         if voice.needsCredentials {
             showVoiceSetup = true
             return
@@ -106,11 +159,14 @@ final class AppModel {
     func confirmDraft(_ id: UUID) {
         updateDraft(id) { $0.status = DraftConfirmMachine.apply($0.status, .confirm) }
         guard let draft = draft(id), DraftConfirmMachine.mayCallSendClient(after: draft.status) else { return }
+        sendClient.isOnline = isOnline
         let attempt = sendClient.send(draft)
         let outcome: String
         switch attempt {
         case .queuedNotDelivered:
-            outcome = "Not sent — Google write is stubbed. Never reported as delivered."
+            outcome = isOnline
+                ? "Not sent — queued, not delivered. Gmail send waits on a write scope in a later slice."
+                : "Queued until you’re back online. Not delivered."
         case .blockedUnconfirmed:
             outcome = "Blocked. Confirm is required before send."
         case .delivered:
@@ -118,23 +174,24 @@ final class AppModel {
         }
         activity.append(
             ActivityEntry(
-                title: "Email send confirmed",
-                detail: "Jordan Hale · Saturday showing",
+                title: "\(draft.actionTitle) confirmed",
+                detail: "\(draft.toLine) · \(draft.subject)",
                 outcome: outcome
             )
         )
         appendAssistant(
-            "Confirmed. It’s on Activity as a draft, not sent. Delivery waits for Google write — I won’t say “sent” until the provider succeeds."
+            "Confirmed. It’s on Activity as queued, not sent. I won’t say “sent” until Google accepts the write."
         )
         Task { await voice.speak("Confirmed. Nothing was sent yet.") }
     }
 
     func cancelDraft(_ id: UUID) {
         updateDraft(id) { $0.status = DraftConfirmMachine.apply($0.status, .cancel) }
+        let draft = draft(id)
         activity.append(
             ActivityEntry(
-                title: "Email send cancelled",
-                detail: "Jordan Hale · Saturday showing",
+                title: "Write cancelled",
+                detail: draft.map { "\($0.toLine) · \($0.subject)" } ?? "Draft",
                 outcome: "Aborted. Nothing left the device."
             )
         )
@@ -155,19 +212,48 @@ final class AppModel {
     func connectGoogle() {
         Task {
             await google.connect()
-            markGoogleConnected()
+            refreshGoogleCards()
+            if google.setupNeeded || !google.isConnected {
+                let copy = google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy
+                activity.append(
+                    ActivityEntry(
+                        title: "Google connect",
+                        detail: "Gmail, Calendar, Tasks",
+                        outcome: google.setupNeeded ? "Setup required. Not connected." : (google.snapshot.message ?? "Failed. Not connected.")
+                    )
+                )
+                appendAssistant(copy)
+                return
+            }
+            await syncDesk()
             activity.append(
                 ActivityEntry(
                     title: "Google connect",
-                    detail: "Gmail, Calendar, Tasks",
-                    outcome: "Stubbed success. Real OAuth is the next slice."
+                    detail: google.snapshot.email ?? "Gmail, Calendar, Tasks",
+                    outcome: "Connected. Last-synced reads are cached offline."
                 )
             )
             appendAssistant(
-                "Google is connected (stub). Next slice is real OAuth and sync. Try “What’s in my inbox?” or tap the mic."
+                "Google is connected as \(google.snapshot.email ?? "your account"). Ask what’s in your inbox — I’ll only show synced mail."
             )
-            await voice.speak("Google is connected, stub only.")
+            await voice.speak("Google is connected.")
         }
+    }
+
+    func disconnectGoogle() {
+        google.disconnect()
+        cache.clear()
+        deskSnapshot = .empty
+        refreshGoogleCards()
+        refreshPresence()
+        activity.append(
+            ActivityEntry(
+                title: "Google disconnect",
+                detail: "Cached inbox, calendar, and tasks cleared",
+                outcome: "Signed out. No leftover mail bodies."
+            )
+        )
+        appendAssistant("Google is disconnected. Cached mail is gone — I won’t keep showing it.")
     }
 
     func handlePersonCall(_ person: PersonItem) {
@@ -222,7 +308,7 @@ final class AppModel {
         }
 
         appendUser(text)
-        pendingDeskTopic = ConversationPresence.plan(for: text).topic
+        pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         if phase == .welcome {
             phase = .ready
         }
@@ -233,6 +319,7 @@ final class AppModel {
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
         }
+        offerConnectIfNeeded()
     }
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
@@ -272,7 +359,7 @@ final class AppModel {
             pendingDeskTopic = nil
             return
         }
-        turns[index].cards = ConversationPresence.cards(for: topic, googleConnected: google.isConnected)
+        turns[index].cards = ConversationPresence.cards(for: topic, context: deskContext)
         pendingDeskTopic = nil
     }
 
@@ -292,6 +379,7 @@ final class AppModel {
 
         if ConversationPresence.isJustTalk(text) {
             appendAssistant(ConversationPresence.justTalkReply)
+            offerConnectIfNeeded()
             return
         }
 
@@ -309,7 +397,7 @@ final class AppModel {
         }
 
         if voice.usesLiveLoop {
-            pendingDeskTopic = ConversationPresence.plan(for: text).topic
+            pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
             await voice.sendTextTurn(text)
             return
         }
@@ -329,6 +417,7 @@ final class AppModel {
             ConversationPresence.deskPreviewReply,
             cards: TourScript.deskPreviewCards()
         )
+        offerConnectIfNeeded()
     }
 
     private func runTour() async {
@@ -359,20 +448,87 @@ final class AppModel {
 
         await pause(400)
         appendAssistant(
-            "When you want me to know your real day, connect Google. Until then I’m still here — ask me anything.",
-            cards: [TourScript.connectGoogleCard(isConnected: google.isConnected)]
+            ConversationPresence.connectCoach,
+            cards: [.connectGoogle(deskContext.connectItem)]
         )
-        await voice.speak("I’m here whenever you’re ready.")
+        playbook.hasSeenConnectOffer = true
+        await voice.speak(ConversationPresence.connectCoach)
 
         phase = .ready
         isTourRunning = false
     }
 
     private func replyReady(to text: String) async {
-        let plan = ConversationPresence.plan(for: text)
-        let cards = ConversationPresence.cards(for: plan.topic, googleConnected: google.isConnected)
+        let plan = ConversationPresence.plan(for: text, context: deskContext)
+        let cards = ConversationPresence.cards(for: plan.topic, context: deskContext)
         appendAssistant(plan.text, cards: cards)
         await voice.speak(plan.text)
+    }
+
+    private func offerConnectIfNeeded() {
+        guard ConnectOfferPolicy.shouldShowFirstConnectOffer(
+            playbookCompleted: hasCompletedPlaybook,
+            hasSeenOffer: playbook.hasSeenConnectOffer,
+            isConnected: google.isConnected
+        ) else { return }
+        playbook.hasSeenConnectOffer = true
+        appendAssistant(
+            ConversationPresence.connectCoach,
+            cards: [.connectGoogle(deskContext.connectItem)],
+            suggestions: [ConversationPresence.connectGoogleChip]
+        )
+    }
+
+    func restoreGoogleIfNeeded() async {
+        await google.restoreSession()
+        if google.isConnected {
+            deskSnapshot = cache.load()
+            if deskSnapshot.accountEmail == nil {
+                await syncDesk()
+            } else {
+                refreshPresence()
+            }
+            refreshGoogleCards()
+        }
+    }
+
+    func syncDesk() async {
+        guard google.isConnected, let token = google.accessToken else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            let next = try await sync.sync(
+                token: token,
+                accountEmail: google.snapshot.email ?? "",
+                now: Date()
+            )
+            deskSnapshot = next
+            cache.save(next)
+            refreshPresence()
+        } catch {
+            var cached = cache.load()
+            cached.lastError = error.localizedDescription
+            deskSnapshot = cached
+            if cached.hasAnyReads {
+                appendAssistant("Couldn’t refresh Google. Showing the last-synced cards. I won’t invent mail.")
+            } else if !isOnline {
+                appendAssistant("You’re offline and I don’t have a cached inbox yet.")
+            }
+        }
+    }
+
+    private func refreshPresence() {
+        voice.updatePresenceInstructions(GrokRealtime.presenceInstructions(for: deskContext))
+    }
+
+    private func refreshGoogleCards() {
+        for index in turns.indices {
+            for cardIndex in turns[index].cards.indices {
+                if case .connectGoogle = turns[index].cards[cardIndex] {
+                    turns[index].cards[cardIndex] = .connectGoogle(deskContext.connectItem)
+                }
+            }
+        }
     }
 
     // MARK: - Mutations
@@ -405,17 +561,6 @@ final class AppModel {
                 body(&draft)
                 turns[index].cards[cardIndex] = .draftConfirm(draft)
                 return
-            }
-        }
-    }
-
-    private func markGoogleConnected() {
-        for index in turns.indices {
-            for cardIndex in turns[index].cards.indices {
-                if case .connectGoogle(var item) = turns[index].cards[cardIndex] {
-                    item.isConnected = true
-                    turns[index].cards[cardIndex] = .connectGoogle(item)
-                }
             }
         }
     }

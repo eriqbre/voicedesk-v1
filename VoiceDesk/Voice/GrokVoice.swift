@@ -7,6 +7,21 @@ final class UserDefaultsPlaybookStore: PlaybookStoring {
         get { UserDefaults.standard.bool(forKey: VoicePlaybook.defaultsKey) }
         set { UserDefaults.standard.set(newValue, forKey: VoicePlaybook.defaultsKey) }
     }
+
+    var hasSeenConnectOffer: Bool {
+        get { UserDefaults.standard.bool(forKey: VoicePlaybook.seenConnectOfferKey) }
+        set { UserDefaults.standard.set(newValue, forKey: VoicePlaybook.seenConnectOfferKey) }
+    }
+
+    var lastConnectSoftPromptAt: Date? {
+        get {
+            let interval = UserDefaults.standard.double(forKey: VoicePlaybook.lastSoftPromptKey)
+            return interval > 0 ? Date(timeIntervalSince1970: interval) : nil
+        }
+        set {
+            UserDefaults.standard.set(newValue?.timeIntervalSince1970 ?? 0, forKey: VoicePlaybook.lastSoftPromptKey)
+        }
+    }
 }
 
 enum VoiceDeskSecrets {
@@ -31,6 +46,21 @@ enum VoiceDeskSecrets {
             ProcessInfo.processInfo.environment["XAI_VOICE_MODEL"],
             plistString("XAI_VOICE_MODEL")
         ]) ?? GrokRealtime.defaultModel
+    }
+
+    /// Scheme env `GOOGLE_CLIENT_ID`, then gitignored `Secrets.plist`.
+    static var googleClientID: String? {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["GOOGLE_CLIENT_ID"],
+            plistString("GOOGLE_CLIENT_ID")
+        ])
+    }
+
+    static var googleReversedClientID: String? {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["GOOGLE_REVERSED_CLIENT_ID"],
+            plistString("GOOGLE_REVERSED_CLIENT_ID")
+        ]) ?? googleClientID.flatMap(GoogleScopes.reversedClientID)
     }
 
     private static func firstNonEmpty(_ values: [String?]) -> String? {

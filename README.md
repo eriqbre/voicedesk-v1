@@ -18,18 +18,34 @@ SwiftUI is the scaffold. Style C is a conversation thread with inline cards — 
 This cloud environment is Linux. It cannot compile or run an iOS target. Open the project on a Mac.
 
 1. Install Xcode 16 or newer (iOS 17 SDK).
-2. Open `VoiceDesk.xcodeproj`.
+2. Open `VoiceDesk.xcodeproj`. First open resolves Swift packages (VoiceDeskLogic + [GoogleSignIn-iOS](https://github.com/google/GoogleSignIn-iOS) 9.x).
 3. Select the **VoiceDesk** scheme and an **iPhone** simulator (or a device).
 4. Signing: set your Team under the VoiceDesk target. Bundle ID is `app.voicedesk.ios`.
-5. Put an xAI key on the live path (never commit it):
-   - Scheme → Run → Arguments → Environment: `XAI_API_KEY` (already wired as `$(XAI_API_KEY)`), or
-   - Copy `VoiceDesk/Secrets.example.plist` to `VoiceDesk/Secrets.plist` and fill `XAI_API_KEY`. `Secrets.plist` is gitignored.
+5. Put secrets on the live path (never commit them):
+   - Scheme → Run → Arguments → Environment: `XAI_API_KEY`, `GOOGLE_CLIENT_ID`, and `GOOGLE_REVERSED_CLIENT_ID` (already wired as `$(…)`), or
+   - Copy `VoiceDesk/Secrets.example.plist` to `VoiceDesk/Secrets.plist` and fill the keys. `Secrets.plist` is gitignored.
 6. Optional: `XAI_VOICE` (default `eve`), `XAI_VOICE_MODEL` (default `grok-voice-latest`).
 7. Run (⌘R). Grant the microphone prompt. Tap **Talk** — mic streams PCM 24 kHz to Grok; Grok speaks back; transcripts land in the thread.
 
 iPhone only. iPad / Mac Catalyst / Android are off.
 
-### Without a key
+### Google Cloud Console (required for real sign-in)
+
+Without `GOOGLE_CLIENT_ID` the app **does not** pretend to be connected. Connect Google shows setup copy and stays signed out.
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials.
+2. Create an **OAuth client ID** of type **iOS**.
+   - Bundle ID: `app.voicedesk.ios`
+   - Copy the client ID (`….apps.googleusercontent.com`).
+3. Enable APIs: **Gmail API**, **Google Calendar API**, **Google Tasks API**.
+4. OAuth consent screen: add test users (your Google account) while the app is in Testing.
+5. Put the client ID in `Secrets.plist` or the scheme env as `GOOGLE_CLIENT_ID`.
+6. Reversed client ID URL scheme (required for the OAuth redirect):
+   - Client ID `123-abc.apps.googleusercontent.com` → scheme `com.googleusercontent.apps.123-abc`
+   - Set `GOOGLE_REVERSED_CLIENT_ID` in `Secrets.plist` / scheme env **and** in the VoiceDesk target build setting of the same name (Info.plist substitutes `$(GOOGLE_REVERSED_CLIENT_ID)`).
+7. Scopes requested (read only this slice): `gmail.readonly`, `calendar.readonly`, `tasks.readonly`. Confirmed writes queue; they do not call Gmail send yet.
+
+### Without an xAI key
 
 The app shows **Connect Grok to talk**. It does **not** run a timed fake listening demo. Typed turns still use local desk-aware replies so the shell is walkable.
 
@@ -37,37 +53,33 @@ The app shows **Connect Grok to talk**. It does **not** run a timed fake listeni
 
 `URLSessionWebSocketTask` strips the `Authorization` header on the HTTP→WS upgrade. Dogfood sends the API key the same way VoiceTesterApp does: `Sec-WebSocket-Protocol: xai-client-secret.<key>` (and still sets `Authorization: Bearer` on the request). That is acceptable for Eriq dogfood.
 
-**Next hardening (not a slice-1 blocker):** mint a short-lived client secret from a server via `POST https://api.x.ai/v1/realtime/client_secrets` and pass that token instead of the long-lived key. See [ephemeral tokens](https://docs.x.ai/developers/model-capabilities/audio/ephemeral-tokens). `LiveGrokVoiceClient.mintRealtimeClientSecret` is implemented for that backend; the default path does not call it.
+**Follow-up hardening (not this slice):** mint a short-lived client secret from a server via `POST https://api.x.ai/v1/realtime/client_secrets` and pass that token instead of the long-lived key. See [ephemeral tokens](https://docs.x.ai/developers/model-capabilities/audio/ephemeral-tokens). `LiveGrokVoiceClient.mintRealtimeClientSecret` is implemented for that backend; the default path does not call it.
 
 ## What works in this slice
 
-- **Live Grok speech-to-speech** when `XAI_API_KEY` is present (`GrokVoiceService` implementing `VoiceServicing`).
-  - WebSocket: `wss://api.x.ai/v1/realtime?model=grok-voice-latest`
-  - `session.update`: voice `eve` (configurable), VoiceDesk presence instructions, `turn_detection: server_vad`, PCM 24 kHz in/out
-  - Mic → `input_audio_buffer.append`; play `response.output_audio.delta` / `response.audio.delta`
-  - User + assistant transcripts mirrored into the conversation thread
-  - Tap Talk again cancels: `response.cancel`, `input_audio_buffer.clear`, abort playback, close the socket
-- Conversation spine (Style C): user/assistant turns with inline cards.
-- Onboarding stub: welcome → short sample tour (email + listing + people graph → draft-confirm → statute/confidence → Connect Google).
-- Confirm-before-act on the draft card. Confirm logs Activity and **does not** claim the email was sent.
-- Voice “stop/cancel” aborts in-progress draft confirms and the live session.
-- Sample cards: Email, Listing, Person, Draft-confirm, Statute/confidence, Connect Google.
+- **Live Grok speech-to-speech** when `XAI_API_KEY` is present.
+- **Connect Google first-run path:** after Talk or the sample preview, a Connect Google chip + card + coach (“Connect Google so I can see your inbox, calendar, and tasks”). Returning users who are not connected get a soft chip, not a nag wall. Playbook / offer state is in UserDefaults.
+- **Real Google Sign-In** via GIDSignIn when `GOOGLE_CLIENT_ID` is set. Missing client ID fails clearly and stays signed out. Disconnect signs out and **clears** the offline cache.
+- **Sync reads:** recent Gmail threads, upcoming Calendar events, open Tasks. Last-synced snapshot is cached on disk.
+- Voice asks — “what’s in my inbox?”, “what’s on my calendar?”, “what tasks do I have?” — attach **real cards** from that cache when Google is connected. Sample Beach Drive mail is not used as live inbox.
+- When Google is connected, Grok presence instructions swap to the synced summary. Grok is told not to invent mail that isn’t in the cache.
+- Morning path: inbox ask → real email card → draft reply confirm. Confirm logs Activity as **queued, not delivered**. No silent send.
+- Sample cards still exist for the first-run preview / tour (email, listing, people, draft, statute).
 
-Talk about anything. Cards show up when the ask is about the desk (inbox, Beach Drive, a reply, a statute). General chat stays in the thread.
-
-`MockVoiceService` is **only** for `-ui-testing`, unit tests, and CI Simulator smoke.
+`MockVoiceService` and `MockGoogleAuthBackend` are **only** for `-ui-testing`, unit tests, and CI Simulator smoke. UI tests never hit live Google.
 
 ## What’s stubbed
 
 | Area | Status |
 |------|--------|
-| Grok voice (live loop) | **Shipped** when a key is present. Tools / desk function calls are minimal this slice (sample-desk facts live in `session.update` instructions). |
-| Ephemeral token server | Client helper exists; not required for dogfood. |
+| Grok voice (live loop) | **Shipped** when a key is present. |
+| Ephemeral token server | Client helper exists; follow-up hardening. |
 | Wake word | Placeholder type + copy. Phrase is an open PRD decision. |
-| Google OAuth / Gmail / Calendar / Tasks | Connect button flips a stub. No tokens, no sync. |
+| Google OAuth | **Shipped** (GIDSignIn) when client ID is configured. |
+| Gmail / Calendar / Tasks **read** | **Shipped** + offline cache. |
+| Gmail / Calendar / Tasks **write** | Confirm-before-act + Activity + offline queue. Provider delivery is not implemented (no write scopes). Never reported as delivered. |
 | Listing claim / public market data | Sample Coastal / St. Petersburg card only. No MLS. |
 | Statute RAG | UI + sample Fla. Stat. § 475.278. No corpus. |
-| Calendar / Task cards | Called out in replies; not drawn in this slice. |
 | Silent send | Intentionally impossible. |
 
 ## Tests
@@ -77,11 +89,11 @@ Talk about anything. Cards show up when the ask is about the desk (inbox, Beach 
 | Unit + UI fixtures (logic) | Linux / this VM / CI `unit-linux` on every push/PR — **merge automated gate** | `swift test --package-path VoiceDeskLogic` |
 | App unit + XCUITest smoke | Local Mac, or Actions → CI → **Run workflow** (`workflow_dispatch` only; does not auto-run) | `xcodebuild test -project VoiceDesk.xcodeproj -scheme VoiceDesk -destination 'platform=iOS Simulator,name=iPhone 16'` |
 
-This Linux cloud agent **cannot** run `xcodebuild` or the Simulator. `ios-macos` is manual because `macos-15` is expensive; it never starts on ordinary push/PR. UI smoke launches with `-ui-testing` so it uses `MockVoiceService`, not a live socket.
+This Linux cloud agent **cannot** run `xcodebuild` or the Simulator. `ios-macos` is manual because `macos-15` is expensive; it never starts on ordinary push/PR. UI smoke launches with `-ui-testing` so it uses `MockVoiceService` and mock Google, not a live socket or GIDSignIn.
 
 ## Next slice
 
-`slice/2-google-sync` — Sign in with Google, Gmail / Calendar / Tasks read, confirm-gated writes, offline cache for last-synced reads.
+`slice/3-graph-listings` — email↔listing↔people graph, claim UX. Full Gmail send on confirm is slice 5.
 
 Hardening after dogfood: ephemeral-token backend so the long-lived xAI key never lives on device.
 
@@ -89,11 +101,11 @@ Hardening after dogfood: ephemeral-token backend so the long-lived xAI key never
 
 ```
 VoiceDesk.xcodeproj      Xcode 16 project (app + unit + UI tests)
-VoiceDesk/               App sources (live Grok in Voice/)
+VoiceDesk/               App sources (live Grok + Google Sign-In / sync)
 VoiceDeskLogic/          Linux-runnable domain + `swift test`
 VoiceDeskTests/          Hosted app unit tests
 VoiceDeskUITests/        XCUITest launch / card smoke
-.github/workflows/ci.yml Linux unit + macOS Simulator
-PRODUCT_REQUIREMENTS.md  Product spec (unchanged in this slice)
+.github/workflows/ci.yml Linux unit + macOS Simulator (dispatch only)
+PRODUCT_REQUIREMENTS.md  Product spec
 TESTING_AND_BRANCHING.md Gates, branches, walk checklists
 ```

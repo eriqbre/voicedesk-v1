@@ -15,4 +15,13 @@ final class OfflineQueueTests: XCTestCase {
         XCTAssertEqual(flushed[0].title, "Send reply")
         XCTAssertTrue(queue.isEmpty)
     }
+
+    func testConfirmedSendQueuesAndNeverMarksDelivered() {
+        let client = RecordingSendClient(isOnline: false)
+        var draft = SampleData.draftReply()
+        draft.status = .confirmed
+        XCTAssertEqual(client.send(draft), .queuedNotDelivered)
+        XCTAssertEqual(client.queue.pending.count, 1)
+        XCTAssertFalse(client.queue.isEmpty)
+    }
 }

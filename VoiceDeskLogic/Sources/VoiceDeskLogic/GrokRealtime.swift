@@ -13,31 +13,88 @@ public enum GrokRealtime {
         "\(realtimeHost)?model=\(model)"
     }
 
+    /// Disconnected / first-run sample desk. Do not use after Google is connected.
+    public static let presenceInstructions = presenceInstructions(for: .disconnected)
+
     /// Second-person VoiceDesk presence. Cards attach in the iOS app from desk evidence;
     /// this prompt only shapes spoken Grok. No tools are registered this slice.
-    public static let presenceInstructions = """
-    ## Role & Persona
-    You are VoiceDesk — a person who already knows this realtor’s world. You talk like a colleague sitting next to them, not a command menu. You answer anything they ask, desk or not.
+    public static func presenceInstructions(for context: DeskContext) -> String {
+        let deskBlock: String
+        if context.isConnected {
+            deskBlock = connectedDeskFacts(context.snapshot)
+        } else {
+            deskBlock = """
+            You work with Bridget at Coastal Tampa Bay. Sample desk you already know (not live Gmail yet):
+            - Jordan Hale emailed this morning about a Saturday showing at 1842 Beach Drive NE, St. Petersburg.
+            - Fla. Stat. § 475.278 covers brokerage-relationship disclosure. Treat legal answers as guidance, not legal advice. Confidence on that sample is 86 percent, firm.
+            """
+        }
 
-    You work with Bridget at Coastal Tampa Bay. Sample desk you already know (not live Gmail yet):
-    - Jordan Hale emailed this morning about a Saturday showing at 1842 Beach Drive NE, St. Petersburg.
-    - Fla. Stat. § 475.278 covers brokerage-relationship disclosure. Treat legal answers as guidance, not legal advice. Confidence on that sample is 86 percent, firm.
+        let deskObjective = context.isConnected
+            ? "When the topic is their desk, stay concrete about the last-synced Google facts below. If it is not in that list, say you do not have it synced. Never invent mail."
+            : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
-    ## Objective
-    Be someone they can talk to about anything. When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent.
+        let deskFlow = context.isConnected
+            ? "If they ask about inbox, calendar, or tasks, use only the synced facts. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail."
+            : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail."
 
-    ## Conversation Flow
-    Listen. Answer in a few spoken sentences. If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail.
+        return """
+        ## Role & Persona
+        You are VoiceDesk — a person who already knows this realtor’s world. You talk like a colleague sitting next to them, not a command menu. You answer anything they ask, desk or not.
 
-    ## Guardrails & Escalation
-    NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You have no tools this slice — do not pretend to call functions. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
+        \(deskBlock)
 
-    ## Voice & Communication Style
-    Spoken word only: no markdown, no bullets, no emojis. One or two short sentences unless they want more. Warm, direct, English. Vary phrasing.
+        ## Objective
+        Be someone they can talk to about anything. \(deskObjective)
 
-    ## CRITICAL INSTRUCTIONS
-    NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the sample desk. The iOS app attaches evidence cards separately — you just talk.
-    """
+        ## Conversation Flow
+        Listen. Answer in a few spoken sentences. \(deskFlow)
+
+        ## Guardrails & Escalation
+        NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You have no tools this slice — do not pretend to call functions. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
+
+        ## Voice & Communication Style
+        Spoken word only: no markdown, no bullets, no emojis. One or two short sentences unless they want more. Warm, direct, English. Vary phrasing.
+
+        ## CRITICAL INSTRUCTIONS
+        NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above. The iOS app attaches evidence cards separately — you just talk.
+        """
+    }
+
+    public static func connectedDeskFacts(_ snapshot: DeskSnapshot) -> String {
+        var lines: [String] = [
+            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). Use only this last-synced cache. Do not invent any other mail, events, or tasks."
+        ]
+        if let synced = snapshot.lastSyncedAt {
+            lines.append("Last synced: \(DeskSnapshot.timeLabel(synced)).")
+        }
+        if snapshot.emails.isEmpty {
+            lines.append("Inbox: nothing synced. If they ask what’s in their inbox, say you do not have synced threads yet.")
+        } else {
+            lines.append("Inbox (only these):")
+            for email in snapshot.emails.prefix(8) {
+                lines.append("- \(email.fromName): \(email.subject)")
+            }
+        }
+        if snapshot.events.isEmpty {
+            lines.append("Calendar: nothing upcoming in the last sync.")
+        } else {
+            lines.append("Calendar (only these):")
+            for event in snapshot.events.prefix(8) {
+                lines.append("- \(event.title) — \(event.whenLabel)")
+            }
+        }
+        if snapshot.tasks.isEmpty {
+            lines.append("Tasks: no open tasks in the last sync.")
+        } else {
+            lines.append("Open tasks (only these):")
+            for task in snapshot.tasks.prefix(8) {
+                lines.append("- \(task.title)")
+            }
+        }
+        lines.append("Fla. Stat. § 475.278 still covers brokerage-relationship disclosure. Treat legal answers as guidance, not legal advice.")
+        return lines.joined(separator: "\n")
+    }
 
     public static func sessionUpdateObject(
         voice: String = defaultVoice,

@@ -22,7 +22,9 @@ final class ConversationPresenceTests: XCTestCase {
     func testDeskAsksAttachEvidenceCards() {
         let inbox = ConversationPresence.plan(for: "What's in my inbox?")
         XCTAssertEqual(inbox.topic, .inbox)
-        XCTAssertFalse(ConversationPresence.cards(for: .inbox, googleConnected: false).isEmpty)
+        let disconnectedInbox = ConversationPresence.cards(for: .inbox, googleConnected: false)
+        XCTAssertEqual(disconnectedInbox.map(\.kind), [.connectGoogle])
+        XCTAssertFalse(inbox.text.lowercased().contains("jordan"))
 
         let listing = ConversationPresence.plan(for: "Show me Beach Drive")
         XCTAssertEqual(listing.topic, .listing)
@@ -35,6 +37,42 @@ final class ConversationPresenceTests: XCTestCase {
 
         let google = ConversationPresence.plan(for: "Connect Google")
         XCTAssertEqual(google.topic, .google)
+        XCTAssertEqual(google.text, ConversationPresence.connectCoach)
+    }
+
+    func testConnectedInboxUsesCacheNotSampleDesk() {
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let context = DeskContext(isConnected: true, snapshot: snapshot)
+        let plan = ConversationPresence.plan(for: "What's in my inbox?", context: context)
+        XCTAssertEqual(plan.topic, .inbox)
+        XCTAssertTrue(plan.text.contains("Ada Cole"))
+        XCTAssertFalse(plan.text.lowercased().contains("jordan"))
+        let cards = ConversationPresence.cards(for: .inbox, context: context)
+        XCTAssertEqual(cards.count, 1)
+        if case .email(let item) = cards[0] {
+            XCTAssertEqual(item.subject, "Inspection questions")
+        } else {
+            XCTFail("expected email card")
+        }
+    }
+
+    func testConnectedEmptyInboxDoesNotInventMail() {
+        let context = DeskContext(isConnected: true, snapshot: .empty)
+        let plan = ConversationPresence.plan(for: "What's in my inbox?", context: context)
+        XCTAssertTrue(plan.text.lowercased().contains("not inventing"))
+        XCTAssertTrue(ConversationPresence.cards(for: .inbox, context: context).isEmpty)
+    }
+
+    func testCalendarAndTasksWhenConnected() {
+        let snapshot = DeskSnapshot(
+            events: [SampleData.calendarEvent()],
+            tasks: [SampleData.openTask()]
+        )
+        let context = DeskContext(isConnected: true, snapshot: snapshot)
+        XCTAssertEqual(ConversationPresence.plan(for: "What's on my calendar?", context: context).topic, .calendar)
+        XCTAssertEqual(ConversationPresence.cards(for: .calendar, context: context).map(\.kind), [.calendar])
+        XCTAssertEqual(ConversationPresence.plan(for: "What tasks do I have?", context: context).topic, .task)
+        XCTAssertEqual(ConversationPresence.cards(for: .task, context: context).map(\.kind), [.task])
     }
 
     func testWelcomeIsAPersonNotAMenu() {

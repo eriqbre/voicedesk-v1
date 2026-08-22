@@ -27,6 +27,10 @@ public enum ConversationPresence {
     public static let deskStarter = deskPreview
 
     public static let starterChips = [justTalk, deskPreview, draftStarter]
+    public static let connectGoogleChip = "Connect Google"
+    public static let connectCoach =
+        "Connect Google so I can see your inbox, calendar, and tasks."
+    public static let returningConnectChipHint = "Connect Google when you’re ready — no rush."
 
     public enum Topic: String, Sendable, Equatable {
         case inbox
@@ -34,6 +38,8 @@ public enum ConversationPresence {
         case draft
         case statute
         case google
+        case calendar
+        case task
         case general
     }
 
@@ -50,6 +56,10 @@ public enum ConversationPresence {
     }
 
     public static func plan(for raw: String) -> Plan {
+        plan(for: raw, context: .disconnected)
+    }
+
+    public static func plan(for raw: String, context: DeskContext) -> Plan {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = text.lowercased()
 
@@ -61,12 +71,19 @@ public enum ConversationPresence {
             return Plan(topic: .inbox, text: deskPreviewReply)
         }
 
-        if contains(lower, ["inbox", "my email", "my mail", "jordan hale", "jordan wrote"])
-            || (contains(lower, ["email", "mail"]) && contains(lower, ["my", "inbox", "jordan"])) {
-            return Plan(
-                topic: .inbox,
-                text: "Jordan wrote this morning about Saturday at Beach Drive. Here’s the thread — sample desk data, not live Gmail yet."
-            )
+        if contains(lower, ["inbox", "my email", "my mail", "what's in my inbox", "whats in my inbox"])
+            || (contains(lower, ["email", "mail"]) && contains(lower, ["my", "inbox"])) {
+            return Plan(topic: .inbox, text: inboxReply(context: context))
+        }
+
+        if contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
+            || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"])) {
+            return Plan(topic: .calendar, text: calendarReply(context: context))
+        }
+
+        if contains(lower, ["my tasks", "what tasks", "to-do", "todo", "open tasks"])
+            || (contains(lower, ["task"]) && contains(lower, ["my", "have", "open"])) {
+            return Plan(topic: .task, text: taskReply(context: context))
         }
 
         if contains(lower, ["beach drive", "1842", "my listing", "the listing", "showing saturday", "the house"])
@@ -79,10 +96,7 @@ public enum ConversationPresence {
 
         if contains(lower, ["draft confirm", "show me a draft", "draft a reply", "reply to jordan", "send that", "write him back", "write her back"])
             || (contains(lower, ["reply", "draft"]) && contains(lower, ["email", "jordan", "send", "confirm"])) {
-            return Plan(
-                topic: .draft,
-                text: "Here’s exactly what I’d send. Nothing leaves until you confirm."
-            )
+            return Plan(topic: .draft, text: draftReply(context: context))
         }
 
         if contains(lower, ["statute", "florida law", "disclosure", "475.278", "brokerage relationship"])
@@ -93,31 +107,107 @@ public enum ConversationPresence {
             )
         }
 
-        if contains(lower, ["connect google", "sign in with google", "sign into google"]) {
-            return Plan(
-                topic: .google,
-                text: "Google is how I actually know your inbox, calendar, and tasks. Connect when you’re ready — it’s stubbed here."
-            )
+        if contains(lower, ["connect google", "sign in with google", "sign into google", "disconnect google"]) {
+            return Plan(topic: .google, text: googleReply(context: context))
         }
 
-        return Plan(topic: .general, text: generalReply(for: text, lower: lower))
+        return Plan(topic: .general, text: generalReply(for: text, lower: lower, context: context))
     }
 
     public static func cards(for topic: Topic, googleConnected: Bool) -> [ContentCard] {
+        cards(for: topic, context: DeskContext(isConnected: googleConnected))
+    }
+
+    public static func cards(for topic: Topic, context: DeskContext) -> [ContentCard] {
         switch topic {
         case .inbox:
-            return [.email(SampleData.email()), .person(SampleData.buyer())]
+            if context.isConnected {
+                return context.snapshot.emails.prefix(3).map { .email($0) }
+            }
+            return [.connectGoogle(context.connectItem)]
+        case .calendar:
+            if context.isConnected {
+                return context.snapshot.events.prefix(3).map { .calendar($0) }
+            }
+            return [.connectGoogle(context.connectItem)]
+        case .task:
+            if context.isConnected {
+                return context.snapshot.tasks.prefix(5).map { .task($0) }
+            }
+            return [.connectGoogle(context.connectItem)]
         case .listing:
             return [.listing(SampleData.listing()), .person(SampleData.buyer()), .person(SampleData.partner())]
         case .draft:
+            if context.isConnected, let email = context.snapshot.emails.first {
+                return [.draftConfirm(GoogleJSONMapping.draftReply(to: email))]
+            }
             return [.draftConfirm(SampleData.draftReply())]
         case .statute:
             return [.statute(SampleData.statute())]
         case .google:
-            return [.connectGoogle(SampleData.connectGoogle(isConnected: googleConnected))]
+            return [.connectGoogle(context.connectItem)]
         case .general:
             return []
         }
+    }
+
+    public static func inboxReply(context: DeskContext) -> String {
+        if !context.clientIDConfigured {
+            return GoogleAuthSnapshot.missingClientIDCopy
+        }
+        if !context.isConnected {
+            return "I don’t have your live inbox yet. Connect Google so I can see your mail — I won’t invent any."
+        }
+        if context.snapshot.emails.isEmpty {
+            if context.isOnline {
+                return "Google is connected, but I don’t have any synced threads yet. I’m not inventing mail."
+            }
+            return "I’m offline and the last-synced inbox is empty. I won’t invent mail."
+        }
+        if !context.isOnline {
+            return "Here’s the last-synced inbox. I’m offline, so this may be stale."
+        }
+        let first = context.snapshot.emails[0]
+        return "Latest from \(first.fromName): \(first.subject). I’m only showing mail I actually synced."
+    }
+
+    public static func calendarReply(context: DeskContext) -> String {
+        if !context.isConnected {
+            return "I don’t have your live calendar yet. Connect Google and I’ll put upcoming events on a card."
+        }
+        if context.snapshot.events.isEmpty {
+            return "Google is connected. Nothing upcoming is in the last sync — I’m not inventing events."
+        }
+        let first = context.snapshot.events[0]
+        return "Next up: \(first.title), \(first.whenLabel). Only synced events."
+    }
+
+    public static func taskReply(context: DeskContext) -> String {
+        if !context.isConnected {
+            return "I don’t have your live tasks yet. Connect Google and I’ll show open ones."
+        }
+        if context.snapshot.tasks.isEmpty {
+            return "Google is connected. No open tasks in the last sync."
+        }
+        return "You have \(context.snapshot.tasks.count) open task\(context.snapshot.tasks.count == 1 ? "" : "s") from the last sync."
+    }
+
+    public static func draftReply(context: DeskContext) -> String {
+        if context.isConnected, context.snapshot.emails.first != nil {
+            return "Here’s exactly what I’d send to the latest synced thread. Nothing leaves until you confirm."
+        }
+        return "Here’s exactly what I’d send. Nothing leaves until you confirm."
+    }
+
+    public static func googleReply(context: DeskContext) -> String {
+        if context.isConnected {
+            let email = context.auth.email ?? context.snapshot.accountEmail ?? "your Google account"
+            return "Google is connected as \(email). Ask about inbox, calendar, or tasks — I’ll only use the last sync."
+        }
+        if !context.clientIDConfigured {
+            return GoogleAuthSnapshot.missingClientIDCopy
+        }
+        return connectCoach
     }
 
     public static func wantsDeskPreview(_ raw: String) -> Bool {
@@ -156,10 +246,11 @@ public enum ConversationPresence {
         if wantsDeskPreview(item) || item == deskPreview { return "suggestion.tour" }
         if item == justTalk { return "suggestion.justTalk" }
         if item == draftStarter { return "suggestion.draft" }
+        if item == connectGoogleChip { return "suggestion.connectGoogle" }
         return "suggestion.\(item)"
     }
 
-    private static func generalReply(for text: String, lower: String) -> String {
+    private static func generalReply(for text: String, lower: String, context: DeskContext) -> String {
         if contains(lower, ["weather", "rain", "storm"]) {
             return "Tampa Bay this time of year I’d plan on warm, with a late storm always in the mix — glance before you leave for a showing. What else?"
         }
@@ -173,7 +264,10 @@ public enum ConversationPresence {
             return "Why did the listing go to therapy? Too many attachments. I’m kidding — what’s actually on your mind?"
         }
         if contains(lower, ["calendar", "schedule", "task", "todo"]) {
-            return "I don’t have your live calendar yet. Once Google is connected I will — until then I’ll just talk it through with you. What are you trying to fit in?"
+            if context.isConnected {
+                return "Ask me what’s on your calendar or what tasks you have — I’ll use the last Google sync, not a sample day."
+            }
+            return "I don’t have your live calendar yet. Connect Google and I will — until then I’ll just talk it through with you. What are you trying to fit in?"
         }
         if text.isEmpty {
             return "I’m here. Say anything."

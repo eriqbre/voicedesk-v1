@@ -40,6 +40,14 @@ struct ConversationScreen: View {
             .navigationTitle("VoiceDesk")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if model.google.isConnected {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Disconnect Google") {
+                            model.disconnectGoogle()
+                        }
+                        .accessibilityIdentifier("google.disconnect.toolbar")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         model.showActivity = true
@@ -48,6 +56,9 @@ struct ConversationScreen: View {
                     }
                     .accessibilityLabel("Activity")
                 }
+            }
+            .onChange(of: model.voice.state) { _, state in
+                model.voiceBecame(state)
             }
             .sheet(isPresented: $model.showActivity) {
                 ActivitySheet()

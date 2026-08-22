@@ -37,6 +37,8 @@ public enum ContentCardKind: String, Hashable, Sendable, CaseIterable {
     case draftConfirm
     case statute
     case connectGoogle
+    case calendar
+    case task
 
     public var fixtureID: String { "card.\(rawValue)" }
 }
@@ -48,6 +50,8 @@ public enum ContentCard: Identifiable, Hashable, Sendable {
     case draftConfirm(DraftConfirmItem)
     case statute(StatuteItem)
     case connectGoogle(ConnectGoogleItem)
+    case calendar(CalendarItem)
+    case task(TaskItem)
 
     public var id: UUID {
         switch self {
@@ -57,6 +61,8 @@ public enum ContentCard: Identifiable, Hashable, Sendable {
         case .draftConfirm(let item): item.id
         case .statute(let item): item.id
         case .connectGoogle(let item): item.id
+        case .calendar(let item): item.id
+        case .task(let item): item.id
         }
     }
 
@@ -68,6 +74,8 @@ public enum ContentCard: Identifiable, Hashable, Sendable {
         case .draftConfirm: .draftConfirm
         case .statute: .statute
         case .connectGoogle: .connectGoogle
+        case .calendar: .calendar
+        case .task: .task
         }
     }
 
@@ -87,12 +95,18 @@ public enum ContentCard: Identifiable, Hashable, Sendable {
             "\(item.title). Confidence \(item.confidence) percent, \(item.band.label). \(item.citation)."
         case .connectGoogle(let item):
             item.headline
+        case .calendar(let item):
+            "Calendar \(item.title). \(item.whenLabel)."
+        case .task(let item):
+            "Task \(item.title)."
         }
     }
 }
 
-public struct EmailItem: Identifiable, Hashable, Sendable {
+public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
+    public var providerID: String?
+    public var threadID: String?
     public var fromName: String
     public var fromEmail: String
     public var sentAtLabel: String
@@ -104,6 +118,8 @@ public struct EmailItem: Identifiable, Hashable, Sendable {
 
     public init(
         id: UUID = UUID(),
+        providerID: String? = nil,
+        threadID: String? = nil,
         fromName: String,
         fromEmail: String,
         sentAtLabel: String,
@@ -114,6 +130,8 @@ public struct EmailItem: Identifiable, Hashable, Sendable {
         relatedPeople: [String] = []
     ) {
         self.id = id
+        self.providerID = providerID
+        self.threadID = threadID
         self.fromName = fromName
         self.fromEmail = fromEmail
         self.sentAtLabel = sentAtLabel
@@ -278,22 +296,84 @@ public struct StatuteItem: Identifiable, Hashable, Sendable {
     public var band: ConfidenceBand { ConfidenceBand.band(for: confidence) }
 }
 
+public struct CalendarItem: Identifiable, Hashable, Sendable, Codable {
+    public let id: UUID
+    public var providerID: String?
+    public var title: String
+    public var whenLabel: String
+    public var location: String?
+    public var relatedPeople: [String]
+    public var startAt: Date?
+
+    public init(
+        id: UUID = UUID(),
+        providerID: String? = nil,
+        title: String,
+        whenLabel: String,
+        location: String? = nil,
+        relatedPeople: [String] = [],
+        startAt: Date? = nil
+    ) {
+        self.id = id
+        self.providerID = providerID
+        self.title = title
+        self.whenLabel = whenLabel
+        self.location = location
+        self.relatedPeople = relatedPeople
+        self.startAt = startAt
+    }
+}
+
+public struct TaskItem: Identifiable, Hashable, Sendable, Codable {
+    public let id: UUID
+    public var providerID: String?
+    public var title: String
+    public var dueLabel: String?
+    public var notes: String?
+    public var isCompleted: Bool
+
+    public init(
+        id: UUID = UUID(),
+        providerID: String? = nil,
+        title: String,
+        dueLabel: String? = nil,
+        notes: String? = nil,
+        isCompleted: Bool = false
+    ) {
+        self.id = id
+        self.providerID = providerID
+        self.title = title
+        self.dueLabel = dueLabel
+        self.notes = notes
+        self.isCompleted = isCompleted
+    }
+}
+
 public struct ConnectGoogleItem: Identifiable, Hashable, Sendable {
     public let id: UUID
     public var headline: String
     public var body: String
     public var isConnected: Bool
+    public var accountEmail: String?
+    public var setupNeeded: Bool
+    public var statusLine: String
 
     public init(
         id: UUID = UUID(),
         headline: String = "Connect Google",
         body: String = "Gmail, Calendar, and Tasks — required before VoiceDesk can work your real day.",
-        isConnected: Bool = false
+        isConnected: Bool = false,
+        accountEmail: String? = nil,
+        setupNeeded: Bool = false,
+        statusLine: String = "Required for a real day"
     ) {
         self.id = id
         self.headline = headline
         self.body = body
         self.isConnected = isConnected
+        self.accountEmail = accountEmail
+        self.setupNeeded = setupNeeded
+        self.statusLine = statusLine
     }
 }
 

@@ -26,9 +26,10 @@ final class AppModelTests: XCTestCase {
         let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
         await model.applyUserTurn(ConversationPresence.deskPreview)
         let kinds = model.turns.flatMap(\.cards).map(\.kind)
-        XCTAssertEqual(kinds, [.email, .listing])
-        XCTAssertEqual(model.turns.last?.text, ConversationPresence.deskPreviewReply)
-        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("live gmail is connected"))
+        XCTAssertEqual(Array(kinds.prefix(2)), [.email, .listing])
+        XCTAssertTrue(kinds.contains(.connectGoogle))
+        XCTAssertTrue(model.turns.contains { $0.text == ConversationPresence.deskPreviewReply })
+        XCTAssertTrue(model.turns.contains { $0.text == ConversationPresence.connectCoach })
         XCTAssertEqual(model.phase, .ready)
     }
 
@@ -106,7 +107,8 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.turns.filter { $0.role == .user }.count, 1)
         XCTAssertEqual(model.turns[1].text, "What’s in my inbox?")
         XCTAssertTrue(model.turns[2].text.contains("Jordan wrote"))
-        XCTAssertTrue(model.turns[2].cards.contains { $0.kind == .email })
+        XCTAssertTrue(model.turns[2].cards.contains { $0.kind == .connectGoogle })
+        XCTAssertFalse(model.turns[2].cards.contains { $0.kind == .email })
     }
 
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
@@ -125,19 +127,28 @@ final class AppModelTests: XCTestCase {
     func testReturningLaunchSkipsPlaybookChips() {
         let model = AppModel(
             voice: MockVoiceService(label: "test", instant: true),
-            playbook: InMemoryPlaybookStore(completed: true)
+            playbook: InMemoryPlaybookStore(completed: true, lastConnectSoftPromptAt: Date())
         )
         XCTAssertEqual(model.turns.first?.text, ConversationPresence.returningWelcome)
         XCTAssertTrue(model.turns.first?.suggestions.isEmpty == true)
         XCTAssertFalse(model.showsTalkCoach)
     }
 
+    func testReturningLaunchSoftPromptsConnectOnce() {
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            playbook: InMemoryPlaybookStore(completed: true)
+        )
+        XCTAssertEqual(model.turns.first?.suggestions, [ConversationPresence.connectGoogleChip])
+        XCTAssertNotNil(model.playbook.lastConnectSoftPromptAt)
+    }
+
     func testJustTalkChipPointsAtTalkWithoutTour() async {
         let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
         await model.applyUserTurn(ConversationPresence.justTalk)
         XCTAssertTrue(model.hasCompletedPlaybook)
-        XCTAssertEqual(model.turns.last?.text, ConversationPresence.justTalkReply)
-        XCTAssertTrue(model.turns.flatMap(\.cards).isEmpty)
+        XCTAssertTrue(model.turns.contains { $0.text == ConversationPresence.justTalkReply })
+        XCTAssertTrue(model.turns.contains { $0.text == ConversationPresence.connectCoach })
     }
 
     func testLiveCancelStopsSessionWithoutFakeUtterance() async {
@@ -218,5 +229,93 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func emitAssistant(_ text: String, isFinal: Bool) {
         eventHandler?(.assistantTranscript(text, isFinal: isFinal))
+    }
+
+    func updatePresenceInstructions(_ text: String) {
+        _ = text
+    }
+}
+
+@MainActor
+final class GoogleSliceTests: XCTestCase {
+    func testMissingClientIDDoesNotFakeConnected() async {
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .missingClientID()
+        )
+        await model.connectGoogle()
+        XCTAssertFalse(model.google.isConnected)
+        XCTAssertTrue(model.google.setupNeeded)
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("GOOGLE_CLIENT_ID"))
+        XCTAssertTrue(model.activity.contains { $0.outcome.contains("Not connected") })
+    }
+
+    func testConnectSyncsRealCardsNotSampleDesk() async {
+        let cache = MemoryDeskCache()
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(),
+            cache: cache,
+            sync: MockGoogleSync(result: DeskSnapshot(emails: [SampleData.syncedEmail()]))
+        )
+        await model.connectGoogle()
+        XCTAssertTrue(model.google.isConnected)
+        XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Inspection questions")
+        XCTAssertEqual(cache.load().emails.first?.fromName, "Ada Cole")
+
+        await model.applyUserTurn("What's in my inbox?")
+        let emails = model.turns.flatMap(\.cards).compactMap { card -> EmailItem? in
+            if case .email(let item) = card { return item }
+            return nil
+        }
+        XCTAssertEqual(emails.first?.subject, "Inspection questions")
+        XCTAssertFalse(emails.contains { $0.fromName.contains("Jordan") })
+    }
+
+    func testSignOutClearsCachedMail() async {
+        let cache = MemoryDeskCache()
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(),
+            cache: cache,
+            sync: MockGoogleSync()
+        )
+        await model.connectGoogle()
+        XCTAssertFalse(cache.load().emails.isEmpty)
+        model.disconnectGoogle()
+        XCTAssertFalse(model.google.isConnected)
+        XCTAssertTrue(model.deskSnapshot.emails.isEmpty)
+        XCTAssertTrue(cache.load().emails.isEmpty)
+        XCTAssertTrue(model.activity.contains { $0.outcome.contains("Signed out") })
+    }
+
+    func testOfflineConfirmQueuesAndDoesNotClaimDelivered() async {
+        let send = RecordingSendClient(isOnline: false)
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            sendClient: send,
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [SampleData.syncedEmail()])),
+            isOnline: false
+        )
+        await model.applyUserTurn("Draft a reply to Jordan")
+        let draft = model.turns.flatMap(\.cards).compactMap { card -> DraftConfirmItem? in
+            if case .draftConfirm(let item) = card { return item }
+            return nil
+        }.first
+        XCTAssertNotNil(draft)
+        XCTAssertTrue(draft!.toLine.contains("ada.cole@example.com"))
+        model.confirmDraft(draft!.id)
+        XCTAssertEqual(send.sentDrafts.count, 1)
+        XCTAssertTrue(model.activity.contains { $0.outcome.contains("Queued") })
+        XCTAssertFalse(model.activity.contains { $0.outcome == "Delivered." })
+    }
+
+    func testInboxAskWhenDisconnectedOffersConnectNotSampleMail() async {
+        let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
+        await model.applyUserTurn("What's in my inbox?")
+        let kinds = model.turns.flatMap(\.cards).map(\.kind)
+        XCTAssertTrue(kinds.contains(.connectGoogle))
+        XCTAssertFalse(kinds.contains(.email))
     }
 }

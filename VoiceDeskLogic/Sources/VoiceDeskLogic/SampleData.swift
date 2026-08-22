@@ -72,6 +72,41 @@ public enum SampleData {
     }
 
     public static func connectGoogle(isConnected: Bool = false) -> ConnectGoogleItem {
-        ConnectGoogleItem(isConnected: isConnected)
+        ConnectGoogleItem(
+            isConnected: isConnected,
+            statusLine: isConnected ? "Connected" : "Required for a real day"
+        )
+    }
+
+    public static func calendarEvent() -> CalendarItem {
+        CalendarItem(
+            providerID: "evt-sample",
+            title: "Saturday showing",
+            whenLabel: "Sat 11:00 AM",
+            location: listingAddress,
+            relatedPeople: ["Jordan Hale"]
+        )
+    }
+
+    public static func openTask() -> TaskItem {
+        TaskItem(
+            providerID: "task-sample",
+            title: "Confirm inspection window",
+            dueLabel: "Tue",
+            notes: "Beach Drive — through Tuesday."
+        )
+    }
+
+    public static func syncedEmail() -> EmailItem {
+        EmailItem(
+            providerID: "msg-live-1",
+            threadID: "thr-live-1",
+            fromName: "Ada Cole",
+            fromEmail: "ada.cole@example.com",
+            sentAtLabel: "Today 8:02 AM",
+            subject: "Inspection questions",
+            preview: "Can we walk the punch list before Thursday?",
+            filterTag: "Inbox"
+        )
     }
 }
