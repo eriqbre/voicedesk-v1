@@ -1,11 +1,10 @@
 import Foundation
 
 /// Coastal / Bridget-shaped sample cards for the onboarding tour and UI demo.
-/// Not live Google or listing data.
-enum SampleData {
-    static let listingAddress = "1842 Beach Drive NE"
+public enum SampleData {
+    public static let listingAddress = "1842 Beach Drive NE"
 
-    static func email() -> EmailItem {
+    public static func email() -> EmailItem {
         EmailItem(
             fromName: "Jordan Hale",
             fromEmail: "jordan.hale@example.com",
@@ -18,7 +17,7 @@ enum SampleData {
         )
     }
 
-    static func listing() -> ListingItem {
+    public static func listing() -> ListingItem {
         ListingItem(
             priceLabel: "$875,000",
             addressLine: listingAddress,
@@ -32,7 +31,7 @@ enum SampleData {
         )
     }
 
-    static func buyer() -> PersonItem {
+    public static func buyer() -> PersonItem {
         PersonItem(
             name: "Jordan Hale",
             roleLabel: "Buyer",
@@ -42,7 +41,7 @@ enum SampleData {
         )
     }
 
-    static func partner() -> PersonItem {
+    public static func partner() -> PersonItem {
         PersonItem(
             name: "Priya Shah",
             roleLabel: "Showing partner",
@@ -52,7 +51,7 @@ enum SampleData {
         )
     }
 
-    static func draftReply() -> DraftConfirmItem {
+    public static func draftReply() -> DraftConfirmItem {
         DraftConfirmItem(
             actionTitle: "Send reply",
             channel: "Gmail",
@@ -62,7 +61,7 @@ enum SampleData {
         )
     }
 
-    static func statute() -> StatuteItem {
+    public static func statute() -> StatuteItem {
         StatuteItem(
             title: "Brokerage relationship disclosure",
             plainLanguage: "Florida requires you to disclose the brokerage relationship you’re operating under (transaction broker, single agent, or no brokerage) before, or at, entering into a listing or representation agreement — and before showing property as a single agent.",
@@ -72,7 +71,7 @@ enum SampleData {
         )
     }
 
-    static func connectGoogle(isConnected: Bool = false) -> ConnectGoogleItem {
+    public static func connectGoogle(isConnected: Bool = false) -> ConnectGoogleItem {
         ConnectGoogleItem(isConnected: isConnected)
     }
 }

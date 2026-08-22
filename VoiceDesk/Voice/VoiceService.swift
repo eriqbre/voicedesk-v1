@@ -1,13 +1,7 @@
 import AVFoundation
 import Foundation
 import Observation
-
-enum VoiceState: String, Hashable {
-    case idle
-    case listening
-    case thinking
-    case speaking
-}
+import VoiceDeskLogic
 
 @MainActor
 protocol VoiceServicing: AnyObject {
@@ -35,37 +29,44 @@ enum VoiceRuntime {
 @MainActor
 @Observable
 final class MockVoiceService: VoiceServicing {
-    private(set) var state: VoiceState = .idle
+    private var session = VoiceSession()
     let backendLabel: String
+    let instant: Bool
 
-    init(label: String) {
+    var state: VoiceState { session.state }
+
+    init(label: String, instant: Bool = false) {
         self.backendLabel = label
+        self.instant = instant
     }
 
     func startListening() async -> String {
-        cancel()
-        await requestMicrophone()
-        state = .listening
-        try? await Task.sleep(for: .milliseconds(1300))
-        guard state == .listening else { return "" }
-        state = .thinking
-        try? await Task.sleep(for: .milliseconds(350))
+        session.apply(.cancel)
+        if !instant {
+            await requestMicrophone()
+        }
+        session.apply(.tapTalk)
+        if !instant {
+            try? await Task.sleep(for: .milliseconds(1300))
+            guard session.state == .listening else { return "" }
+        }
+        session.apply(.listenFinished)
         return ""
     }
 
     func speak(_ text: String) async {
-        state = .speaking
-        let milliseconds = min(4200, max(800, text.count * 28))
-        try? await Task.sleep(for: .milliseconds(milliseconds))
-        if state == .speaking {
-            state = .idle
+        session.apply(.speakStarted)
+        if !instant {
+            let milliseconds = min(4200, max(800, text.count * 28))
+            try? await Task.sleep(for: .milliseconds(milliseconds))
+        }
+        if session.state == .speaking {
+            session.apply(.speakFinished)
         }
     }
 
     func cancel() {
-        if state != .idle {
-            state = .idle
-        }
+        session.apply(.cancel)
     }
 
     private func requestMicrophone() async {

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import VoiceDeskLogic
 
 @MainActor
 @Observable
@@ -14,16 +15,32 @@ final class AppModel {
     let voice: MockVoiceService
     let google: StubGoogleAuth
     let wakeWord: WakeWordPlaceholder
+    let sendClient: RecordingSendClient
 
     init(
         voice: MockVoiceService? = nil,
         google: StubGoogleAuth? = nil,
-        wakeWord: WakeWordPlaceholder? = nil
+        wakeWord: WakeWordPlaceholder? = nil,
+        sendClient: RecordingSendClient? = nil
     ) {
         self.voice = voice ?? VoiceRuntime.makeService()
         self.google = google ?? StubGoogleAuth()
         self.wakeWord = wakeWord ?? WakeWordPlaceholder()
+        self.sendClient = sendClient ?? RecordingSendClient()
         startWelcome()
+    }
+
+    static func makeForLaunch() -> AppModel {
+        let uiTesting = ProcessInfo.processInfo.arguments.contains("-ui-testing")
+        return AppModel(
+            voice: uiTesting
+                ? MockVoiceService(label: "UITest", instant: true)
+                : VoiceRuntime.makeService()
+        )
+    }
+
+    func applyUserTurn(_ text: String) async {
+        await handleUserText(text)
     }
 
     var lastTurnID: UUID? { turns.last?.id }
@@ -61,12 +78,23 @@ final class AppModel {
     }
 
     func confirmDraft(_ id: UUID) {
-        updateDraft(id) { $0.status = .confirmed }
+        updateDraft(id) { $0.status = DraftConfirmMachine.apply($0.status, .confirm) }
+        guard let draft = draft(id), DraftConfirmMachine.mayCallSendClient(after: draft.status) else { return }
+        let attempt = sendClient.send(draft)
+        let outcome: String
+        switch attempt {
+        case .queuedNotDelivered:
+            outcome = "Not sent — Google write is stubbed. Never reported as delivered."
+        case .blockedUnconfirmed:
+            outcome = "Blocked. Confirm is required before send."
+        case .delivered:
+            outcome = "Delivered."
+        }
         activity.append(
             ActivityEntry(
                 title: "Email send confirmed",
                 detail: "Jordan Hale · Saturday showing",
-                outcome: "Not sent — Google write is stubbed. Never reported as delivered."
+                outcome: outcome
             )
         )
         appendAssistant(
@@ -76,7 +104,7 @@ final class AppModel {
     }
 
     func cancelDraft(_ id: UUID) {
-        updateDraft(id) { $0.status = .cancelled }
+        updateDraft(id) { $0.status = DraftConfirmMachine.apply($0.status, .cancel) }
         activity.append(
             ActivityEntry(
                 title: "Email send cancelled",
@@ -88,13 +116,13 @@ final class AppModel {
     }
 
     func beginEditDraft(_ id: UUID) {
-        updateDraft(id) { $0.status = .editing }
+        updateDraft(id) { $0.status = DraftConfirmMachine.apply($0.status, .beginEdit) }
     }
 
     func saveDraftBody(_ id: UUID, body: String) {
         updateDraft(id) {
             $0.body = body
-            $0.status = .pending
+            $0.status = DraftConfirmMachine.apply($0.status, .saveBody)
         }
     }
 
@@ -174,33 +202,28 @@ final class AppModel {
         await pause(320)
         appendAssistant(
             "You talk, I answer, and I put the evidence on cards. Here’s a sample email about a listing — and the people on it.",
-            cards: [
-                .email(SampleData.email()),
-                .listing(SampleData.listing()),
-                .person(SampleData.buyer()),
-                .person(SampleData.partner())
-            ]
+            cards: TourScript.graphCards()
         )
         await voice.speak("Here’s the email, the listing, and the people on it.")
 
         await pause(400)
         appendAssistant(
             "If I need to send or change anything, you see the exact action first. Nothing goes out until you confirm.",
-            cards: [.draftConfirm(SampleData.draftReply())]
+            cards: [TourScript.draftCard()]
         )
         await voice.speak("Writes always wait for your confirm.")
 
         await pause(400)
         appendAssistant(
             "Florida law and broker rules show a confidence score and the source. I won’t bluff.",
-            cards: [.statute(SampleData.statute())]
+            cards: [TourScript.statuteCard()]
         )
         await voice.speak("Legal answers show confidence and the citation.")
 
         await pause(400)
         appendAssistant(
             "Connect Google for your real inbox, calendar, and tasks. Tap the mic anytime. Wake word is next — for now, tap to talk.",
-            cards: [.connectGoogle(SampleData.connectGoogle(isConnected: google.isConnected))],
+            cards: [TourScript.connectGoogleCard(isConnected: google.isConnected)],
             suggestions: google.isConnected ? ["What’s in my inbox?"] : []
         )
         await voice.speak("Connect Google when you’re ready.")
@@ -269,6 +292,17 @@ final class AppModel {
 
     private func appendAssistant(_ text: String, cards: [ContentCard] = [], suggestions: [String] = []) {
         turns.append(ConversationTurn(role: .assistant, text: text, cards: cards, suggestions: suggestions))
+    }
+
+    private func draft(_ id: UUID) -> DraftConfirmItem? {
+        for turn in turns {
+            for card in turn.cards {
+                if case .draftConfirm(let item) = card, item.id == id {
+                    return item
+                }
+            }
+        }
+        return nil
     }
 
     private func updateDraft(_ id: UUID, _ body: (inout DraftConfirmItem) -> Void) {
@@ -346,6 +380,7 @@ final class AppModel {
     }
 
     private func pause(_ milliseconds: UInt64) async {
+        if voice.instant { return }
         try? await Task.sleep(for: .milliseconds(milliseconds))
     }
 }

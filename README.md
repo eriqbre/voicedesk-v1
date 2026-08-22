@@ -51,6 +51,15 @@ After the tour, try: “What’s in my inbox?”, “Show the listing”, “Dra
 | Calendar / Task cards | Called out in replies; not drawn in this slice. |
 | Silent send | Intentionally impossible. |
 
+## Tests
+
+| Suite | Where it runs | Command |
+|-------|----------------|---------|
+| Unit + UI fixtures (logic) | Linux / this VM / CI `unit-linux` | `swift test --package-path VoiceDeskLogic` |
+| App unit + XCUITest smoke | Mac + iPhone Simulator / CI `ios-macos` | `xcodebuild test -project VoiceDesk.xcodeproj -scheme VoiceDesk -destination 'platform=iOS Simulator,name=iPhone 16'` |
+
+This Linux cloud agent **cannot** run `xcodebuild` or the Simulator. GitHub Actions `macos-15` is the iOS gate. If that runner is unavailable, treat `ios-macos` as blocked and keep `unit-linux` green.
+
 ## Next slice
 
 `slice/2-google-sync` — Sign in with Google, Gmail / Calendar / Tasks read, confirm-gated writes, offline cache for last-synced reads.
@@ -58,8 +67,12 @@ After the tour, try: “What’s in my inbox?”, “Show the listing”, “Dra
 ## Layout
 
 ```
-VoiceDesk.xcodeproj     Xcode 16 project (file-system synced sources)
-VoiceDesk/              App sources
-PRODUCT_REQUIREMENTS.md Product spec (unchanged in this slice)
+VoiceDesk.xcodeproj      Xcode 16 project (app + unit + UI tests)
+VoiceDesk/               App sources
+VoiceDeskLogic/          Linux-runnable domain + `swift test`
+VoiceDeskTests/          Hosted app unit tests
+VoiceDeskUITests/        XCUITest launch / card smoke
+.github/workflows/ci.yml Linux unit + macOS Simulator
+PRODUCT_REQUIREMENTS.md  Product spec (unchanged in this slice)
 TESTING_AND_BRANCHING.md Gates, branches, walk checklists
 ```

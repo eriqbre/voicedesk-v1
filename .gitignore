@@ -6,6 +6,7 @@ DerivedData/
 *.moved-aside
 .swiftpm/
 .build/
+VoiceDeskLogic/.build/
 *.hmap
 *.ipa
 *.dSYM.zip

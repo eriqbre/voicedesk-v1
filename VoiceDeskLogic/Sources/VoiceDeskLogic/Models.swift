@@ -1,19 +1,19 @@
 import Foundation
 
-enum Role: String, Hashable {
+public enum Role: String, Hashable, Sendable {
     case user
     case assistant
 }
 
-struct ConversationTurn: Identifiable, Hashable {
-    let id: UUID
-    let role: Role
-    var text: String
-    var cards: [ContentCard]
-    var suggestions: [String]
-    let createdAt: Date
+public struct ConversationTurn: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let role: Role
+    public var text: String
+    public var cards: [ContentCard]
+    public var suggestions: [String]
+    public let createdAt: Date
 
-    init(
+    public init(
         id: UUID = UUID(),
         role: Role,
         text: String,
@@ -30,7 +30,18 @@ struct ConversationTurn: Identifiable, Hashable {
     }
 }
 
-enum ContentCard: Identifiable, Hashable {
+public enum ContentCardKind: String, Hashable, Sendable, CaseIterable {
+    case email
+    case listing
+    case person
+    case draftConfirm
+    case statute
+    case connectGoogle
+
+    public var fixtureID: String { "card.\(rawValue)" }
+}
+
+public enum ContentCard: Identifiable, Hashable, Sendable {
     case email(EmailItem)
     case listing(ListingItem)
     case person(PersonItem)
@@ -38,7 +49,7 @@ enum ContentCard: Identifiable, Hashable {
     case statute(StatuteItem)
     case connectGoogle(ConnectGoogleItem)
 
-    var id: UUID {
+    public var id: UUID {
         switch self {
         case .email(let item): item.id
         case .listing(let item): item.id
@@ -48,20 +59,50 @@ enum ContentCard: Identifiable, Hashable {
         case .connectGoogle(let item): item.id
         }
     }
+
+    public var kind: ContentCardKind {
+        switch self {
+        case .email: .email
+        case .listing: .listing
+        case .person: .person
+        case .draftConfirm: .draftConfirm
+        case .statute: .statute
+        case .connectGoogle: .connectGoogle
+        }
+    }
+
+    public var fixtureID: String { kind.fixtureID }
+
+    public var accessibilityIdentity: String {
+        switch self {
+        case .email(let item):
+            "Email from \(item.fromName). \(item.subject)."
+        case .listing(let item):
+            "Listing \(item.addressLine), \(item.priceLabel)."
+        case .person(let item):
+            "\(item.name), \(item.roleLabel)."
+        case .draftConfirm(let item):
+            "Draft \(item.actionTitle) to \(item.toLine)."
+        case .statute(let item):
+            "\(item.title). Confidence \(item.confidence) percent, \(item.band.label). \(item.citation)."
+        case .connectGoogle(let item):
+            item.headline
+        }
+    }
 }
 
-struct EmailItem: Identifiable, Hashable {
-    let id: UUID
-    var fromName: String
-    var fromEmail: String
-    var sentAtLabel: String
-    var subject: String
-    var preview: String
-    var filterTag: String
-    var relatedListing: String?
-    var relatedPeople: [String]
+public struct EmailItem: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public var fromName: String
+    public var fromEmail: String
+    public var sentAtLabel: String
+    public var subject: String
+    public var preview: String
+    public var filterTag: String
+    public var relatedListing: String?
+    public var relatedPeople: [String]
 
-    init(
+    public init(
         id: UUID = UUID(),
         fromName: String,
         fromEmail: String,
@@ -83,24 +124,24 @@ struct EmailItem: Identifiable, Hashable {
         self.relatedPeople = relatedPeople
     }
 
-    var initials: String {
+    public var initials: String {
         fromName.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
     }
 }
 
-struct ListingItem: Identifiable, Hashable {
-    let id: UUID
-    var priceLabel: String
-    var addressLine: String
-    var cityLine: String
-    var beds: Int
-    var baths: Int
-    var sqft: Int
-    var status: String
-    var ownership: String
-    var relatedPeople: [String]
+public struct ListingItem: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public var priceLabel: String
+    public var addressLine: String
+    public var cityLine: String
+    public var beds: Int
+    public var baths: Int
+    public var sqft: Int
+    public var status: String
+    public var ownership: String
+    public var relatedPeople: [String]
 
-    init(
+    public init(
         id: UUID = UUID(),
         priceLabel: String,
         addressLine: String,
@@ -125,15 +166,15 @@ struct ListingItem: Identifiable, Hashable {
     }
 }
 
-struct PersonItem: Identifiable, Hashable {
-    let id: UUID
-    var name: String
-    var roleLabel: String
-    var detail: String
-    var phoneLabel: String
-    var accentHue: Double
+public struct PersonItem: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public var name: String
+    public var roleLabel: String
+    public var detail: String
+    public var phoneLabel: String
+    public var accentHue: Double
 
-    init(
+    public init(
         id: UUID = UUID(),
         name: String,
         roleLabel: String,
@@ -149,28 +190,28 @@ struct PersonItem: Identifiable, Hashable {
         self.accentHue = accentHue
     }
 
-    var initials: String {
+    public var initials: String {
         name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
     }
 }
 
-enum DraftStatus: String, Hashable {
+public enum DraftStatus: String, Hashable, Sendable {
     case pending
     case editing
     case confirmed
     case cancelled
 }
 
-struct DraftConfirmItem: Identifiable, Hashable {
-    let id: UUID
-    var actionTitle: String
-    var channel: String
-    var toLine: String
-    var subject: String
-    var body: String
-    var status: DraftStatus
+public struct DraftConfirmItem: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public var actionTitle: String
+    public var channel: String
+    public var toLine: String
+    public var subject: String
+    public var body: String
+    public var status: DraftStatus
 
-    init(
+    public init(
         id: UUID = UUID(),
         actionTitle: String,
         channel: String,
@@ -189,12 +230,12 @@ struct DraftConfirmItem: Identifiable, Hashable {
     }
 }
 
-enum ConfidenceBand: String, Hashable {
+public enum ConfidenceBand: String, Hashable, Sendable {
     case firm
     case options
     case unknown
 
-    var label: String {
+    public var label: String {
         switch self {
         case .firm: "Firm"
         case .options: "Options"
@@ -203,22 +244,22 @@ enum ConfidenceBand: String, Hashable {
     }
 
     /// Defaults from PRD §13: firm ≥85, options 50–84, refuse/ask <50.
-    static func band(for percent: Int) -> ConfidenceBand {
+    public static func band(for percent: Int) -> ConfidenceBand {
         if percent >= 85 { return .firm }
         if percent >= 50 { return .options }
         return .unknown
     }
 }
 
-struct StatuteItem: Identifiable, Hashable {
-    let id: UUID
-    var title: String
-    var plainLanguage: String
-    var citation: String
-    var confidence: Int
-    var disclaimer: String
+public struct StatuteItem: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public var title: String
+    public var plainLanguage: String
+    public var citation: String
+    public var confidence: Int
+    public var disclaimer: String
 
-    init(
+    public init(
         id: UUID = UUID(),
         title: String,
         plainLanguage: String,
@@ -234,16 +275,16 @@ struct StatuteItem: Identifiable, Hashable {
         self.disclaimer = disclaimer
     }
 
-    var band: ConfidenceBand { ConfidenceBand.band(for: confidence) }
+    public var band: ConfidenceBand { ConfidenceBand.band(for: confidence) }
 }
 
-struct ConnectGoogleItem: Identifiable, Hashable {
-    let id: UUID
-    var headline: String
-    var body: String
-    var isConnected: Bool
+public struct ConnectGoogleItem: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public var headline: String
+    public var body: String
+    public var isConnected: Bool
 
-    init(
+    public init(
         id: UUID = UUID(),
         headline: String = "Connect Google",
         body: String = "Gmail, Calendar, and Tasks — required before VoiceDesk can work your real day.",
@@ -256,14 +297,20 @@ struct ConnectGoogleItem: Identifiable, Hashable {
     }
 }
 
-struct ActivityEntry: Identifiable, Hashable {
-    let id: UUID
-    let at: Date
-    let title: String
-    let detail: String
-    let outcome: String
+public struct ActivityEntry: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let at: Date
+    public let title: String
+    public let detail: String
+    public let outcome: String
 
-    init(id: UUID = UUID(), at: Date = Date(), title: String, detail: String, outcome: String) {
+    public init(
+        id: UUID = UUID(),
+        at: Date = Date(),
+        title: String,
+        detail: String,
+        outcome: String
+    ) {
         self.id = id
         self.at = at
         self.title = title
@@ -272,7 +319,7 @@ struct ActivityEntry: Identifiable, Hashable {
     }
 }
 
-enum SessionPhase: Hashable {
+public enum SessionPhase: Hashable, Sendable {
     case welcome
     case touring
     case ready

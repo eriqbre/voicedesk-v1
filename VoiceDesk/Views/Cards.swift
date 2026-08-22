@@ -1,17 +1,21 @@
 import SwiftUI
+import VoiceDeskLogic
 
 struct ContentCardView: View {
     let card: ContentCard
 
     var body: some View {
-        switch card {
-        case .email(let item): EmailCardView(item: item)
-        case .listing(let item): ListingCardView(item: item)
-        case .person(let item): PersonCardView(item: item)
-        case .draftConfirm(let item): DraftConfirmCardView(item: item)
-        case .statute(let item): StatuteCardView(item: item)
-        case .connectGoogle(let item): ConnectGoogleCardView(item: item)
+        Group {
+            switch card {
+            case .email(let item): EmailCardView(item: item)
+            case .listing(let item): ListingCardView(item: item)
+            case .person(let item): PersonCardView(item: item)
+            case .draftConfirm(let item): DraftConfirmCardView(item: item)
+            case .statute(let item): StatuteCardView(item: item)
+            case .connectGoogle(let item): ConnectGoogleCardView(item: item)
+            }
         }
+        .accessibilityIdentifier(card.fixtureID)
     }
 }
 
@@ -216,6 +220,7 @@ struct DraftConfirmCardView: View {
                             model.confirmDraft(item.id)
                         }
                         .buttonStyle(PrimaryCardButton())
+                        .accessibilityIdentifier("draft.confirm")
                         if item.status == .editing {
                             Button("Save edit") {
                                 model.saveDraftBody(item.id, body: draftBody)
@@ -369,6 +374,7 @@ struct ConnectGoogleCardView: View {
                 } else {
                     Button("Connect Google") { model.connectGoogle() }
                         .buttonStyle(PrimaryCardButton())
+                        .accessibilityIdentifier("google.connect")
                 }
             }
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import VoiceDeskLogic
 
 struct ConversationScreen: View {
     @Environment(AppModel.self) private var model
@@ -124,6 +125,7 @@ private struct FlexibleChipRow: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(Palette.accentSoft, in: Capsule())
+                            .accessibilityIdentifier("suggestion.\(item)")
                     }
                 }
             }
@@ -203,6 +205,7 @@ struct VoiceBar: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("voice.talk")
             .accessibilityLabel(micLabel)
             .accessibilityHint("Starts a mocked listen, then a sample reply.")
 

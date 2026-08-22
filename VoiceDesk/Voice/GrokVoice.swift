@@ -1,4 +1,5 @@
 import Foundation
+import VoiceDeskLogic
 
 /// Where the app looks for an xAI key. Never log the value.
 enum VoiceDeskSecrets {
@@ -80,13 +81,16 @@ protocol WakeWordListening: AnyObject {
 
 @MainActor
 final class WakeWordPlaceholder: WakeWordListening {
-    private(set) var isArmed = false
+    private var session = WakeWordSession()
+
+    var isArmed: Bool { session.isArmed }
 
     func arm() {
-        // TODO: Arm on-device wake word once the phrase is chosen.
+        // TODO: On-device wake phrase once the PRD open decision lands.
+        session.arm()
     }
 
     func disarm() {
-        isArmed = false
+        session.disarm()
     }
 }
