@@ -3,6 +3,7 @@ xcuserdata/
 DerivedData/
 Secrets.plist
 **/Secrets.plist
+Config/Generated/GoogleSecrets.xcconfig
 *.xcuserstate
 *.xccheckout
 *.moved-aside

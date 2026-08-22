@@ -367,7 +367,9 @@ struct ConnectGoogleCardView: View {
                             .foregroundStyle(Palette.muted)
                     }
                 }
-                Text(item.setupNeeded ? GoogleAuthSnapshot.missingClientIDCopy : item.body)
+                Text(item.setupNeeded
+                    ? (model.google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy)
+                    : item.body)
                     .font(.subheadline)
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Gmail — read now; send only after confirm", systemImage: "envelope")

@@ -318,4 +318,26 @@ final class GoogleSliceTests: XCTestCase {
         XCTAssertTrue(kinds.contains(.connectGoogle))
         XCTAssertFalse(kinds.contains(.email))
     }
+
+    func testConnectTimesOutInsteadOfHanging() async {
+        let google = GoogleSession(backend: HangingGoogleAuthBackend(), clientIDConfigured: true)
+        await google.connect(timeoutSeconds: 0.15)
+        XCTAssertFalse(google.isConnected)
+        XCTAssertEqual(google.snapshot.state, .failed)
+        XCTAssertTrue((google.snapshot.message ?? "").contains("timed out"))
+    }
+}
+
+@MainActor
+final class HangingGoogleAuthBackend: GoogleAuthBackend {
+    func signIn() async throws -> (email: String, token: String) {
+        try await Task.sleep(for: .seconds(30))
+        return ("ada@example.com", "token")
+    }
+
+    func signOut() {}
+
+    func restore() async -> (email: String, token: String)? { nil }
+
+    func handleURL(_ url: URL) -> Bool { false }
 }

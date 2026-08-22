@@ -50,17 +50,37 @@ enum VoiceDeskSecrets {
 
     /// Scheme env `GOOGLE_CLIENT_ID`, then gitignored `Secrets.plist`.
     static var googleClientID: String? {
-        firstNonEmpty([
+        let raw = firstNonEmpty([
             ProcessInfo.processInfo.environment["GOOGLE_CLIENT_ID"],
             plistString("GOOGLE_CLIENT_ID")
         ])
+        return GoogleSignInSetup.isPlaceholder(raw) ? nil : raw
     }
 
     static var googleReversedClientID: String? {
-        firstNonEmpty([
-            ProcessInfo.processInfo.environment["GOOGLE_REVERSED_CLIENT_ID"],
-            plistString("GOOGLE_REVERSED_CLIENT_ID")
-        ]) ?? googleClientID.flatMap(GoogleScopes.reversedClientID)
+        GoogleSignInSetup.resolvedReversedClientID(
+            clientID: googleClientID,
+            reversedOverride: firstNonEmpty([
+                ProcessInfo.processInfo.environment["GOOGLE_REVERSED_CLIENT_ID"],
+                plistString("GOOGLE_REVERSED_CLIENT_ID")
+            ])
+        )
+    }
+
+    static var registeredURLSchemes: [String] {
+        let types = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]] ?? []
+        return types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+    }
+
+    static var signInDiagnosis: GoogleSignInSetup.Diagnosis {
+        GoogleSignInSetup.diagnose(
+            clientID: googleClientID,
+            reversedOverride: firstNonEmpty([
+                ProcessInfo.processInfo.environment["GOOGLE_REVERSED_CLIENT_ID"],
+                plistString("GOOGLE_REVERSED_CLIENT_ID")
+            ]),
+            registeredSchemes: registeredURLSchemes
+        )
     }
 
     private static func firstNonEmpty(_ values: [String?]) -> String? {

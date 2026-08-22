@@ -31,6 +31,7 @@
 
 /* Begin PBXFileReference section */
 		A10000000000000000000001 /* VoiceDesk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoiceDesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10000000000000000000021 /* VoiceDesk.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/VoiceDesk.xcconfig; sourceTree = "<group>"; };
 		B10000000000000000000001 /* VoiceDeskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceDeskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1000000000000000000000C /* VoiceDeskUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceDeskUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -94,6 +95,7 @@
 				A10000000000000000000002 /* VoiceDesk */,
 				B10000000000000000000002 /* VoiceDeskTests */,
 				B1000000000000000000000D /* VoiceDeskUITests */,
+				C10000000000000000000021 /* VoiceDesk.xcconfig */,
 				A10000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -118,6 +120,7 @@
 				A10000000000000000000007 /* Sources */,
 				A10000000000000000000003 /* Frameworks */,
 				A10000000000000000000008 /* Resources */,
+				C10000000000000000000020 /* Inject Google secrets from Secrets.plist */,
 			);
 			buildRules = (
 			);
@@ -254,6 +257,33 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		C10000000000000000000020 /* Inject Google secrets from Secrets.plist */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/VoiceDesk/Secrets.plist",
+				"$(SRCROOT)/scripts/inject-google-secrets.sh",
+			);
+			name = "Inject Google secrets from Secrets.plist";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+				"$(SRCROOT)/Config/Generated/GoogleSecrets.xcconfig",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/inject-google-secrets.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A10000000000000000000007 /* Sources */ = {
@@ -403,15 +433,15 @@
 		};
 		A1000000000000000000000E /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C10000000000000000000021 /* VoiceDesk.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				GOOGLE_CLIENT_ID = "";
-				GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.REPLACE_ME;
 				INFOPLIST_FILE = VoiceDesk/Info.plist;
 				INFOPLIST_KEY_GIDClientID = "$(GOOGLE_CLIENT_ID)";
 				INFOPLIST_KEY_CFBundleDisplayName = VoiceDesk;
@@ -444,15 +474,15 @@
 		};
 		A1000000000000000000000F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C10000000000000000000021 /* VoiceDesk.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				GOOGLE_CLIENT_ID = "";
-				GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.REPLACE_ME;
 				INFOPLIST_FILE = VoiceDesk/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = VoiceDesk;
 				INFOPLIST_KEY_GIDClientID = "$(GOOGLE_CLIENT_ID)";

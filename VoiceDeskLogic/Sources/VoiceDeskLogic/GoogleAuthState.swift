@@ -14,6 +14,7 @@ public enum GoogleAuthEvent: Equatable, Sendable {
     case connectStarted
     case connectSucceeded(email: String)
     case connectFailed(String)
+    case setupIncomplete(String)
     case disconnect
 }
 
@@ -36,7 +37,13 @@ public struct GoogleAuthSnapshot: Equatable, Sendable, Codable {
     public static let signedOut = GoogleAuthSnapshot()
 
     public static let missingClientIDCopy =
-        "Add GOOGLE_CLIENT_ID to Secrets.plist or the VoiceDesk scheme, plus the reversed client ID URL scheme. See README. I will not pretend Google is connected."
+        "Add GOOGLE_CLIENT_ID to VoiceDesk/Secrets.plist (or the scheme env) and rebuild. The reversed URL scheme is derived automatically — you should not have to edit Build Settings. I will not pretend Google is connected."
+
+    public static let missingReversedClientIDCopy =
+        "GOOGLE_CLIENT_ID is set, but this build still has a placeholder or missing Google URL scheme (com.googleusercontent.apps.REPLACE_ME). Rebuild so Secrets.plist can inject the reversed client ID. I will not open Google Sign-In until that scheme is registered."
+
+    public static let signInTimeoutCopy =
+        "Google Sign-In timed out. If no Google window appeared, add GOOGLE_CLIENT_ID to Secrets.plist and rebuild. I did not stay on Connecting."
 
     public var isConnected: Bool { state == .signedIn && !(email ?? "").isEmpty }
 
@@ -47,7 +54,7 @@ public struct GoogleAuthSnapshot: Equatable, Sendable, Codable {
         case .signedOut:
             return "Required for a real day"
         case .missingClientID:
-            return "Setup needed — no client ID"
+            return "Setup needed"
         case .connecting:
             return "Connecting…"
         case .signedIn:
@@ -84,6 +91,12 @@ public struct GoogleAuthSnapshot: Equatable, Sendable, Codable {
                 return current
             }
             return GoogleAuthSnapshot(state: .failed, email: nil, message: reason)
+        case .setupIncomplete(let message):
+            return GoogleAuthSnapshot(
+                state: .missingClientID,
+                email: nil,
+                message: message
+            )
         case .disconnect:
             return .signedOut
         }

@@ -22,8 +22,8 @@ This cloud environment is Linux. It cannot compile or run an iOS target. Open th
 3. Select the **VoiceDesk** scheme and an **iPhone** simulator (or a device).
 4. Signing: set your Team under the VoiceDesk target. Bundle ID is `app.voicedesk.ios`.
 5. Put secrets on the live path (never commit them):
-   - Scheme → Run → Arguments → Environment: `XAI_API_KEY`, `GOOGLE_CLIENT_ID`, and `GOOGLE_REVERSED_CLIENT_ID` (already wired as `$(…)`), or
-   - Copy `VoiceDesk/Secrets.example.plist` to `VoiceDesk/Secrets.plist` and fill the keys. `Secrets.plist` is gitignored.
+   - Copy `VoiceDesk/Secrets.example.plist` to `VoiceDesk/Secrets.plist` and fill `XAI_API_KEY` + `GOOGLE_CLIENT_ID`. `Secrets.plist` is gitignored. A Run Script reads it at build time, derives `GOOGLE_REVERSED_CLIENT_ID` (`123-abc.apps.googleusercontent.com` → `com.googleusercontent.apps.123-abc`), and writes both into the built Info.plist. You should **not** have to edit Build Settings.
+   - Or set scheme env `XAI_API_KEY` / `GOOGLE_CLIENT_ID`. Empty / `REPLACE_ME` reversed IDs are ignored so a real client ID can still derive the URL scheme.
 6. Optional: `XAI_VOICE` (default `eve`), `XAI_VOICE_MODEL` (default `grok-voice-latest`).
 7. Run (⌘R). Grant the microphone prompt. Tap **Talk** — mic streams PCM 24 kHz to Grok; Grok speaks back; transcripts land in the thread.
 
@@ -39,10 +39,11 @@ Without `GOOGLE_CLIENT_ID` the app **does not** pretend to be connected. Connect
    - Copy the client ID (`….apps.googleusercontent.com`).
 3. Enable APIs: **Gmail API**, **Google Calendar API**, **Google Tasks API**.
 4. OAuth consent screen: add test users (your Google account) while the app is in Testing.
-5. Put the client ID in `Secrets.plist` or the scheme env as `GOOGLE_CLIENT_ID`.
-6. Reversed client ID URL scheme (required for the OAuth redirect):
+5. Put the client ID in `Secrets.plist` or the scheme env as `GOOGLE_CLIENT_ID`, then **rebuild**.
+6. Reversed client ID URL scheme (required for the OAuth redirect) is derived automatically:
    - Client ID `123-abc.apps.googleusercontent.com` → scheme `com.googleusercontent.apps.123-abc`
-   - Set `GOOGLE_REVERSED_CLIENT_ID` in `Secrets.plist` / scheme env **and** in the VoiceDesk target build setting of the same name (Info.plist substitutes `$(GOOGLE_REVERSED_CLIENT_ID)`).
+   - The inject script writes that scheme into the built Info.plist. iOS cannot register URL types at runtime.
+   - If the installed app still has `com.googleusercontent.apps.REPLACE_ME`, Connect Google fails immediately with setup copy — it will **not** call GIDSignIn and hang.
 7. Scopes requested (read only this slice): `gmail.readonly`, `calendar.readonly`, `tasks.readonly`. Confirmed writes queue; they do not call Gmail send yet.
 
 ### Without an xAI key

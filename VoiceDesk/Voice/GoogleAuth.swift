@@ -9,18 +9,24 @@ import GoogleSignIn
 
 enum GoogleSignInError: LocalizedError, Sendable {
     case missingClientID
+    case setup(String)
     case noPresenter
     case cancelled
+    case timedOut
     case failed(String)
 
     var errorDescription: String? {
         switch self {
         case .missingClientID:
             return GoogleAuthSnapshot.missingClientIDCopy
+        case .setup(let message):
+            return message
         case .noPresenter:
             return "Couldn’t present Google Sign-In. Try again from the conversation screen."
         case .cancelled:
             return "Google Sign-In was cancelled."
+        case .timedOut:
+            return GoogleAuthSnapshot.signInTimeoutCopy
         case .failed(let detail):
             return detail
         }
@@ -46,12 +52,20 @@ final class GoogleSession {
     var isConnected: Bool { snapshot.isConnected }
     var setupNeeded: Bool { snapshot.setupNeeded }
 
-    init(backend: (any GoogleAuthBackend)?, clientIDConfigured: Bool) {
+    init(
+        backend: (any GoogleAuthBackend)?,
+        clientIDConfigured: Bool,
+        setupMessage: String? = nil
+    ) {
         self.backend = backend
         if clientIDConfigured {
             self.snapshot = .signedOut
         } else {
-            self.snapshot = GoogleAuthSnapshot.reduce(.signedOut, .clientIDMissing)
+            self.snapshot = GoogleAuthSnapshot(
+                state: .missingClientID,
+                email: nil,
+                message: setupMessage ?? GoogleAuthSnapshot.missingClientIDCopy
+            )
         }
     }
 
@@ -59,10 +73,12 @@ final class GoogleSession {
         if ProcessInfo.processInfo.arguments.contains("-ui-testing") {
             return GoogleSession(backend: MockGoogleAuthBackend(), clientIDConfigured: true)
         }
-        guard let clientID = VoiceDeskSecrets.googleClientID else {
-            return GoogleSession(backend: nil, clientIDConfigured: false)
+        switch VoiceDeskSecrets.signInDiagnosis {
+        case .ready(let clientID, _):
+            return GoogleSession(backend: GIDGoogleAuthBackend(clientID: clientID), clientIDConfigured: true)
+        case .incomplete(let message):
+            return GoogleSession(backend: nil, clientIDConfigured: false, setupMessage: message)
         }
-        return GoogleSession(backend: GIDGoogleAuthBackend(clientID: clientID), clientIDConfigured: true)
     }
 
     static func mock(
@@ -91,14 +107,26 @@ final class GoogleSession {
         }
     }
 
-    func connect() async {
-        if snapshot.setupNeeded || backend == nil {
-            snapshot = GoogleAuthSnapshot.reduce(snapshot, .clientIDMissing)
+    func connect(timeoutSeconds: TimeInterval = GoogleSignInSetup.signInTimeoutSeconds) async {
+        if backend == nil {
+            snapshot = GoogleAuthSnapshot.reduce(
+                snapshot,
+                .setupIncomplete(snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy)
+            )
             return
+        }
+        if snapshot.setupNeeded {
+            return
+        }
+        if backend is GIDGoogleAuthBackend {
+            if case .incomplete(let message) = VoiceDeskSecrets.signInDiagnosis {
+                snapshot = GoogleAuthSnapshot.reduce(snapshot, .setupIncomplete(message))
+                return
+            }
         }
         snapshot = GoogleAuthSnapshot.reduce(snapshot, .connectStarted)
         do {
-            let result = try await backend!.signIn()
+            let result = try await signInWithTimeout(seconds: timeoutSeconds)
             accessToken = result.token
             snapshot = GoogleAuthSnapshot.reduce(snapshot, .connectSucceeded(email: result.email))
         } catch {
@@ -115,6 +143,25 @@ final class GoogleSession {
 
     func handleURL(_ url: URL) -> Bool {
         backend?.handleURL(url) ?? false
+    }
+
+    private func signInWithTimeout(
+        seconds: TimeInterval
+    ) async throws -> (email: String, token: String) {
+        guard let backend else {
+            throw GoogleSignInError.missingClientID
+        }
+        return try await withThrowingTaskGroup(of: (email: String, token: String).self) { group in
+            group.addTask { @MainActor in
+                try await backend.signIn()
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw GoogleSignInError.timedOut
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
     }
 }
 
@@ -160,6 +207,9 @@ final class GIDGoogleAuthBackend: GoogleAuthBackend {
     }
 
     func signIn() async throws -> (email: String, token: String) {
+        if case .incomplete(let message) = VoiceDeskSecrets.signInDiagnosis {
+            throw GoogleSignInError.setup(message)
+        }
         guard let presenter = Self.presenter() else {
             throw GoogleSignInError.noPresenter
         }
@@ -170,6 +220,8 @@ final class GIDGoogleAuthBackend: GoogleAuthBackend {
                 additionalScopes: GoogleScopes.readScopes
             )
             return try Self.credentials(from: result.user)
+        } catch is CancellationError {
+            throw GoogleSignInError.timedOut
         } catch {
             let ns = error as NSError
             if ns.domain == "com.google.GIDSignIn", ns.code == -5 {
@@ -206,10 +258,25 @@ final class GIDGoogleAuthBackend: GoogleAuthBackend {
         return (email, token)
     }
 
+    /// Key window of a foreground scene, then the top presented controller.
     private static func presenter() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.flatMap(\.windows).first
-        var controller = window?.rootViewController
+        let ordered = scenes.sorted { lhs, rhs in
+            if lhs.activationState == rhs.activationState { return false }
+            return lhs.activationState == .foregroundActive
+        }
+        for scene in ordered {
+            let windows = scene.windows.filter { !$0.isHidden }
+            let window = windows.first(where: \.isKeyWindow) ?? windows.first
+            if let controller = topViewController(from: window?.rootViewController) {
+                return controller
+            }
+        }
+        return nil
+    }
+
+    private static func topViewController(from root: UIViewController?) -> UIViewController? {
+        var controller = root
         while let presented = controller?.presentedViewController {
             controller = presented
         }

@@ -1,0 +1,5 @@
+// VoiceDesk target settings. Generated/GoogleSecrets.xcconfig is written by
+// scripts/inject-google-secrets.sh from VoiceDesk/Secrets.plist (gitignored).
+GOOGLE_CLIENT_ID =
+GOOGLE_REVERSED_CLIENT_ID =
+#include? "Generated/GoogleSecrets.xcconfig"
