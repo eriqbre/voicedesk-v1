@@ -1,7 +1,8 @@
-// VoiceDesk target settings. Info.plist is Config/Info.plist (not inside the
-// synchronized VoiceDesk/ folder). Optional Generated/GoogleSecrets.xcconfig
-// is written by running scripts/inject-google-secrets.sh by hand — there is
-// no Xcode Run Script phase. #include? is a no-op when the file is absent.
+// VoiceDesk target settings. Info.plist is Config/Info.plist.
+// Empty defaults — never ship com.googleusercontent.apps.REPLACE_ME here.
+// Generated/GoogleSecrets.xcconfig (gitignored) is written by the scheme
+// Pre-action / xcconfig-only Run Script from VoiceDesk/Secrets.plist.
+// #include? must come last so generated GOOGLE_* win.
 INFOPLIST_FILE = Config/Info.plist
 GOOGLE_CLIENT_ID =
 GOOGLE_REVERSED_CLIENT_ID =

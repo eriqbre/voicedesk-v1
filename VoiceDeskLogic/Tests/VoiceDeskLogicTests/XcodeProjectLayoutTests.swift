@@ -29,24 +29,91 @@ final class XcodeProjectLayoutTests: XCTestCase {
 
         XCTAssertFalse(pbx.contains("$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"))
         XCTAssertFalse(pbx.contains("INFOPLIST_PATH"))
-        XCTAssertFalse(pbx.contains("PBXShellScriptBuildPhase"))
-        XCTAssertFalse(pbx.contains("Inject Google secrets"))
-        XCTAssertFalse(pbx.contains("shellScript"))
+        XCTAssertFalse(pbx.contains("com.googleusercontent.apps.REPLACE_ME"))
         XCTAssertTrue(pbx.contains("GENERATE_INFOPLIST_FILE = YES"))
     }
 
-    func testInjectScriptIsManualAndNotABuildPhase() throws {
+    func testInjectScriptWritesXcconfigOnly() throws {
         let script = try XCTUnwrap(repoFile("scripts/inject-google-secrets.sh"))
-        XCTAssertTrue(script.contains("Manual/dev helper"))
         XCTAssertTrue(script.contains("Config/Generated/GoogleSecrets.xcconfig"))
+        XCTAssertTrue(script.contains("derive_reversed"))
         XCTAssertFalse(script.contains("INFOPLIST_PATH"))
         XCTAssertFalse(script.contains("TARGET_BUILD_DIR"))
         XCTAssertFalse(script.contains("Set :GIDClientID"))
         XCTAssertFalse(script.contains("CFBundleURLTypes"))
+        XCTAssertFalse(script.contains("PlistBuddy -c \"Set"))
+
+        let pbx = try XCTUnwrap(pbxprojContents())
+        XCTAssertTrue(pbx.contains("Write GoogleSecrets.xcconfig"))
+        XCTAssertTrue(pbx.contains("$(SRCROOT)/Config/Generated/GoogleSecrets.xcconfig"))
+        XCTAssertFalse(pbx.contains("$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"))
+        let outputBlock = pbx.range(of: "outputPaths = (")
+        XCTAssertNotNil(outputBlock)
+        if let start = outputBlock {
+            let slice = String(pbx[start.lowerBound...]).prefix(280)
+            XCTAssertTrue(slice.contains("GoogleSecrets.xcconfig"))
+            XCTAssertFalse(slice.contains("INFOPLIST_PATH"))
+        }
 
         let xcconfig = try XCTUnwrap(repoFile("Config/VoiceDesk.xcconfig"))
         XCTAssertTrue(xcconfig.contains("#include? \"Generated/GoogleSecrets.xcconfig\""))
         XCTAssertTrue(xcconfig.contains("INFOPLIST_FILE = Config/Info.plist"))
+        XCTAssertFalse(xcconfig.contains("REPLACE_ME"))
+        let includeIndex = try XCTUnwrap(xcconfig.range(of: "#include?"))
+        let reversedDefault = try XCTUnwrap(xcconfig.range(of: "GOOGLE_REVERSED_CLIENT_ID ="))
+        XCTAssertLessThan(reversedDefault.lowerBound, includeIndex.lowerBound)
+
+        let scheme = try XCTUnwrap(repoFile("VoiceDesk.xcodeproj/xcshareddata/xcschemes/VoiceDesk.xcscheme"))
+        XCTAssertTrue(scheme.contains("PreActions"))
+        XCTAssertTrue(scheme.contains("inject-google-secrets.sh"))
+    }
+
+    func testInjectScriptDerivesReversedClientIDFromSecrets() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        var scriptURL: URL?
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let candidate = url.appendingPathComponent("scripts/inject-google-secrets.sh")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                scriptURL = candidate
+                break
+            }
+        }
+        let inject = try XCTUnwrap(scriptURL)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voicedesk-inject-\(UUID().uuidString)")
+        let secretsDir = root.appendingPathComponent("VoiceDesk")
+        try FileManager.default.createDirectory(at: secretsDir, withIntermediateDirectories: true)
+        let secrets = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>GOOGLE_CLIENT_ID</key>
+            <string>123-abc.apps.googleusercontent.com</string>
+            <key>GOOGLE_REVERSED_CLIENT_ID</key>
+            <string>com.googleusercontent.apps.REPLACE_ME</string>
+        </dict>
+        </plist>
+        """
+        try secrets.write(to: secretsDir.appendingPathComponent("Secrets.plist"), atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [inject.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["SRCROOT"] = root.path
+        process.environment = environment
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        let generated = try String(
+            contentsOf: root.appendingPathComponent("Config/Generated/GoogleSecrets.xcconfig"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(generated.contains("GOOGLE_CLIENT_ID = 123-abc.apps.googleusercontent.com"))
+        XCTAssertTrue(generated.contains("GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.123-abc"))
+        XCTAssertFalse(generated.contains("REPLACE_ME"))
+        try? FileManager.default.removeItem(at: root)
     }
 
     func testGoogleSignInPackageIsPinned() throws {

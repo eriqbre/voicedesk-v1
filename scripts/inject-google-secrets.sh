@@ -1,14 +1,11 @@
 #!/bin/sh
-# Manual/dev helper — not an Xcode build phase.
-# Reads VoiceDesk/Secrets.plist (if present) and writes
-# GOOGLE_CLIENT_ID / GOOGLE_REVERSED_CLIENT_ID into
-# Config/Generated/GoogleSecrets.xcconfig only.
-# Config/VoiceDesk.xcconfig optionally includes that file so the next
-# Xcode evaluation substitutes $(GOOGLE_*) in Config/Info.plist.
-# Does NOT write or copy the built app Info.plist.
-# Derives the reversed client ID when it is empty or REPLACE_ME.
+# Writes Config/Generated/GoogleSecrets.xcconfig from Secrets.plist / env.
+# Used as a scheme Pre-action and as an Xcode Run Script whose ONLY output
+# is that xcconfig — never INFOPLIST_PATH, never the built app Info.plist.
+# Config/VoiceDesk.xcconfig #include?s the file so $(GOOGLE_*) substitute
+# into Config/Info.plist. Derives the reversed client ID when missing.
 # Never prints secret values.
-# Usage (from repo root): ./scripts/inject-google-secrets.sh
+# Manual: ./scripts/inject-google-secrets.sh
 
 set -eu
 
@@ -22,7 +19,19 @@ plist_get() {
     if [ ! -f "$1" ]; then
         return 0
     fi
-    /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
+    if [ -x /usr/libexec/PlistBuddy ]; then
+        /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
+        return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import plistlib, sys
+with open(sys.argv[1], "rb") as handle:
+    data = plistlib.load(handle)
+value = data.get(sys.argv[2], "")
+print("" if value is None else value)
+' "$1" "$2" 2>/dev/null || true
+    fi
 }
 
 trim() {
@@ -75,6 +84,8 @@ if ! is_placeholder "$CLIENT"; then
         echo "GOOGLE_CLIENT_ID = ${CLIENT}"
         if ! is_placeholder "$REVERSED"; then
             echo "GOOGLE_REVERSED_CLIENT_ID = ${REVERSED}"
+        else
+            echo "GOOGLE_REVERSED_CLIENT_ID ="
         fi
     } > "$XCCONFIG"
     echo "note: inject-google-secrets: wrote Config/Generated/GoogleSecrets.xcconfig from Secrets.plist"
