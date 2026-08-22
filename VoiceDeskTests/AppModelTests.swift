@@ -111,6 +111,23 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.turns[2].cards.contains { $0.kind == .email })
     }
 
+    func testLiveHowToConnectGoogleAttachesCardOnUserTranscript() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        model.tapTalk()
+        await waitUntil { fake.started }
+
+        fake.emitUser("how do I connect my Google account?", itemID: "connect_1")
+
+        XCTAssertEqual(model.turns.filter { $0.role == .user }.last?.text, "how do I connect my Google account?")
+        let assistant = model.turns.last
+        XCTAssertEqual(assistant?.role, .assistant)
+        XCTAssertEqual(assistant?.text, ConversationPresence.connectHowToReply)
+        XCTAssertTrue(assistant?.cards.contains { $0.kind == .connectGoogle } == true)
+        XCTAssertFalse((assistant?.text ?? "").lowercased().contains("settings"))
+        XCTAssertFalse((assistant?.text ?? "").contains("Integrations"))
+    }
+
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)

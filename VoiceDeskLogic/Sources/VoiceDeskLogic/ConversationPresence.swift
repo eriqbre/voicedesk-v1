@@ -30,6 +30,9 @@ public enum ConversationPresence {
     public static let connectGoogleChip = "Connect Google"
     public static let connectCoach =
         "Connect Google so I can see your inbox, calendar, and tasks."
+    /// Honest how-to. There is no Settings / Integrations screen.
+    public static let connectHowToReply =
+        "Tap Connect Google on the card in this thread. That’s the only way to connect."
     public static let returningConnectChipHint = "Connect Google when you’re ready — no rush."
 
     public enum Topic: String, Sendable, Equatable {
@@ -71,6 +74,10 @@ public enum ConversationPresence {
             return Plan(topic: .inbox, text: deskPreviewReply)
         }
 
+        if wantsConnectGoogle(text) {
+            return Plan(topic: .google, text: googleReply(context: context))
+        }
+
         if contains(lower, ["inbox", "my email", "my mail", "what's in my inbox", "whats in my inbox"])
             || (contains(lower, ["email", "mail"]) && contains(lower, ["my", "inbox"])) {
             return Plan(topic: .inbox, text: inboxReply(context: context))
@@ -105,10 +112,6 @@ public enum ConversationPresence {
                 topic: .statute,
                 text: "Florida wants the brokerage relationship on the table before you show as a single agent. Confidence is on the card — I’m not your lawyer."
             )
-        }
-
-        if contains(lower, ["connect google", "sign in with google", "sign into google", "disconnect google"]) {
-            return Plan(topic: .google, text: googleReply(context: context))
         }
 
         return Plan(topic: .general, text: generalReply(for: text, lower: lower, context: context))
@@ -207,7 +210,48 @@ public enum ConversationPresence {
         if !context.clientIDConfigured {
             return GoogleAuthSnapshot.missingClientIDCopy
         }
-        return connectCoach
+        return connectHowToReply
+    }
+
+    /// Connecting / linking Google or Gmail — never a Settings or Integrations path.
+    public static func wantsConnectGoogle(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        if contains(lower, [
+            "connect google",
+            "connecting google",
+            "connect my google",
+            "connect your google",
+            "sign in with google",
+            "sign into google",
+            "sign in to google",
+            "signin with google",
+            "disconnect google",
+            "link gmail",
+            "linking gmail",
+            "link my gmail",
+            "connect gmail",
+            "connect my gmail",
+            "link google",
+            "link my google",
+            "linking google"
+        ]) {
+            return true
+        }
+        let askingHow = contains(lower, [
+            "how do i",
+            "how do we",
+            "how to",
+            "how can i",
+            "where do i",
+            "where can i",
+            "where is"
+        ])
+        let linking = contains(lower, ["connect", "link", "sign in", "signin", "log in", "login"])
+        let google = contains(lower, ["google", "gmail"])
+        if askingHow && linking && google {
+            return true
+        }
+        return google && contains(lower, ["settings", "integrations", "integration"])
     }
 
     public static func wantsDeskPreview(_ raw: String) -> Bool {

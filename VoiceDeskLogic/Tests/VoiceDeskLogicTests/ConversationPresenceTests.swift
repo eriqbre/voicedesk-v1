@@ -37,7 +37,32 @@ final class ConversationPresenceTests: XCTestCase {
 
         let google = ConversationPresence.plan(for: "Connect Google")
         XCTAssertEqual(google.topic, .google)
-        XCTAssertEqual(google.text, ConversationPresence.connectCoach)
+        XCTAssertEqual(google.text, ConversationPresence.connectHowToReply)
+    }
+
+    func testHowDoIConnectGoogleMapsToConnectCard() {
+        let asks = [
+            "how do I connect my Google account?",
+            "How do I connect Google?",
+            "how to connect Google",
+            "link my Gmail",
+            "where is Google in Settings?",
+            "open Integrations to connect Gmail"
+        ]
+        for ask in asks {
+            XCTAssertTrue(ConversationPresence.wantsConnectGoogle(ask), ask)
+            let plan = ConversationPresence.plan(for: ask)
+            XCTAssertEqual(plan.topic, .google, ask)
+            XCTAssertTrue(plan.attachesCards, ask)
+            XCTAssertEqual(plan.text, ConversationPresence.connectHowToReply, ask)
+            XCTAssertFalse(plan.text.lowercased().contains("settings"), ask)
+            XCTAssertFalse(plan.text.contains("Integrations"), ask)
+            XCTAssertTrue(plan.text.contains("Tap Connect Google"), ask)
+            let cards = ConversationPresence.cards(for: plan.topic, googleConnected: false)
+            XCTAssertEqual(cards.map(\.kind), [.connectGoogle], ask)
+        }
+        XCTAssertFalse(ConversationPresence.wantsConnectGoogle("What's in my inbox?"))
+        XCTAssertFalse(ConversationPresence.wantsConnectGoogle("What's for dinner?"))
     }
 
     func testConnectedInboxUsesCacheNotSampleDesk() {

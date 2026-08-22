@@ -309,7 +309,6 @@ final class AppModel {
         }
 
         appendUser(text)
-        pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         if phase == .welcome {
             phase = .ready
         }
@@ -317,6 +316,10 @@ final class AppModel {
             appendDeskPreview()
             return
         }
+        if surfaceConnectGoogleIfAsked(text) {
+            return
+        }
+        pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
         }
@@ -397,6 +400,10 @@ final class AppModel {
             phase = .ready
         }
 
+        if surfaceConnectGoogleIfAsked(text) {
+            return
+        }
+
         if voice.usesLiveLoop {
             pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
             await voice.sendTextTurn(text)
@@ -464,6 +471,21 @@ final class AppModel {
         let cards = ConversationPresence.cards(for: plan.topic, context: deskContext)
         appendAssistant(plan.text, cards: cards)
         await voice.speak(plan.text)
+    }
+
+    /// Live voice and typed path: attach the Connect Google card on the user ask.
+    /// Do not wait for Grok — there is no Settings screen to invent.
+    @discardableResult
+    private func surfaceConnectGoogleIfAsked(_ text: String) -> Bool {
+        let plan = ConversationPresence.plan(for: text, context: deskContext)
+        guard plan.topic == .google, !google.isConnected else { return false }
+        pendingDeskTopic = nil
+        appendAssistant(
+            plan.text,
+            cards: ConversationPresence.cards(for: .google, context: deskContext)
+        )
+        playbook.hasSeenConnectOffer = true
+        return true
     }
 
     private func offerConnectIfNeeded() {
