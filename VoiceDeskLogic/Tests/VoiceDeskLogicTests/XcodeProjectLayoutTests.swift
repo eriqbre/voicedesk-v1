@@ -26,6 +26,18 @@ final class XcodeProjectLayoutTests: XCTestCase {
         XCTAssertTrue(plist.contains("$(GOOGLE_REVERSED_CLIENT_ID)"))
         XCTAssertTrue(plist.contains("GIDClientID"))
         XCTAssertTrue(plist.contains("$(GOOGLE_CLIENT_ID)"))
+
+        XCTAssertFalse(pbx.contains("$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"))
+        XCTAssertFalse(pbx.contains("INFOPLIST_PATH"))
+    }
+
+    func testInjectScriptDoesNotWriteBuiltInfoPlist() throws {
+        let script = try XCTUnwrap(repoFile("scripts/inject-google-secrets.sh"))
+        XCTAssertTrue(script.contains("Config/Generated/GoogleSecrets.xcconfig"))
+        XCTAssertFalse(script.contains("INFOPLIST_PATH"))
+        XCTAssertFalse(script.contains("TARGET_BUILD_DIR"))
+        XCTAssertFalse(script.contains("Set :GIDClientID"))
+        XCTAssertFalse(script.contains("CFBundleURLTypes"))
     }
 
     func testGoogleSignInPackageIsPinned() throws {

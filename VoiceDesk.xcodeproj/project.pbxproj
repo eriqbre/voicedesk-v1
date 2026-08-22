@@ -264,7 +264,6 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
 				"$(SRCROOT)/Config/Generated/GoogleSecrets.xcconfig",
 			);
 			runOnlyForDeploymentPostprocessing = 0;

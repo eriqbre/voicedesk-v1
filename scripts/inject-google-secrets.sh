@@ -1,8 +1,9 @@
 #!/bin/sh
 # Reads gitignored VoiceDesk/Secrets.plist (if present) and writes
-# GOOGLE_CLIENT_ID / GOOGLE_REVERSED_CLIENT_ID into:
-#   1) Config/Generated/GoogleSecrets.xcconfig (next Xcode evaluation)
-#   2) the already-processed app Info.plist (this build)
+# GOOGLE_CLIENT_ID / GOOGLE_REVERSED_CLIENT_ID into
+# Config/Generated/GoogleSecrets.xcconfig only.
+# Does NOT write or copy the built app Info.plist — that file is produced
+# solely by ProcessInfoPlistFile from Config/Info.plist + $(GOOGLE_*) substitution.
 # Derives the reversed client ID when it is empty or REPLACE_ME.
 # Never prints secret values.
 
@@ -12,7 +13,6 @@ SRCROOT="${SRCROOT:-$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)}"
 SECRETS="${SRCROOT}/VoiceDesk/Secrets.plist"
 GENERATED_DIR="${SRCROOT}/Config/Generated"
 XCCONFIG="${GENERATED_DIR}/GoogleSecrets.xcconfig"
-INFO_PLIST="${TARGET_BUILD_DIR:-}/${INFOPLIST_PATH:-}"
 
 plist_get() {
     # $1 = file, $2 = key
@@ -82,36 +82,4 @@ else
         echo "GOOGLE_REVERSED_CLIENT_ID ="
     } > "$XCCONFIG"
     echo "note: inject-google-secrets: no GOOGLE_CLIENT_ID in Secrets.plist; leaving empty"
-fi
-
-if [ -z "$INFO_PLIST" ] || [ ! -f "$INFO_PLIST" ]; then
-    echo "note: inject-google-secrets: built Info.plist not present yet; xcconfig written"
-    exit 0
-fi
-
-if is_placeholder "$CLIENT"; then
-    exit 0
-fi
-
-if /usr/libexec/PlistBuddy -c "Print :GIDClientID" "$INFO_PLIST" >/dev/null 2>&1; then
-    /usr/libexec/PlistBuddy -c "Set :GIDClientID ${CLIENT}" "$INFO_PLIST"
-else
-    /usr/libexec/PlistBuddy -c "Add :GIDClientID string ${CLIENT}" "$INFO_PLIST"
-fi
-
-if ! is_placeholder "$REVERSED"; then
-    if /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" "$INFO_PLIST" >/dev/null 2>&1; then
-        /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 ${REVERSED}" "$INFO_PLIST"
-    else
-        /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$INFO_PLIST" 2>/dev/null || true
-        /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$INFO_PLIST" 2>/dev/null || true
-        /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string app.voicedesk.google" "$INFO_PLIST" 2>/dev/null || true
-        /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleTypeRole string Editor" "$INFO_PLIST" 2>/dev/null || true
-        /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$INFO_PLIST" 2>/dev/null || true
-        /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string ${REVERSED}" "$INFO_PLIST" 2>/dev/null || true
-        /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 ${REVERSED}" "$INFO_PLIST" 2>/dev/null || true
-    fi
-    echo "note: inject-google-secrets: patched built Info.plist GIDClientID + Google URL scheme"
-else
-    echo "note: inject-google-secrets: could not derive reversed client ID; leaving URL scheme unchanged"
 fi
