@@ -151,9 +151,16 @@ final class AppModel {
 
         appendUser(text)
 
-        if phase == .welcome || matchesTour(text) {
+        if phase == .welcome, shouldStartTour(text) {
             await runTour()
             return
+        }
+        if shouldRestartTour(text) {
+            await runTour()
+            return
+        }
+        if phase == .welcome {
+            phase = .ready
         }
 
         await replyReady(to: text)
@@ -322,8 +329,12 @@ final class AppModel {
         }
     }
 
-    private func matchesTour(_ text: String) -> Bool {
+    private func shouldStartTour(_ text: String) -> Bool {
         matches(text.lowercased(), ["tour", "show me", "yes", "start"])
+    }
+
+    private func shouldRestartTour(_ text: String) -> Bool {
+        matches(text.lowercased(), ["start the tour", "give me a tour", "show me the tour"])
     }
 
     private func matchesCancel(_ text: String) -> Bool {
