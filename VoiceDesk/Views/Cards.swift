@@ -125,6 +125,19 @@ struct EmailCardView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(emailAccessibilityLabel)
         .accessibilityIdentifier("card.email")
+        .onAppear { expandEarlierIfRequested() }
+        .onChange(of: model.expandEarlierEpoch) { _, _ in
+            expandEarlierIfRequested()
+        }
+        .onChange(of: item.earlierMessages.count) { _, _ in
+            expandEarlierIfRequested()
+        }
+    }
+
+    private func expandEarlierIfRequested() {
+        if model.expandsEarlierMessages(item), item.hasEarlierMessages {
+            showingEarlier = true
+        }
     }
 
     private var emailAccessibilityLabel: String {
@@ -455,7 +468,7 @@ struct ConnectGoogleCardView: View {
 
 struct CalendarCardView: View {
     let item: CalendarItem
-    @State private var showingDetails = true
+    @State private var showingDetails = false
 
     var body: some View {
         CardChrome {

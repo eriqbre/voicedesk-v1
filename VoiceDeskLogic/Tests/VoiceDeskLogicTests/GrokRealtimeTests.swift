@@ -82,6 +82,8 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("NEVER mention an Email card"))
         XCTAssertTrue(text.contains("pull-to-refresh"))
         XCTAssertTrue(text.contains("NEVER paste a full email body"))
+        XCTAssertTrue(text.contains("not in the last sync"))
+        XCTAssertTrue(text.contains("search Gmail"))
         XCTAssertFalse(text.contains("waiting on the Email card"))
         XCTAssertFalse(text.contains("only have the subject"))
     }

@@ -213,6 +213,63 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse((inbox?.text ?? "").lowercased().contains("pull-to-refresh"))
     }
 
+    func testSummarizeFullThreadUsesFocusedEmailNotGrokInvention() {
+        var email = SampleData.syncedEmail()
+        email.fromName = "Murray Mitchell"
+        email.body = "Walk the lot Saturday at 10."
+        email.earlierMessages = [
+            EmailThreadMessage(id: "e1", fromName: "Murray Mitchell", plainBody: "Can we walk the lot this week?")
+        ]
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [email, SampleData.syncedEmail()])
+        )
+        XCTAssertTrue(ConversationPresence.wantsFullThread("Can you summarize the full thread?"))
+        XCTAssertNil(ConversationPresence.matchingEmail(for: "Can you summarize the full thread?", in: context.snapshot.emails))
+        let evidence = ConversationPresence.deskEvidence(
+            for: "Can you summarize the full thread?",
+            context: context,
+            focusedEmail: email
+        )
+        XCTAssertNotNil(evidence)
+        XCTAssertTrue(evidence?.expandEarlierMessages == true)
+        XCTAssertTrue(evidence?.cards.contains { $0.kind == .email } == true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertTrue(item.hasEarlierMessages)
+        } else {
+            XCTFail("expected focused email card")
+        }
+        let reply = evidence?.text ?? ""
+        XCTAssertFalse(ConversationPresence.replyMentionsCard(reply) && (evidence?.cards.isEmpty ?? true))
+        XCTAssertFalse(evidence?.claimsCardWithoutAttaching == true)
+        assertNotGrokThreadInvention(reply)
+        XCTAssertTrue(reply.lowercased().contains("thread") || reply.lowercased().contains("earlier"))
+    }
+
+    func testCacheMissSpecificEmailRequestsGmailSearch() {
+        let context = DeskContext(isConnected: true, snapshot: .empty)
+        let evidence = ConversationPresence.deskEvidence(
+            for: "Hey, show me Murray's latest email.",
+            context: context
+        )
+        XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertTrue(evidence?.gmailQuery?.contains("murray") == true)
+        XCTAssertTrue(evidence?.cards.isEmpty == true)
+        XCTAssertFalse(evidence?.claimsCardWithoutAttaching == true)
+        XCTAssertFalse((evidence?.text ?? "").lowercased().contains("not in last sync"))
+        XCTAssertFalse((evidence?.text ?? "").lowercased().contains("not in my last sync"))
+    }
+
+    func testCalendarReservationDoesNotSearchGmail() {
+        let context = DeskContext(isConnected: true, snapshot: .empty)
+        let evidence = ConversationPresence.deskEvidence(
+            for: "details for Massimo's reservation",
+            context: context
+        )
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+    }
+
     func testConnectedInboxUsesCacheNotSampleDesk() {
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
         let context = DeskContext(isConnected: true, snapshot: snapshot)
@@ -332,6 +389,14 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse(lower.contains("settings"), ask)
         XCTAssertFalse(text.contains("Integrations"), ask)
         XCTAssertFalse(lower.contains("do it yourself"), ask)
+    }
+
+    private func assertNotGrokThreadInvention(_ text: String) {
+        let lower = text.lowercased()
+        XCTAssertFalse(lower.contains("can't pull") || lower.contains("cannot pull") || lower.contains("can’t pull"))
+        XCTAssertFalse(lower.contains("not in my last sync"))
+        XCTAssertFalse(lower.contains("not in the last sync"))
+        XCTAssertFalse(lower.contains("all i have is the latest"))
     }
 
     private func assertDoesNotBounceToGmail(_ text: String) {

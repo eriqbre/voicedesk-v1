@@ -220,19 +220,28 @@ public enum ConversationPresence {
         public var cards: [ContentCard]
         public var focusedEmail: EmailItem?
         public var shouldFetchBody: Bool
+        public var expandEarlierMessages: Bool
+        public var shouldSearchGmail: Bool
+        public var gmailQuery: String?
 
         public init(
             topic: Topic,
             text: String,
             cards: [ContentCard],
             focusedEmail: EmailItem? = nil,
-            shouldFetchBody: Bool = false
+            shouldFetchBody: Bool = false,
+            expandEarlierMessages: Bool = false,
+            shouldSearchGmail: Bool = false,
+            gmailQuery: String? = nil
         ) {
             self.topic = topic
             self.text = text
             self.cards = cards
             self.focusedEmail = focusedEmail
             self.shouldFetchBody = shouldFetchBody
+            self.expandEarlierMessages = expandEarlierMessages
+            self.shouldSearchGmail = shouldSearchGmail
+            self.gmailQuery = gmailQuery
         }
 
         public var claimsCardWithoutAttaching: Bool {
@@ -264,9 +273,32 @@ public enum ConversationPresence {
             )
         }
 
-        if let email = matchingEmail(for: raw, in: context.snapshot.emails),
-           wantsSpecificEmail(raw) || wantsEmailBody(raw) {
-            return emailEvidence(email)
+        if wantsFullThread(raw) {
+            if let email = resolveThreadEmail(for: raw, context: context, focusedEmail: focusedEmail) {
+                return threadEvidence(email)
+            }
+            if context.isConnected, let query = GmailSearchQuery.query(from: raw) {
+                return searchEvidence(query: query, expandEarlier: true)
+            }
+            if !context.snapshot.emails.isEmpty {
+                return inboxEvidence(context: context, followUp: true)
+            }
+            if context.isConnected || focusedEmail != nil {
+                return DeskEvidence(
+                    topic: .inbox,
+                    text: emailBodyUnknownReply(hasInbox: false),
+                    cards: []
+                )
+            }
+        }
+
+        if (wantsSpecificEmail(raw) || wantsEmailBody(raw)), !wantsCalendarDetails(raw) {
+            if let email = matchingEmail(for: raw, in: context.snapshot.emails) {
+                return emailEvidence(email)
+            }
+            if context.isConnected, let query = GmailSearchQuery.query(from: raw) {
+                return searchEvidence(query: query, expandEarlier: wantsFullThread(raw))
+            }
         }
 
         if wantsEmailFollowUp(raw) {
@@ -343,6 +375,7 @@ public enum ConversationPresence {
     public static func wantsEmailFollowUp(_ raw: String) -> Bool {
         let lower = raw.lowercased()
         if wantsDeskPreview(raw) { return false }
+        if wantsFullThread(raw) { return true }
         return contains(lower, [
             "show it to me",
             "show it",
@@ -358,6 +391,23 @@ public enum ConversationPresence {
             "i dont see the card",
             "don't see any email",
             "dont see any email"
+        ])
+    }
+
+    public static func wantsFullThread(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        return contains(lower, [
+            "full thread",
+            "entire thread",
+            "whole thread",
+            "summarize the thread",
+            "summarize this thread",
+            "summarize the full thread",
+            "what's in the thread",
+            "whats in the thread",
+            "earlier messages",
+            "show earlier",
+            "whole conversation"
         ])
     }
 
@@ -442,6 +492,24 @@ public enum ConversationPresence {
         return "I don’t have a synced thread yet. I’m not inventing cards."
     }
 
+    private static func resolveThreadEmail(
+        for raw: String,
+        context: DeskContext,
+        focusedEmail: EmailItem?
+    ) -> EmailItem? {
+        if let focusedEmail { return focusedEmail }
+        if let match = matchingEmail(for: raw, in: context.snapshot.emails) {
+            return match
+        }
+        if context.snapshot.emails.count == 1 {
+            return context.snapshot.emails.first
+        }
+        if wantsFullThread(raw) {
+            return context.snapshot.emails.first
+        }
+        return nil
+    }
+
     private static func emailEvidence(_ email: EmailItem) -> DeskEvidence {
         DeskEvidence(
             topic: .inbox,
@@ -451,6 +519,41 @@ public enum ConversationPresence {
             shouldFetchBody: true
         )
     }
+
+    private static func threadEvidence(_ email: EmailItem) -> DeskEvidence {
+        DeskEvidence(
+            topic: .inbox,
+            text: emailThreadReply(email),
+            cards: [.email(email)],
+            focusedEmail: email,
+            shouldFetchBody: true,
+            expandEarlierMessages: true
+        )
+    }
+
+    private static func searchEvidence(query: String, expandEarlier: Bool) -> DeskEvidence {
+        DeskEvidence(
+            topic: .inbox,
+            text: gmailSearchPendingReply,
+            cards: [],
+            shouldFetchBody: false,
+            expandEarlierMessages: expandEarlier,
+            shouldSearchGmail: true,
+            gmailQuery: query
+        )
+    }
+
+    public static let gmailSearchPendingReply =
+        "I’ll search Gmail for that. I’m not inventing mail."
+
+    public static let gmailSearchEmptyReply =
+        "I searched Gmail and didn’t find that. I’m not inventing it."
+
+    public static let gmailSearchSeveralReply =
+        "I found a few matches. They’re on the cards — which one?"
+
+    public static let gmailSearchFailedReply =
+        "I couldn’t search Gmail right now. I’m not inventing that message."
 
     private static func inboxEvidence(context: DeskContext, followUp: Bool) -> DeskEvidence {
         let cards = cards(for: .inbox, context: context)
@@ -481,6 +584,38 @@ public enum ConversationPresence {
             return emailBodySyncFailedReply(email)
         }
         return emailBodySyncFailedReply(email)
+    }
+
+    /// Short spoken summary of latest + earlier. Never claims the thread is unsynced.
+    public static func emailThreadReply(_ email: EmailItem) -> String {
+        if email.hasEarlierMessages {
+            let latest = EmailBodyFormatting.spokenSummary(from: email.body, fallback: email.preview)
+            let earlierBeats = email.earlierMessages.compactMap { message -> String? in
+                let beat = EmailBodyFormatting.spokenSummary(from: message.plainBody, fallback: "")
+                return beat.isEmpty ? nil : beat
+            }
+            var line = "The full thread is on the card — earlier messages are open."
+            if let first = earlierBeats.first {
+                let who = email.earlierMessages.first?.fromName
+                if let who, !who.isEmpty {
+                    line += " Earlier from \(who): \(first)"
+                } else {
+                    line += " Earlier: \(first)"
+                }
+            }
+            if !latest.isEmpty {
+                line += " Latest from \(email.fromName): \(latest)"
+            }
+            return line
+        }
+        if email.hasFullBody {
+            let beat = EmailBodyFormatting.spokenSummary(from: email.body, fallback: email.preview)
+            if beat.isEmpty {
+                return "This thread is only the latest from \(email.fromName) — no earlier messages in the sync."
+            }
+            return "This thread is only the latest from \(email.fromName) — no earlier messages in the sync. \(beat)"
+        }
+        return "The thread is on the card. I’ll load earlier messages here in VoiceDesk."
     }
 
     public static func emailBodySyncFailedReply(_ email: EmailItem) -> String {

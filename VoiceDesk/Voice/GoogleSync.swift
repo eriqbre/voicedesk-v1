@@ -7,6 +7,7 @@ import VoiceDeskLogic
 protocol GoogleSyncing: AnyObject, Sendable {
     func sync(token: String, accountEmail: String, now: Date) async throws -> DeskSnapshot
     func fetchMessage(token: String, messageID: String, now: Date) async throws -> EmailItem
+    func searchMessages(token: String, query: String, now: Date) async throws -> [EmailItem]
 }
 
 /// Gmail / Calendar / Tasks reads. Mapping stays in VoiceDeskLogic.
@@ -53,6 +54,11 @@ final class LiveGoogleSync: GoogleSyncing {
         }
     }
 
+    func searchMessages(token: String, query: String, now: Date) async throws -> [EmailItem] {
+        let session = self.session
+        return try await Self.search(session: session, token: token, query: query, now: now)
+    }
+
     private nonisolated static func message(
         session: URLSession,
         token: String,
@@ -78,6 +84,29 @@ final class LiveGoogleSync: GoogleSyncing {
             throw GoogleJSONMapping.MappingError.invalidJSON
         }
         return email
+    }
+
+    private nonisolated static func search(
+        session: URLSession,
+        token: String,
+        query: String,
+        now: Date
+    ) async throws -> [EmailItem] {
+        var components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "maxResults", value: "5")
+        ]
+        guard let url = components.url else {
+            throw GoogleJSONMapping.MappingError.invalidJSON
+        }
+        let list = try object(try await getData(session: session, url: url, token: token))
+        let ids = (list["messages"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        var emails: [EmailItem] = []
+        for id in ids.prefix(5) {
+            emails.append(try await message(session: session, token: token, messageID: id, now: now))
+        }
+        return GoogleItemDedupe.emails(emails)
     }
 
     private nonisolated static func recentEmails(
@@ -158,6 +187,8 @@ final class MockGoogleSync: GoogleSyncing {
     var bodies: [String: String] = [:]
     var htmlBodies: [String: String] = [:]
     var earlierMessages: [String: [EmailThreadMessage]] = [:]
+    var searchable: [EmailItem] = []
+    var searchQueries: [String] = []
     var fetchCalls = 0
     var failuresRemaining = 0
 
@@ -178,6 +209,26 @@ final class MockGoogleSync: GoogleSyncing {
         }
     }
 
+    func searchMessages(token: String, query: String, now: Date) async throws -> [EmailItem] {
+        _ = token
+        _ = now
+        searchQueries.append(query)
+        if let error { throw GoogleSignInError.failed(error) }
+        let tokens = query.lowercased().split { $0.isWhitespace }.map { token -> String in
+            token.hasPrefix("from:") ? String(token.dropFirst(5)) : String(token)
+        }.filter { !$0.isEmpty }
+        let pool = searchable.isEmpty ? result.emails : searchable
+        return pool.filter { email in
+            tokens.allSatisfy { token in
+                email.fromName.lowercased().contains(token)
+                    || email.fromEmail.lowercased().contains(token)
+                    || email.subject.lowercased().contains(token)
+                    || email.preview.lowercased().contains(token)
+                    || (email.body ?? "").lowercased().contains(token)
+            }
+        }
+    }
+
     private func fetchOnce(token: String, messageID: String, now: Date) throws -> EmailItem {
         _ = token
         _ = now
@@ -187,7 +238,8 @@ final class MockGoogleSync: GoogleSyncing {
             throw GoogleSignInError.failed(error ?? "transient fetch failure")
         }
         if let error { throw GoogleSignInError.failed(error) }
-        guard var email = result.emails.first(where: { $0.providerID == messageID }) else {
+        guard var email = result.emails.first(where: { $0.providerID == messageID })
+                ?? searchable.first(where: { $0.providerID == messageID }) else {
             throw GoogleSignInError.failed("No synced message \(messageID).")
         }
         if let body = bodies[messageID] {

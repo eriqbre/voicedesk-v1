@@ -32,8 +32,12 @@ final class AppModel {
     private var waitingToOfferConnectAfterTalk = false
     /// After we script Connect / email-body locally, drop Grok’s spoken contradiction.
     private var suppressLiveAssistant = false
-    /// Last email the local path attached, for “show it to me” follow-ups.
+    /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
     private var lastFocusedEmail: EmailItem?
+    private var pendingThreadSummary = false
+    private var expandEarlierEmailIDs: Set<UUID> = []
+    private var expandEarlierProviderIDs: Set<String> = []
+    var expandEarlierEpoch: Int = 0
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -538,11 +542,37 @@ final class AppModel {
         Task { await revealEmailBody(item) }
     }
 
-    private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
+    func expandsEarlierMessages(_ email: EmailItem) -> Bool {
+        if expandEarlierEmailIDs.contains(email.id) { return true }
+        if let providerID = email.providerID, expandEarlierProviderIDs.contains(providerID) {
+            return true
+        }
+        if let threadID = email.threadID, expandEarlierProviderIDs.contains(threadID) {
+            return true
+        }
+        return false
+    }
+
+    private func markExpandEarlier(for email: EmailItem) {
+        expandEarlierEmailIDs.insert(email.id)
+        if let providerID = email.providerID { expandEarlierProviderIDs.insert(providerID) }
+        if let threadID = email.threadID { expandEarlierProviderIDs.insert(threadID) }
+        expandEarlierEpoch += 1
+    }
+
+    private func rememberEvidence(_ evidence: ConversationPresence.DeskEvidence) {
         if let email = evidence.focusedEmail {
             lastFocusedEmail = email
         }
-        if evidence.shouldFetchBody, evidence.focusedEmail != nil {
+        pendingThreadSummary = evidence.expandEarlierMessages
+        if evidence.expandEarlierMessages, let email = evidence.focusedEmail {
+            markExpandEarlier(for: email)
+        }
+    }
+
+    private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
+        rememberEvidence(evidence)
+        if evidence.shouldSearchGmail || (evidence.shouldFetchBody && evidence.focusedEmail != nil) {
             Task { await applyDeskEvidence(evidence) }
             return
         }
@@ -550,14 +580,50 @@ final class AppModel {
     }
 
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
-        if let email = evidence.focusedEmail {
-            lastFocusedEmail = email
+        rememberEvidence(evidence)
+        if evidence.shouldSearchGmail, let query = evidence.gmailQuery, !query.isEmpty {
+            await searchGmail(query)
+            return
         }
         if evidence.shouldFetchBody, let email = evidence.focusedEmail {
             await revealEmailBody(email)
             return
         }
         appendAssistant(evidence.text, cards: evidence.cards)
+    }
+
+    private func searchGmail(_ query: String) async {
+        guard google.isConnected, let token = google.accessToken else {
+            appendAssistant(
+                ConversationPresence.connectHowToReply,
+                cards: [.connectGoogle(deskContext.connectItem)]
+            )
+            return
+        }
+        do {
+            let found = try await sync.searchMessages(token: token, query: query, now: Date())
+            if found.isEmpty {
+                appendAssistant(ConversationPresence.gmailSearchEmptyReply)
+                return
+            }
+            if found.count == 1 {
+                applyLoadedEmail(found[0])
+                return
+            }
+            let top = Array(found.prefix(3))
+            for email in top {
+                upsertSnapshotEmail(email)
+            }
+            cache.save(deskSnapshot)
+            refreshPresence()
+            lastFocusedEmail = top.first
+            appendAssistant(
+                ConversationPresence.gmailSearchSeveralReply,
+                cards: top.map { .email($0) }
+            )
+        } catch {
+            appendAssistant(ConversationPresence.gmailSearchFailedReply)
+        }
     }
 
     private func revealEmailBody(_ email: EmailItem) async {
@@ -570,7 +636,7 @@ final class AppModel {
             applyLoadedEmail(full)
         } catch {
             refreshEmailCards(email)
-            if email.hasFullBody {
+            if pendingThreadSummary || email.hasFullBody || email.hasEarlierMessages {
                 applyLoadedEmail(email)
             } else {
                 appendAssistant(
@@ -582,16 +648,29 @@ final class AppModel {
     }
 
     private func applyLoadedEmail(_ email: EmailItem) {
-        if let index = deskSnapshot.emails.firstIndex(where: { $0.providerID == email.providerID && $0.providerID != nil }) {
-            deskSnapshot.emails[index] = email
-        } else if let index = deskSnapshot.emails.firstIndex(where: { $0.id == email.id }) {
-            deskSnapshot.emails[index] = email
-        }
+        upsertSnapshotEmail(email)
         cache.save(deskSnapshot)
         refreshPresence()
         refreshEmailCards(email)
         lastFocusedEmail = email
-        appendAssistant(ConversationPresence.emailBodyReply(email), cards: [.email(email)])
+        if pendingThreadSummary {
+            markExpandEarlier(for: email)
+        }
+        let reply = pendingThreadSummary
+            ? ConversationPresence.emailThreadReply(email)
+            : ConversationPresence.emailBodyReply(email)
+        pendingThreadSummary = false
+        appendAssistant(reply, cards: [.email(email)])
+    }
+
+    private func upsertSnapshotEmail(_ email: EmailItem) {
+        if let index = deskSnapshot.emails.firstIndex(where: { $0.providerID == email.providerID && $0.providerID != nil }) {
+            deskSnapshot.emails[index] = email
+        } else if let index = deskSnapshot.emails.firstIndex(where: { $0.id == email.id }) {
+            deskSnapshot.emails[index] = email
+        } else {
+            deskSnapshot.emails.insert(email, at: 0)
+        }
     }
 
     private func refreshEmailCards(_ email: EmailItem) {

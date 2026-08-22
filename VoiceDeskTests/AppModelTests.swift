@@ -330,6 +330,86 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("pull-to-refresh"))
     }
 
+    func testSummarizeFullThreadFetchesAndExpandsEarlier() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-thread"
+        murray.body = "Walk the lot Saturday at 10."
+        murray.earlierMessages = [
+            EmailThreadMessage(id: "e1", fromName: "Murray Mitchell", plainBody: "Can we walk the lot this week?")
+        ]
+        let snapshot = DeskSnapshot(emails: [murray])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies["msg-murray-thread"] = murray.body
+        sync.earlierMessages["msg-murray-thread"] = murray.earlierMessages
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        await model.applyUserTurn("Hey, show me Murray's latest email.")
+        await model.applyUserTurn("Can you summarize the full thread?")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertTrue(item.hasEarlierMessages)
+            XCTAssertTrue(model.expandsEarlierMessages(item))
+        } else {
+            XCTFail("expected Murray thread card")
+        }
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(reply.lowercased().contains("thread") || reply.lowercased().contains("earlier"))
+        XCTAssertFalse(reply.lowercased().contains("can't pull") || reply.lowercased().contains("cannot pull"))
+        XCTAssertFalse(reply.lowercased().contains("not in my last sync"))
+        XCTAssertFalse(reply.lowercased().contains("all i have is the latest"))
+    }
+
+    func testCacheMissSearchesGmailAndAttaches() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-search"
+        murray.body = "Walk the lot Saturday at 10."
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = [murray]
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(),
+            sync: sync
+        )
+        await model.applyUserTurn("Hey, show me Murray's latest email.")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertFalse(sync.searchQueries.isEmpty)
+        XCTAssertTrue(sync.searchQueries[0].contains("murray"))
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected searched Murray card")
+        }
+        XCTAssertEqual(model.deskSnapshot.emails.first?.fromName, "Murray Mitchell")
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("not in last sync"))
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("not in my last sync"))
+    }
+
+    func testGmailSearchEmptyIsHonest() async {
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = []
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(),
+            sync: sync
+        )
+        await model.applyUserTurn("show me Priya's email")
+        XCTAssertEqual(model.turns.last?.text, ConversationPresence.gmailSearchEmptyReply)
+        XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+    }
+
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)
