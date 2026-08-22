@@ -65,4 +65,122 @@ final class AppModelTests: XCTestCase {
         model.cancelDraft(draft!.id)
         XCTAssertTrue(send.sentDrafts.isEmpty)
     }
+
+    func testUnconfiguredTalkDoesNotFakeAConversation() async {
+        let model = AppModel(voice: UnconfiguredVoiceService())
+        XCTAssertTrue(model.voice.needsCredentials)
+        XCTAssertFalse(model.voice.usesLiveLoop)
+        model.tapTalk()
+        await Task.yield()
+        XCTAssertTrue(model.showVoiceSetup)
+        XCTAssertEqual(model.turns.count, 1)
+        XCTAssertEqual(model.turns.first?.text, ConversationPresence.welcomeText)
+        XCTAssertEqual(model.voice.state, .idle)
+    }
+
+    func testLiveTranscriptsMirrorIntoTheThreadAndAttachDeskCards() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        model.tapTalk()
+        await waitUntil { fake.started }
+        XCTAssertTrue(model.voice.usesLiveLoop)
+
+        fake.emitUser("What’s in my inbox?")
+        fake.emitAssistant("Jordan wrote this morning about Saturday.", isFinal: false)
+        fake.emitAssistant("", isFinal: true)
+
+        XCTAssertEqual(model.turns.map(\.role), [.assistant, .user, .assistant])
+        XCTAssertEqual(model.turns[1].text, "What’s in my inbox?")
+        XCTAssertTrue(model.turns[2].text.contains("Jordan wrote"))
+        XCTAssertTrue(model.turns[2].cards.contains { $0.kind == .email })
+    }
+
+    func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        await model.applyUserTurn("What's for dinner?")
+        XCTAssertEqual(fake.sentTurns, ["What's for dinner?"])
+        XCTAssertEqual(model.turns.last?.role, .user)
+        XCTAssertTrue(model.turns.flatMap(\.cards).isEmpty)
+    }
+
+    func testLiveCancelStopsSessionWithoutFakeUtterance() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        model.tapTalk()
+        await waitUntil { fake.started }
+        model.tapTalk()
+        XCTAssertTrue(fake.cancelled)
+        XCTAssertEqual(model.turns.count, 1)
+        XCTAssertEqual(model.voice.state, .idle)
+    }
+
+    func testClientSecretExtraction() {
+        XCTAssertEqual(
+            LiveGrokVoiceClient.extractClientSecret(from: ["value": "tok_1"]),
+            "tok_1"
+        )
+        XCTAssertEqual(
+            LiveGrokVoiceClient.extractClientSecret(from: ["client_secret": "tok_2"]),
+            "tok_2"
+        )
+        XCTAssertEqual(
+            LiveGrokVoiceClient.extractClientSecret(from: ["client_secret": ["value": "tok_3"]]),
+            "tok_3"
+        )
+        XCTAssertNil(LiveGrokVoiceClient.extractClientSecret(from: [:]))
+    }
+
+    private func waitUntil(_ predicate: @escaping () -> Bool) async {
+        for _ in 0..<40 {
+            if predicate() { return }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("timed out waiting for voice service")
+    }
+}
+
+@MainActor
+final class FakeLiveVoiceService: VoiceServicing {
+    private var session = VoiceSession()
+    let backendLabel = "Fake live"
+    let isInstant = true
+    let needsCredentials = false
+    let usesLiveLoop = true
+    var eventHandler: ((VoiceServiceEvent) -> Void)?
+    var started = false
+    var cancelled = false
+    var sentTurns: [String] = []
+
+    var state: VoiceState { session.state }
+
+    func startListening() async -> String {
+        started = true
+        session.apply(.cancel)
+        session.apply(.tapTalk)
+        eventHandler?(.state(session.state))
+        return ""
+    }
+
+    func speak(_ text: String) async {
+        _ = text
+    }
+
+    func sendTextTurn(_ text: String) async {
+        sentTurns.append(text)
+    }
+
+    func cancel() {
+        cancelled = true
+        session.apply(.cancel)
+        eventHandler?(.state(session.state))
+    }
+
+    func emitUser(_ text: String) {
+        eventHandler?(.userTranscript(text, isFinal: true))
+    }
+
+    func emitAssistant(_ text: String, isFinal: Bool) {
+        eventHandler?(.assistantTranscript(text, isFinal: isFinal))
+    }
 }

@@ -12,6 +12,8 @@ public enum VoiceSessionEvent: Hashable, Sendable {
     case listenFinished
     case speakStarted
     case speakFinished
+    /// Live Grok finished a turn; stay in `.listening` so the socket stays open.
+    case turnFinished
     case cancel
 }
 
@@ -33,6 +35,8 @@ public struct VoiceSession: Hashable, Sendable {
             state = .speaking
         case (.speaking, .speakFinished):
             state = .idle
+        case (.speaking, .turnFinished), (.thinking, .turnFinished), (.listening, .turnFinished):
+            state = .listening
         case (.listening, .tapTalk), (.thinking, .tapTalk), (.speaking, .tapTalk):
             state = .idle
         case (_, .cancel):

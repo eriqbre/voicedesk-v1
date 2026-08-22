@@ -29,6 +29,15 @@ final class VoiceSessionTests: XCTestCase {
         XCTAssertEqual(speaking.state, .idle)
     }
 
+    func testTurnFinishedKeepsLiveSessionListening() {
+        var session = VoiceSession(state: .speaking)
+        session.apply(.turnFinished)
+        XCTAssertEqual(session.state, .listening)
+
+        session.apply(.turnFinished)
+        XCTAssertEqual(session.state, .listening)
+    }
+
     func testCancelAbortsAnyState() {
         for state: VoiceState in [.idle, .listening, .thinking, .speaking] {
             var session = VoiceSession(state: state)

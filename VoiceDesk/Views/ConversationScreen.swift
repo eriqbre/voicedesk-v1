@@ -31,6 +31,9 @@ struct ConversationScreen: View {
                             }
                         }
                     }
+                    if model.voice.needsCredentials || model.showVoiceSetup {
+                        VoiceSetupBanner()
+                    }
                     VoiceBar()
                 }
             }
@@ -201,7 +204,17 @@ struct VoiceBar: View {
             .accessibilityLabel(micLabel)
             .accessibilityHint("Talk to me. I’ll answer — cards only if it’s about your desk.")
 
-            Text("Tap when you want to talk. Ask anything.")
+            if let error = model.voice.lastError, !error.isEmpty {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.red.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("voice.error")
+            }
+
+            Text(model.voice.needsCredentials
+                 ? "Grok is not connected yet. Add a key to talk."
+                 : "Tap when you want to talk. Ask anything.")
                 .font(.caption2)
                 .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
@@ -231,12 +244,35 @@ struct VoiceBar: View {
     }
 
     private var micLabel: String {
-        switch model.voice.state {
-        case .idle: "Tap to talk"
-        case .listening: "Listening…"
-        case .thinking: "Thinking…"
-        case .speaking: "Speaking… tap to stop"
+        if model.voice.needsCredentials {
+            return "Set up Grok to talk"
         }
+        switch model.voice.state {
+        case .idle: return "Tap to talk"
+        case .listening: return "Listening…"
+        case .thinking: return "Thinking…"
+        case .speaking: return "Speaking… tap to stop"
+        }
+    }
+}
+
+struct VoiceSetupBanner: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Connect Grok to talk")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.ink)
+            Text("Set XAI_API_KEY in the VoiceDesk scheme, or copy Secrets.example.plist to Secrets.plist (gitignored). Without a key I will not pretend to listen.")
+                .font(.caption)
+                .foregroundStyle(Palette.muted)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.accentSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .accessibilityIdentifier("voice.setup")
+        .accessibilityLabel("Connect Grok to talk. Set XAI_API_KEY or Secrets.plist.")
     }
 }
 

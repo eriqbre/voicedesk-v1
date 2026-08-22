@@ -14,6 +14,7 @@ final class LaunchSmokeTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["VoiceDesk"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["suggestion.tour"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["voice.talk"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["voice.setup"].exists)
     }
 
     func testTourRendersRequiredCards() {

@@ -11,32 +11,34 @@ final class AppModel {
     var composerText = ""
     var showActivity = false
     var isTourRunning = false
+    var showVoiceSetup = false
 
-    let voice: MockVoiceService
+    let voice: VoiceBox
     let google: StubGoogleAuth
     let wakeWord: WakeWordPlaceholder
     let sendClient: RecordingSendClient
 
+    private var liveAssistantID: UUID?
+    private var pendingDeskTopic: ConversationPresence.Topic?
+
     init(
-        voice: MockVoiceService? = nil,
+        voice: (any VoiceServicing)? = nil,
         google: StubGoogleAuth? = nil,
         wakeWord: WakeWordPlaceholder? = nil,
         sendClient: RecordingSendClient? = nil
     ) {
-        self.voice = voice ?? VoiceRuntime.makeService()
+        self.voice = VoiceBox(service: voice ?? VoiceRuntime.makeService())
         self.google = google ?? StubGoogleAuth()
         self.wakeWord = wakeWord ?? WakeWordPlaceholder()
         self.sendClient = sendClient ?? RecordingSendClient()
+        self.voice.transcriptHandler = { [weak self] event in
+            self?.handleLiveTranscript(event)
+        }
         startWelcome()
     }
 
     static func makeForLaunch() -> AppModel {
-        let uiTesting = ProcessInfo.processInfo.arguments.contains("-ui-testing")
-        return AppModel(
-            voice: uiTesting
-                ? MockVoiceService(label: "UITest", instant: true)
-                : VoiceRuntime.makeService()
-        )
+        AppModel(voice: VoiceRuntime.makeService())
     }
 
     func applyUserTurn(_ text: String) async {
@@ -57,9 +59,14 @@ final class AppModel {
     }
 
     func tapTalk() {
+        if voice.needsCredentials {
+            showVoiceSetup = true
+            return
+        }
         switch voice.state {
         case .listening, .speaking, .thinking:
             voice.cancel()
+            liveAssistantID = nil
             cancelPendingDraftsFromVoice()
         case .idle:
             Task { await listenAndHandle() }
@@ -155,6 +162,14 @@ final class AppModel {
     // MARK: - Voice / tour
 
     private func listenAndHandle() async {
+        if voice.usesLiveLoop {
+            _ = await voice.startListening()
+            if let error = voice.lastError, !error.isEmpty {
+                appendAssistant("I couldn’t reach Grok. \(error)")
+            }
+            return
+        }
+
         let overheard = await voice.startListening()
         if voice.state == .idle, overheard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return
@@ -163,6 +178,79 @@ final class AppModel {
             ? mockUtterance()
             : overheard
         await handleUserText(spoken)
+    }
+
+    private func handleLiveTranscript(_ event: VoiceTranscript) {
+        switch event.role {
+        case .user:
+            guard event.isFinal else { return }
+            handleLiveUser(event.text)
+        case .assistant:
+            upsertLiveAssistant(event.text, isFinal: event.isFinal)
+        }
+    }
+
+    private func handleLiveUser(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        if matchesCancel(text) {
+            voice.cancel()
+            cancelPendingDraftsFromVoice()
+            appendUser(text)
+            appendAssistant("Stopped. Nothing was sent.")
+            return
+        }
+
+        appendUser(text)
+        pendingDeskTopic = ConversationPresence.plan(for: text).topic
+        if phase == .welcome {
+            phase = .ready
+        }
+        if ConversationPresence.wantsTour(text) {
+            Task { await runTour() }
+        }
+    }
+
+    private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
+        if text.isEmpty, isFinal {
+            if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+                attachPendingCards(to: index)
+                liveAssistantID = nil
+            }
+            return
+        }
+
+        if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+            turns[index].text += text
+            if isFinal {
+                attachPendingCards(to: index)
+                liveAssistantID = nil
+            }
+            return
+        }
+
+        guard !text.isEmpty else { return }
+        let turn = ConversationTurn(role: .assistant, text: text)
+        liveAssistantID = turn.id
+        turns.append(turn)
+        if isFinal {
+            attachPendingCards(to: turns.count - 1)
+            liveAssistantID = nil
+        }
+    }
+
+    private func attachPendingCards(to index: Int) {
+        guard let topic = pendingDeskTopic, topic != .general else {
+            pendingDeskTopic = nil
+            return
+        }
+        guard turns.indices.contains(index), turns[index].cards.isEmpty else {
+            pendingDeskTopic = nil
+            return
+        }
+        turns[index].cards = ConversationPresence.cards(for: topic, googleConnected: google.isConnected)
+        pendingDeskTopic = nil
     }
 
     private func handleUserText(_ raw: String) async {
@@ -185,6 +273,12 @@ final class AppModel {
         }
         if phase == .welcome {
             phase = .ready
+        }
+
+        if voice.usesLiveLoop {
+            pendingDeskTopic = ConversationPresence.plan(for: text).topic
+            await voice.sendTextTurn(text)
+            return
         }
 
         await replyReady(to: text)
@@ -322,7 +416,7 @@ final class AppModel {
     }
 
     private func pause(_ milliseconds: UInt64) async {
-        if voice.instant { return }
+        if voice.isInstant { return }
         try? await Task.sleep(for: .milliseconds(milliseconds))
     }
 }

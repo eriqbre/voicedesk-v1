@@ -1,6 +1,8 @@
 .DS_Store
 xcuserdata/
 DerivedData/
+Secrets.plist
+**/Secrets.plist
 *.xcuserstate
 *.xccheckout
 *.moved-aside
