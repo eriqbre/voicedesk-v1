@@ -180,6 +180,51 @@ final class XcodeProjectLayoutTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testInjectScriptMissingTeamIsNotAFailure() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        var scriptURL: URL?
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let candidate = url.appendingPathComponent("scripts/inject-google-secrets.sh")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                scriptURL = candidate
+                break
+            }
+        }
+        let inject = try XCTUnwrap(scriptURL)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voicedesk-inject-noteam-\(UUID().uuidString)")
+        let secretsDir = root.appendingPathComponent("VoiceDesk")
+        try FileManager.default.createDirectory(at: secretsDir, withIntermediateDirectories: true)
+        let secrets = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>GOOGLE_CLIENT_ID</key>
+            <string>123-abc.apps.googleusercontent.com</string>
+        </dict>
+        </plist>
+        """
+        try secrets.write(to: secretsDir.appendingPathComponent("Secrets.plist"), atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [inject.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["SRCROOT"] = root.path
+        process.environment = environment
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        let generated = try String(
+            contentsOf: root.appendingPathComponent("Config/Generated/GoogleSecrets.xcconfig"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(generated.contains("GOOGLE_CLIENT_ID = 123-abc.apps.googleusercontent.com"))
+        XCTAssertFalse(generated.contains("DEVELOPMENT_TEAM ="))
+        try? FileManager.default.removeItem(at: root)
+    }
+
     func testLiveSyncUsesRecentInboxLimitOf25() throws {
         let sync = try XCTUnwrap(repoFile("VoiceDesk/Voice/GoogleSync.swift"))
         XCTAssertTrue(sync.contains("GoogleSyncPolicy.recentInboxLimit"))
