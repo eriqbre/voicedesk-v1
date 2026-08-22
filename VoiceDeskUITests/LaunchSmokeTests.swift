@@ -20,12 +20,12 @@ final class LaunchSmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["suggestion.tour"].waitForExistence(timeout: 5))
         app.buttons["suggestion.tour"].tap()
 
-        XCTAssertTrue(element("card.email").waitForExistence(timeout: 12))
-        XCTAssertTrue(element("card.listing").exists)
-        XCTAssertTrue(element("card.person").exists)
-        XCTAssertTrue(element("card.draftConfirm").waitForExistence(timeout: 12))
-        XCTAssertTrue(element("card.statute").waitForExistence(timeout: 12))
-        XCTAssertTrue(element("card.connectGoogle").waitForExistence(timeout: 12))
+        waitForCard("card.email")
+        waitForCard("card.listing")
+        waitForCard("card.person")
+        waitForCard("card.draftConfirm")
+        waitForCard("card.statute")
+        waitForCard("card.connectGoogle")
         XCTAssertTrue(app.staticTexts["Saturday showing at Beach Drive?"].exists)
         XCTAssertTrue(app.staticTexts["86%"].exists)
         XCTAssertTrue(app.staticTexts["Firm"].exists)
@@ -41,7 +41,15 @@ final class LaunchSmokeTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Delivered."].exists)
     }
 
-    private func element(_ id: String) -> XCUIElement {
-        app.descendants(matching: .any)[id]
+    private func waitForCard(_ id: String) {
+        let node = app.descendants(matching: .any)[id]
+        if node.waitForExistence(timeout: 6) {
+            if !node.isHittable {
+                app.swipeUp()
+            }
+            return
+        }
+        app.swipeUp()
+        XCTAssertTrue(node.waitForExistence(timeout: 6), "Missing \(id)")
     }
 }
