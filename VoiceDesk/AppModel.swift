@@ -32,6 +32,8 @@ final class AppModel {
     private var waitingToOfferConnectAfterTalk = false
     /// After we script Connect / email-body locally, drop Grok’s spoken contradiction.
     private var suppressLiveAssistant = false
+    /// Last email the local path attached, for “show it to me” follow-ups.
+    private var lastFocusedEmail: EmailItem?
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -97,6 +99,9 @@ final class AppModel {
     }
 
     var lastTurnID: UUID? { turns.last?.id }
+    /// Bumps when cards are appended or refreshed so ConversationScreen can scroll them on-screen.
+    var conversationScrollEpoch: Int = 0
+    var conversationScrollTarget: UUID?
 
     func startWelcome() {
         let firstRun = !hasCompletedPlaybook
@@ -321,9 +326,13 @@ final class AppModel {
         if surfaceConnectGoogleIfAsked(text) {
             return
         }
-        if ConversationPresence.wantsEmailBody(text) || ConversationPresence.wantsCalendarDetails(text) {
+        if let evidence = ConversationPresence.deskEvidence(
+            for: text,
+            context: deskContext,
+            focusedEmail: lastFocusedEmail
+        ) {
             claimLocalAssistantReply()
-            Task { await revealDeskDetails(for: text) }
+            surfaceDeskEvidence(evidence)
             return
         }
         suppressLiveAssistant = false
@@ -376,6 +385,7 @@ final class AppModel {
         }
         turns[index].cards = ConversationPresence.cards(for: topic, context: deskContext)
         pendingDeskTopic = nil
+        requestScrollToLatestCards(preferring: turns[index].cards.last?.id ?? turns[index].id)
     }
 
     private func handleUserText(_ raw: String) async {
@@ -415,9 +425,13 @@ final class AppModel {
             return
         }
 
-        if ConversationPresence.wantsEmailBody(text) || ConversationPresence.wantsCalendarDetails(text) {
+        if let evidence = ConversationPresence.deskEvidence(
+            for: text,
+            context: deskContext,
+            focusedEmail: lastFocusedEmail
+        ) {
             claimLocalAssistantReply()
-            await revealDeskDetails(for: text)
+            await applyDeskEvidence(evidence)
             return
         }
 
@@ -520,33 +534,30 @@ final class AppModel {
     }
 
     func openEmail(_ item: EmailItem) {
+        lastFocusedEmail = item
         Task { await revealEmailBody(item) }
     }
 
-    private func revealDeskDetails(for text: String) async {
-        if ConversationPresence.wantsCalendarDetails(text),
-           let event = ConversationPresence.matchingCalendar(for: text, in: deskSnapshot.events) {
-            appendAssistant(
-                ConversationPresence.calendarDetailsReply(event),
-                cards: [.calendar(event)]
-            )
+    private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
+        if let email = evidence.focusedEmail {
+            lastFocusedEmail = email
+        }
+        if evidence.shouldFetchBody, evidence.focusedEmail != nil {
+            Task { await applyDeskEvidence(evidence) }
             return
         }
-        if let email = ConversationPresence.matchingEmail(for: text, in: deskSnapshot.emails) {
+        appendAssistant(evidence.text, cards: evidence.cards)
+    }
+
+    private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
+        if let email = evidence.focusedEmail {
+            lastFocusedEmail = email
+        }
+        if evidence.shouldFetchBody, let email = evidence.focusedEmail {
             await revealEmailBody(email)
             return
         }
-        if let event = ConversationPresence.matchingCalendar(for: text, in: deskSnapshot.events) {
-            appendAssistant(
-                ConversationPresence.calendarDetailsReply(event),
-                cards: [.calendar(event)]
-            )
-            return
-        }
-        appendAssistant(
-            ConversationPresence.emailBodyUnknownReply(hasInbox: !deskSnapshot.emails.isEmpty),
-            cards: ConversationPresence.cards(for: .inbox, context: deskContext)
-        )
+        appendAssistant(evidence.text, cards: evidence.cards)
     }
 
     private func revealEmailBody(_ email: EmailItem) async {
@@ -579,17 +590,23 @@ final class AppModel {
         cache.save(deskSnapshot)
         refreshPresence()
         refreshEmailCards(email)
+        lastFocusedEmail = email
         appendAssistant(ConversationPresence.emailBodyReply(email), cards: [.email(email)])
     }
 
     private func refreshEmailCards(_ email: EmailItem) {
+        var updated = false
         for index in turns.indices {
             for cardIndex in turns[index].cards.indices {
                 if case .email(let existing) = turns[index].cards[cardIndex],
                    existing.providerID == email.providerID || existing.id == email.id {
                     turns[index].cards[cardIndex] = .email(email)
+                    updated = true
                 }
             }
+        }
+        if updated {
+            requestScrollToLatestCards(preferring: email.id)
         }
     }
 
@@ -667,6 +684,16 @@ final class AppModel {
 
     private func appendAssistant(_ text: String, cards: [ContentCard] = [], suggestions: [String] = []) {
         turns.append(ConversationTurn(role: .assistant, text: text, cards: cards, suggestions: suggestions))
+        requestScrollToLatestCards(preferring: cards.last?.id)
+    }
+
+    func noteVisibleCardGrew() {
+        requestScrollToLatestCards()
+    }
+
+    private func requestScrollToLatestCards(preferring id: UUID? = nil) {
+        conversationScrollTarget = id ?? turns.last?.cards.last?.id ?? turns.last?.id
+        conversationScrollEpoch += 1
     }
 
     private func draft(_ id: UUID) -> DraftConfirmItem? {

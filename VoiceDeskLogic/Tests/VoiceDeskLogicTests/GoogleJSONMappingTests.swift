@@ -52,6 +52,7 @@ final class GoogleJSONMappingTests: XCTestCase {
             {
               "id": "evt1",
               "summary": "Offer review",
+              "description": "<p>Window table &amp; party of 4. Ask for Massimo.</p>",
               "location": "Coastal office",
               "start": { "dateTime": "2026-08-22T15:00:00Z" },
               "attendees": [{ "displayName": "Priya Shah" }]
@@ -69,6 +70,21 @@ final class GoogleJSONMappingTests: XCTestCase {
         XCTAssertEqual(events[0].title, "Offer review")
         XCTAssertEqual(events[0].location, "Coastal office")
         XCTAssertEqual(events[0].relatedPeople, ["Priya Shah"])
+        XCTAssertEqual(events[0].notes, "Window table & party of 4. Ask for Massimo.")
+        XCTAssertTrue(events[0].hasDetails)
+
+        let legacy = """
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "title": "Dinner reservation",
+          "whenLabel": "Tonight 7:00 PM",
+          "relatedPeople": ["Massimo Ricci"]
+        }
+        """.data(using: .utf8)!
+        let cached = try JSONDecoder().decode(CalendarItem.self, from: legacy)
+        XCTAssertNil(cached.notes)
+        XCTAssertEqual(cached.title, "Dinner reservation")
+        XCTAssertEqual(cached.relatedPeople, ["Massimo Ricci"])
 
         let tasks = """
         {

@@ -79,8 +79,10 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("NEVER tell them to open app settings"))
         XCTAssertTrue(text.contains("You’re already connected as ada@example.com. Use Disconnect on the card if you need to switch."))
         XCTAssertTrue(text.contains("NEVER say open it in Gmail"))
-        XCTAssertTrue(text.contains("Email card"))
+        XCTAssertTrue(text.contains("NEVER mention an Email card"))
+        XCTAssertTrue(text.contains("pull-to-refresh"))
         XCTAssertTrue(text.contains("NEVER paste a full email body"))
+        XCTAssertFalse(text.contains("waiting on the Email card"))
         XCTAssertFalse(text.contains("only have the subject"))
     }
 

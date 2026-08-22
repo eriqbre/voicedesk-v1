@@ -96,7 +96,7 @@ public enum ContentCard: Identifiable, Hashable, Sendable {
         case .connectGoogle(let item):
             item.headline
         case .calendar(let item):
-            "Calendar \(item.title). \(item.whenLabel)."
+            item.accessibilityLabel
         case .task(let item):
             "Task \(item.title)."
         }
@@ -394,6 +394,8 @@ public struct CalendarItem: Identifiable, Hashable, Sendable, Codable {
     public var location: String?
     public var relatedPeople: [String]
     public var startAt: Date?
+    /// Google Calendar `description` — notes shown on the expanded card.
+    public var notes: String?
 
     public init(
         id: UUID = UUID(),
@@ -402,7 +404,8 @@ public struct CalendarItem: Identifiable, Hashable, Sendable, Codable {
         whenLabel: String,
         location: String? = nil,
         relatedPeople: [String] = [],
-        startAt: Date? = nil
+        startAt: Date? = nil,
+        notes: String? = nil
     ) {
         self.id = id
         self.providerID = providerID
@@ -411,6 +414,19 @@ public struct CalendarItem: Identifiable, Hashable, Sendable, Codable {
         self.location = location
         self.relatedPeople = relatedPeople
         self.startAt = startAt
+        self.notes = notes
+    }
+
+    public var hasDetails: Bool {
+        !(location ?? "").isEmpty || !relatedPeople.isEmpty || !(notes ?? "").isEmpty
+    }
+
+    public var accessibilityLabel: String {
+        var parts = ["Calendar \(title).", whenLabel]
+        if let location, !location.isEmpty { parts.append(location) }
+        if !relatedPeople.isEmpty { parts.append(relatedPeople.joined(separator: ", ")) }
+        if let notes, !notes.isEmpty { parts.append(notes) }
+        return parts.joined(separator: ". ")
     }
 }
 

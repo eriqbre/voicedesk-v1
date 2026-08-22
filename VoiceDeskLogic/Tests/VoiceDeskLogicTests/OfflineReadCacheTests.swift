@@ -25,6 +25,7 @@ final class OfflineReadCacheTests: XCTestCase {
         XCTAssertEqual(loaded.emails.count, 1)
         XCTAssertEqual(loaded.emails[0].subject, "Inspection questions")
         XCTAssertEqual(loaded.events[0].title, "Saturday showing")
+        XCTAssertEqual(loaded.events[0].notes, "Lockbox on the north railing. Allow 15 minutes to park.")
         XCTAssertEqual(loaded.tasks[0].title, "Confirm inspection window")
 
         cache.clear()

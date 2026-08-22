@@ -67,7 +67,7 @@ struct EmailCardView: View {
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
                 if item.hasFullBody {
-                    EmailBodyReader(html: item.htmlBody, plain: item.body)
+                    EmailBodyReader(html: item.htmlBody, plain: item.body, expandsToFit: true)
                 } else {
                     Text(item.preview)
                         .font(.subheadline)
@@ -95,7 +95,7 @@ struct EmailCardView: View {
                                                 .foregroundStyle(Palette.muted)
                                         }
                                     }
-                                    EmailBodyReader(html: message.htmlBody, plain: message.plainBody)
+                                    EmailBodyReader(html: message.htmlBody, plain: message.plainBody, expandsToFit: false)
                                 }
                                 .padding(10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -455,6 +455,7 @@ struct ConnectGoogleCardView: View {
 
 struct CalendarCardView: View {
     let item: CalendarItem
+    @State private var showingDetails = true
 
     var body: some View {
         CardChrome {
@@ -464,23 +465,59 @@ struct CalendarCardView: View {
                     .foregroundStyle(Palette.accent)
                 Text(item.title)
                     .font(.headline)
-                Text(item.whenLabel)
-                    .font(.subheadline.weight(.semibold))
-                if let location = item.location, !location.isEmpty {
-                    Text(location)
-                        .font(.caption)
-                        .foregroundStyle(Palette.muted)
+                labeled("When", item.whenLabel)
+                if item.hasDetails {
+                    Button(showingDetails ? "Hide details" : "Show details") {
+                        showingDetails.toggle()
+                    }
+                    .buttonStyle(SecondaryCardButton())
+                    .accessibilityIdentifier("calendar.details.toggle")
                 }
-                if !item.relatedPeople.isEmpty {
-                    Text(item.relatedPeople.joined(separator: " · "))
-                        .font(.caption)
-                        .foregroundStyle(Palette.muted)
+                if showingDetails {
+                    calendarDetails
                 }
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Calendar \(item.title). \(item.whenLabel).")
+        .accessibilityLabel(item.accessibilityLabel)
         .accessibilityIdentifier("card.calendar")
+    }
+
+    @ViewBuilder
+    private var calendarDetails: some View {
+        if let location = item.location, !location.isEmpty {
+            labeled("Location", location)
+                .accessibilityIdentifier("calendar.location")
+        }
+        if !item.relatedPeople.isEmpty {
+            labeled("People", item.relatedPeople.joined(separator: " · "))
+                .accessibilityIdentifier("calendar.people")
+        }
+        if let notes = item.notes, !notes.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Notes")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.muted)
+                Text(notes)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityIdentifier("calendar.notes")
+        }
+    }
+
+    private func labeled(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.muted)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.ink)
+        }
     }
 }
 

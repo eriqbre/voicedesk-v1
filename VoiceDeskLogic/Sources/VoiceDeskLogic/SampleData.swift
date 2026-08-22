@@ -84,7 +84,8 @@ public enum SampleData {
             title: "Saturday showing",
             whenLabel: "Sat 11:00 AM",
             location: listingAddress,
-            relatedPeople: ["Jordan Hale"]
+            relatedPeople: ["Jordan Hale"],
+            notes: "Lockbox on the north railing. Allow 15 minutes to park."
         )
     }
 

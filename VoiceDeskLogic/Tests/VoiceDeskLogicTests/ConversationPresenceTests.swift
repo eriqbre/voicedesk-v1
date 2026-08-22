@@ -117,6 +117,102 @@ final class ConversationPresenceTests: XCTestCase {
         assertDoesNotBounceToGmail(ConversationPresence.emailBodyUnknownReply(hasInbox: false))
     }
 
+    func testDogfoodShowEmailUtterancesAttachCards() {
+        let murray = EmailItem(
+            providerID: "m-murray",
+            fromName: "Murray Mitchell",
+            fromEmail: "murray@example.com",
+            sentAtLabel: "Today 9:00 AM",
+            subject: "Lot walk",
+            preview: "Walk the lot Saturday",
+            body: "Walk the lot Saturday at 10.",
+            filterTag: "Inbox"
+        )
+        let steve = EmailItem(
+            providerID: "m-steve",
+            fromName: "Steve Brown",
+            fromEmail: "steve@example.com",
+            sentAtLabel: "Today 8:00 AM",
+            subject: "Inspection note",
+            preview: "Punch list",
+            body: "Punch list is attached.",
+            filterTag: "Inbox"
+        )
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [murray, steve])
+        )
+
+        XCTAssertTrue(ConversationPresence.wantsEmailBody("Hey, show me Murray's latest email."))
+        XCTAssertTrue(ConversationPresence.wantsShowEmail("Hey, show me Murray's latest email."))
+        XCTAssertTrue(ConversationPresence.wantsEmailBody("show me Steve Brown's note"))
+        XCTAssertTrue(ConversationPresence.wantsEmailFollowUp("Can you show it to me?"))
+        XCTAssertTrue(ConversationPresence.wantsEmailFollowUp("I’m not seeing any email cards."))
+        XCTAssertTrue(ConversationPresence.wantsInbox("show me what other emails I have today"))
+        XCTAssertEqual(
+            ConversationPresence.matchingEmail(for: "Hey, show me Murray's latest email.", in: [murray, steve])?.fromName,
+            "Murray Mitchell"
+        )
+        XCTAssertEqual(
+            ConversationPresence.matchingEmail(for: "show me Steve Brown's note", in: [murray, steve])?.fromName,
+            "Steve Brown"
+        )
+
+        let murrayAsk = ConversationPresence.deskEvidence(
+            for: "Hey, show me Murray's latest email.",
+            context: context
+        )
+        XCTAssertNotNil(murrayAsk)
+        XCTAssertFalse(murrayAsk?.claimsCardWithoutAttaching == true)
+        XCTAssertEqual(murrayAsk?.cards.count, 1)
+        if case .email(let item) = murrayAsk?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray email card")
+        }
+        XCTAssertTrue(ConversationPresence.replyMentionsCard(murrayAsk?.text ?? ""))
+
+        let steveAsk = ConversationPresence.deskEvidence(
+            for: "show me Steve Brown's note",
+            context: context
+        )
+        XCTAssertFalse(steveAsk?.claimsCardWithoutAttaching == true)
+        if case .email(let item) = steveAsk?.cards.first {
+            XCTAssertEqual(item.fromName, "Steve Brown")
+        } else {
+            XCTFail("expected Steve email card")
+        }
+
+        let follow = ConversationPresence.deskEvidence(
+            for: "Can you show it to me?",
+            context: context,
+            focusedEmail: murray
+        )
+        XCTAssertFalse(follow?.claimsCardWithoutAttaching == true)
+        if case .email(let item) = follow?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected focused email card on follow-up")
+        }
+
+        let missing = ConversationPresence.deskEvidence(
+            for: "I’m not seeing any email cards.",
+            context: context
+        )
+        XCTAssertFalse(missing?.claimsCardWithoutAttaching == true)
+        XCTAssertEqual(missing?.cards.count, 2)
+        XCTAssertTrue(missing?.cards.allSatisfy { $0.kind == .email } == true)
+
+        let inbox = ConversationPresence.deskEvidence(
+            for: "show me what other emails I have today",
+            context: context
+        )
+        XCTAssertEqual(inbox?.topic, .inbox)
+        XCTAssertEqual(inbox?.cards.count, 2)
+        XCTAssertFalse(inbox?.claimsCardWithoutAttaching == true)
+        XCTAssertFalse((inbox?.text ?? "").lowercased().contains("pull-to-refresh"))
+    }
+
     func testConnectedInboxUsesCacheNotSampleDesk() {
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
         let context = DeskContext(isConnected: true, snapshot: snapshot)
@@ -145,7 +241,8 @@ final class ConversationPresenceTests: XCTestCase {
             title: "Dinner reservation",
             whenLabel: "Tonight 7:00 PM",
             location: "Oak & Stone",
-            relatedPeople: ["Massimo Ricci"]
+            relatedPeople: ["Massimo Ricci"],
+            notes: "Window table, party of 4."
         )
         XCTAssertTrue(ConversationPresence.wantsCalendarDetails("details for Massimo's reservation"))
         XCTAssertEqual(
@@ -155,8 +252,23 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertNil(ConversationPresence.matchingEmail(for: "details for Massimo's reservation", in: []))
         let reply = ConversationPresence.calendarDetailsReply(event)
         XCTAssertTrue(reply.contains("Dinner reservation"))
+        XCTAssertTrue(reply.contains("Oak & Stone"))
+        XCTAssertTrue(reply.contains("Massimo Ricci"))
         XCTAssertTrue(reply.contains("calendar card"))
         XCTAssertFalse(reply.lowercased().contains("which message"))
+        let evidence = ConversationPresence.deskEvidence(
+            for: "details for Massimo's reservation",
+            context: DeskContext(isConnected: true, snapshot: DeskSnapshot(events: [event]))
+        )
+        XCTAssertEqual(evidence?.cards.count, 1)
+        if case .calendar(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.notes, "Window table, party of 4.")
+            XCTAssertEqual(item.location, "Oak & Stone")
+            XCTAssertEqual(item.relatedPeople, ["Massimo Ricci"])
+        } else {
+            XCTFail("expected calendar card with details")
+        }
+        XCTAssertFalse(evidence?.claimsCardWithoutAttaching == true)
     }
 
     func testCalendarAndTasksWhenConnected() {

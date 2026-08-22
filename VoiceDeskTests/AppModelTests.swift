@@ -103,12 +103,13 @@ final class AppModelTests: XCTestCase {
         fake.emitAssistant("Jordan wrote this morning about Saturday.", isFinal: false)
         fake.emitAssistant("", isFinal: true)
 
-        XCTAssertEqual(model.turns.map(\.role), [.assistant, .user, .assistant])
         XCTAssertEqual(model.turns.filter { $0.role == .user }.count, 1)
         XCTAssertEqual(model.turns[1].text, "What’s in my inbox?")
-        XCTAssertTrue(model.turns[2].text.contains("Jordan wrote"))
-        XCTAssertTrue(model.turns[2].cards.contains { $0.kind == .connectGoogle })
-        XCTAssertFalse(model.turns[2].cards.contains { $0.kind == .email })
+        XCTAssertEqual(model.turns.last?.role, .assistant)
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Connect Google"))
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .connectGoogle } == true)
+        XCTAssertFalse(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        XCTAssertFalse(model.turns.contains { $0.role == .assistant && $0.text.contains("Jordan wrote") })
     }
 
     func testLiveHowToConnectGoogleAttachesCardOnUserTranscript() async {
@@ -217,18 +218,116 @@ final class AppModelTests: XCTestCase {
             title: "Dinner reservation",
             whenLabel: "Tonight 7:00 PM",
             location: "Oak & Stone",
-            relatedPeople: ["Massimo Ricci"]
+            relatedPeople: ["Massimo Ricci"],
+            notes: "Window table, party of 4."
         )
         let model = AppModel(
             voice: MockVoiceService(label: "test", instant: true),
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [SampleData.syncedEmail()], events: [event]))
         )
+        let epoch = model.conversationScrollEpoch
         await model.applyUserTurn("details for Massimo's reservation")
         XCTAssertTrue((model.turns.last?.text ?? "").contains("Dinner reservation"))
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("which message"))
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
         XCTAssertFalse(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        if case .calendar(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.location, "Oak & Stone")
+            XCTAssertEqual(item.relatedPeople, ["Massimo Ricci"])
+            XCTAssertEqual(item.notes, "Window table, party of 4.")
+        } else {
+            XCTFail("expected calendar card with details")
+        }
+        XCTAssertGreaterThan(model.conversationScrollEpoch, epoch)
+        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.cards.last?.id)
+    }
+
+    func testLiveCalendarReplyAttachesCardsAndScrolls() {
+        let event = CalendarItem(
+            title: "Dinner reservation",
+            whenLabel: "Tonight 7:00 PM",
+            location: "Oak & Stone",
+            relatedPeople: ["Massimo Ricci"],
+            notes: "Window table, party of 4."
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(events: [event]))
+        )
+        fake.emitUser("What's on my calendar?", itemID: "cal-1")
+        let epoch = model.conversationScrollEpoch
+        fake.emitAssistant("Next up: Dinner reservation, Tonight 7:00 PM.", isFinal: true)
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
+        if case .calendar(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.notes, "Window table, party of 4.")
+        } else {
+            XCTFail("expected attached calendar card")
+        }
+        XCTAssertGreaterThan(model.conversationScrollEpoch, epoch)
+        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.cards.last?.id)
+    }
+
+    func testShowMurraysLatestEmailAttachesCardWithoutGrok() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray"
+        murray.body = "Walk the lot Saturday at 10."
+        var steve = SampleData.syncedEmail()
+        steve.fromName = "Steve Brown"
+        steve.providerID = "msg-steve"
+        steve.subject = "Inspection note"
+        steve.body = "Punch list is attached."
+        let snapshot = DeskSnapshot(emails: [murray, steve])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+
+        let epoch = model.conversationScrollEpoch
+        await model.applyUserTurn("Hey, show me Murray's latest email.")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        XCTAssertGreaterThan(model.conversationScrollEpoch, epoch)
+        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.cards.last?.id)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray email card")
+        }
+        XCTAssertTrue(ConversationPresence.replyMentionsCard(model.turns.last?.text ?? ""))
+        XCTAssertFalse(ConversationPresence.DeskEvidence(
+            topic: .inbox,
+            text: model.turns.last?.text ?? "",
+            cards: model.turns.last?.cards ?? []
+        ).claimsCardWithoutAttaching)
+
+        fake.emitAssistant("The full message is waiting on the Email card.", isFinal: true)
+        XCTAssertFalse(model.turns.contains { $0.role == .assistant && $0.text.contains("waiting on the Email card") })
+
+        await model.applyUserTurn("Can you show it to me?")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected focused Murray card on follow-up")
+        }
+
+        await model.applyUserTurn("show me Steve Brown's note")
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Steve Brown")
+        } else {
+            XCTFail("expected Steve email card")
+        }
+
+        await model.applyUserTurn("show me what other emails I have today")
+        XCTAssertEqual(model.turns.last?.cards.filter { $0.kind == .email }.count, 2)
+        XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("pull-to-refresh"))
     }
 
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {

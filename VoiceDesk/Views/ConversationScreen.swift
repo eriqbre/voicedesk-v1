@@ -24,11 +24,10 @@ struct ConversationScreen: View {
                         }
                         .scrollDismissesKeyboard(.interactively)
                         .onChange(of: model.lastTurnID) { _, _ in
-                            if let id = model.lastTurnID {
-                                withAnimation(.easeOut(duration: 0.28)) {
-                                    proxy.scrollTo(id, anchor: .bottom)
-                                }
-                            }
+                            scrollToLatestCards(proxy)
+                        }
+                        .onChange(of: model.conversationScrollEpoch) { _, _ in
+                            scrollToLatestCards(proxy)
                         }
                     }
                     if model.voice.needsCredentials || model.showVoiceSetup {
@@ -65,6 +64,21 @@ struct ConversationScreen: View {
             }
         }
     }
+
+    private func scrollToLatestCards(_ proxy: ScrollViewProxy) {
+        let target = model.conversationScrollTarget ?? model.lastTurnID
+        guard let target else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            withAnimation(.easeOut(duration: 0.28)) {
+                proxy.scrollTo(target, anchor: .bottom)
+            }
+            try? await Task.sleep(for: .milliseconds(240))
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(target, anchor: .bottom)
+            }
+        }
+    }
 }
 
 struct TurnView: View {
@@ -95,6 +109,7 @@ struct TurnView: View {
 
             ForEach(turn.cards) { card in
                 ContentCardView(card: card)
+                    .id(card.id)
             }
 
             if !turn.suggestions.isEmpty {

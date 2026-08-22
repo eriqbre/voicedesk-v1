@@ -76,8 +76,7 @@ public enum ConversationPresence {
             return Plan(topic: .google, text: googleReply(context: context))
         }
 
-        if contains(lower, ["inbox", "my email", "my mail", "what's in my inbox", "whats in my inbox"])
-            || (contains(lower, ["email", "mail"]) && contains(lower, ["my", "inbox"])) {
+        if wantsInbox(text) {
             return Plan(topic: .inbox, text: inboxReply(context: context))
         }
 
@@ -123,7 +122,7 @@ public enum ConversationPresence {
         switch topic {
         case .inbox:
             if context.isConnected {
-                return context.snapshot.emails.prefix(3).map { .email($0) }
+                return context.snapshot.emails.prefix(5).map { .email($0) }
             }
             return [.connectGoogle(context.connectItem)]
         case .calendar:
@@ -215,7 +214,155 @@ public enum ConversationPresence {
         return connectHowToReply
     }
 
+    public struct DeskEvidence: Equatable, Sendable {
+        public var topic: Topic
+        public var text: String
+        public var cards: [ContentCard]
+        public var focusedEmail: EmailItem?
+        public var shouldFetchBody: Bool
+
+        public init(
+            topic: Topic,
+            text: String,
+            cards: [ContentCard],
+            focusedEmail: EmailItem? = nil,
+            shouldFetchBody: Bool = false
+        ) {
+            self.topic = topic
+            self.text = text
+            self.cards = cards
+            self.focusedEmail = focusedEmail
+            self.shouldFetchBody = shouldFetchBody
+        }
+
+        public var claimsCardWithoutAttaching: Bool {
+            ConversationPresence.replyMentionsCard(text) && cards.isEmpty
+        }
+    }
+
+    public static func replyMentionsCard(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        return contains(lower, ["on the card", "email card", "calendar card", "cards below", "waiting on the"])
+    }
+
+    /// Local path that always attaches evidence when the spoken copy mentions a card.
+    public static func deskEvidence(
+        for raw: String,
+        context: DeskContext,
+        focusedEmail: EmailItem? = nil
+    ) -> DeskEvidence? {
+        if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
+            return nil
+        }
+
+        if wantsCalendarDetails(raw),
+           let event = matchingCalendar(for: raw, in: context.snapshot.events) {
+            return DeskEvidence(
+                topic: .calendar,
+                text: calendarDetailsReply(event),
+                cards: [.calendar(event)]
+            )
+        }
+
+        if let email = matchingEmail(for: raw, in: context.snapshot.emails),
+           wantsSpecificEmail(raw) || wantsEmailBody(raw) {
+            return emailEvidence(email)
+        }
+
+        if wantsEmailFollowUp(raw) {
+            if let focusedEmail {
+                return emailEvidence(focusedEmail)
+            }
+            if let email = matchingEmail(for: raw, in: context.snapshot.emails) {
+                return emailEvidence(email)
+            }
+            if !context.snapshot.emails.isEmpty {
+                return inboxEvidence(context: context, followUp: true)
+            }
+            return DeskEvidence(
+                topic: .inbox,
+                text: notSeeingCardsReply(hasInbox: false),
+                cards: []
+            )
+        }
+
+        if wantsInbox(raw) {
+            return inboxEvidence(context: context, followUp: false)
+        }
+
+        if let event = matchingCalendar(for: raw, in: context.snapshot.events),
+           wantsCalendarDetails(raw) || wantsEmailBody(raw) {
+            return DeskEvidence(
+                topic: .calendar,
+                text: calendarDetailsReply(event),
+                cards: [.calendar(event)]
+            )
+        }
+
+        return nil
+    }
+
+    public static func wantsInbox(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        if contains(lower, [
+            "what's in my inbox",
+            "whats in my inbox",
+            "what emails do i have",
+            "what email do i have",
+            "other emails",
+            "emails i have today",
+            "emails today",
+            "show me my emails",
+            "show me my inbox",
+            "show my emails",
+            "what other emails",
+            "what emails do i"
+        ]) {
+            return true
+        }
+        if lower.contains("inbox") { return true }
+        return contains(lower, ["email", "emails", "mail"])
+            && contains(lower, ["have", "today", "other", "list", "synced"])
+            && !wantsSpecificEmail(raw)
+    }
+
+    public static func wantsShowEmail(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        let show = contains(lower, [
+            "show", "open", "read", "pull up", "summarize", "summary", "details",
+            "what does", "what's it", "whats it", "tell me more"
+        ])
+        let noun = contains(lower, ["email", "mail", "note", "message", "thread"])
+        return show && noun
+    }
+
+    public static func wantsSpecificEmail(_ raw: String) -> Bool {
+        wantsEmailBody(raw) || wantsShowEmail(raw)
+    }
+
+    public static func wantsEmailFollowUp(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        if wantsDeskPreview(raw) { return false }
+        return contains(lower, [
+            "show it to me",
+            "show it",
+            "show me it",
+            "can you show it",
+            "can you show me",
+            "i'm not seeing",
+            "im not seeing",
+            "not seeing any email",
+            "where's the card",
+            "where is the card",
+            "i don't see the card",
+            "i dont see the card",
+            "don't see any email",
+            "dont see any email"
+        ])
+    }
+
     public static func wantsEmailBody(_ raw: String) -> Bool {
+        if wantsShowEmail(raw) { return true }
         let lower = raw.lowercased()
         return contains(lower, [
             "details",
@@ -230,6 +377,10 @@ public enum ConversationPresence {
             "tell me more",
             "full email",
             "whole email",
+            "latest email",
+            "that email",
+            "this email",
+            "the email",
             "open the email",
             "open that email",
             "read the email",
@@ -248,7 +399,9 @@ public enum ConversationPresence {
         let lower = raw.lowercased()
         let stop: Set<String> = [
             "the", "and", "for", "from", "you", "your", "this", "that",
-            "email", "mail", "with", "about", "inbox", "details", "body", "read"
+            "email", "mail", "note", "message", "thread", "with", "about",
+            "inbox", "details", "body", "read", "show", "latest", "other",
+            "have", "today", "what", "can"
         ]
         for email in emails {
             let nameWords = email.fromName.lowercased()
@@ -276,10 +429,44 @@ public enum ConversationPresence {
            contains(lower, ["latest", "first", "that email", "this email", "the email"]) {
             return emails.first
         }
-        if wantsEmailBody(raw), emails.count == 1 {
+        if wantsEmailBody(raw), emails.count == 1, !wantsInbox(raw) {
             return emails.first
         }
         return nil
+    }
+
+    public static func notSeeingCardsReply(hasInbox: Bool) -> String {
+        if hasInbox {
+            return "Here they are — the synced emails are on the cards below."
+        }
+        return "I don’t have a synced thread yet. I’m not inventing cards."
+    }
+
+    private static func emailEvidence(_ email: EmailItem) -> DeskEvidence {
+        DeskEvidence(
+            topic: .inbox,
+            text: emailBodyReply(email),
+            cards: [.email(email)],
+            focusedEmail: email,
+            shouldFetchBody: true
+        )
+    }
+
+    private static func inboxEvidence(context: DeskContext, followUp: Bool) -> DeskEvidence {
+        let cards = cards(for: .inbox, context: context)
+        let text: String
+        if followUp {
+            text = notSeeingCardsReply(hasInbox: !context.snapshot.emails.isEmpty)
+        } else {
+            text = inboxReply(context: context)
+        }
+        return DeskEvidence(
+            topic: .inbox,
+            text: text,
+            cards: cards,
+            focusedEmail: context.snapshot.emails.first,
+            shouldFetchBody: false
+        )
     }
 
     public static func emailBodyReply(_ email: EmailItem) -> String {
@@ -334,7 +521,10 @@ public enum ConversationPresence {
         if let location = event.location, !location.isEmpty {
             line += " \(location)."
         }
-        return line + " It’s on the calendar card."
+        if !event.relatedPeople.isEmpty {
+            line += " With \(event.relatedPeople.joined(separator: ", "))."
+        }
+        return line + " Details are on the calendar card."
     }
 
     public static func emailBodyUnknownReply(hasInbox: Bool) -> String {
