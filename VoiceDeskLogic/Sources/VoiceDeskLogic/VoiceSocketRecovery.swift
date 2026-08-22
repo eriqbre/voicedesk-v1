@@ -18,7 +18,14 @@ public enum VoiceSocketRecovery: Sendable {
             || lower.contains("closed")
     }
 
-    public static func shouldReconnect(error: String, alreadyTried: Bool) -> Bool {
-        !alreadyTried && isSocketDrop(error)
+    /// Unexpected WS drop while the user still wants voice on → reconnect once.
+    /// User tap-stop / cancel / explicit voice off → never reconnect.
+    public static func shouldReconnect(
+        error: String,
+        alreadyTried: Bool,
+        userWantsVoiceOff: Bool = false
+    ) -> Bool {
+        if userWantsVoiceOff { return false }
+        return !alreadyTried && isSocketDrop(error)
     }
 }

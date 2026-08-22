@@ -27,6 +27,9 @@ final class GrokVoiceService: VoiceServicing {
     private var isTearingDown = false
     private var isRecovering = false
     private var reconnectsUsed = 0
+    /// User tap-stop / cancel / explicit voice off. Blocks auto-reconnect and
+    /// auto `startListening` until the next Tap to talk.
+    private var userWantsVoiceOff = false
     private var dropAssistantOutput = false
     private var instructions = GrokRealtime.presenceInstructions
 
@@ -41,6 +44,7 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func startListening() async -> String {
+        userWantsVoiceOff = false
         if session.state != .idle {
             if !client.isConnected, !isRecovering {
                 await recoverAfterDrop(reason: "tap talk")
@@ -108,6 +112,7 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func cancel() {
+        userWantsVoiceOff = true
         teardown(sendCancel: true)
     }
 
@@ -127,7 +132,7 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     private func startAudioIfNeeded() {
-        guard !audio.isRunning else { return }
+        guard !userWantsVoiceOff, !audio.isRunning else { return }
         let socket = client
         _ = audio.start(echoCancellation: true) { base64 in
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
@@ -184,12 +189,18 @@ final class GrokVoiceService: VoiceServicing {
 
     private func recoverAfterDrop(reason: String) async {
         _ = reason
-        guard !isTearingDown, !isRecovering else { return }
+        guard !userWantsVoiceOff, !isTearingDown, !isRecovering else { return }
         isRecovering = true
         client.disconnect()
         audio.interruptPlayback()
         do {
             try await connectAndConfigure()
+            guard !userWantsVoiceOff else {
+                isRecovering = false
+                audio.stop()
+                client.disconnect()
+                return
+            }
             reconnectsUsed = 0
             isRecovering = false
             eventHandler?(.recovered)
@@ -198,6 +209,7 @@ final class GrokVoiceService: VoiceServicing {
             }
         } catch {
             isRecovering = false
+            guard !userWantsVoiceOff else { return }
             eventHandler?(.failed(error.localizedDescription))
             teardown(sendCancel: false)
         }
@@ -213,9 +225,14 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     func grokWebSocketDidClose(code: Int, reason: String?) {
         failReady(GrokVoiceError.connectFailed("closed \(code) \(reason ?? "")"))
         guard !isTearingDown, !isRecovering else { return }
+        guard !userWantsVoiceOff else { return }
         let detail = "Grok disconnected"
         if session.state != .idle,
-           VoiceSocketRecovery.shouldReconnect(error: detail, alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects) {
+           VoiceSocketRecovery.shouldReconnect(
+            error: detail,
+            alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects,
+            userWantsVoiceOff: userWantsVoiceOff
+           ) {
             reconnectsUsed += 1
             Task { await recoverAfterDrop(reason: detail) }
             return
@@ -231,9 +248,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             failReady(GrokVoiceError.connectFailed(detail))
         }
         guard !isTearingDown, !isRecovering else { return }
+        guard !userWantsVoiceOff else { return }
         if VoiceSocketRecovery.shouldReconnect(
             error: detail,
-            alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects
+            alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects,
+            userWantsVoiceOff: userWantsVoiceOff
         ) {
             reconnectsUsed += 1
             Task { await recoverAfterDrop(reason: detail) }
