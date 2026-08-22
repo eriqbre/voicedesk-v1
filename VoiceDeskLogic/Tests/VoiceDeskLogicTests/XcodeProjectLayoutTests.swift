@@ -59,7 +59,7 @@ final class XcodeProjectLayoutTests: XCTestCase {
         XCTAssertTrue(xcconfig.contains("#include? \"Generated/GoogleSecrets.xcconfig\""))
         XCTAssertTrue(xcconfig.contains("INFOPLIST_FILE = Config/Info.plist"))
         XCTAssertFalse(xcconfig.contains("REPLACE_ME"))
-        let includeIndex = try XCTUnwrap(xcconfig.range(of: "#include?"))
+        let includeIndex = try XCTUnwrap(xcconfig.range(of: "#include? \"Generated/GoogleSecrets.xcconfig\""))
         let reversedDefault = try XCTUnwrap(xcconfig.range(of: "GOOGLE_REVERSED_CLIENT_ID ="))
         XCTAssertLessThan(reversedDefault.lowerBound, includeIndex.lowerBound)
 

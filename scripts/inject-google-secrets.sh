@@ -1,7 +1,7 @@
 #!/bin/sh
 # Writes Config/Generated/GoogleSecrets.xcconfig from Secrets.plist / env.
 # Used as a scheme Pre-action and as an Xcode Run Script whose ONLY output
-# is that xcconfig — never INFOPLIST_PATH, never the built app Info.plist.
+# is that xcconfig — never the built app Info.plist.
 # Config/VoiceDesk.xcconfig #include?s the file so $(GOOGLE_*) substitute
 # into Config/Info.plist. Derives the reversed client ID when missing.
 # Never prints secret values.
