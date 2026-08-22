@@ -80,6 +80,7 @@ struct EmailCardView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Email from \(item.fromName). \(item.subject). \(item.preview)")
+        .accessibilityIdentifier("card.email")
     }
 }
 
@@ -136,6 +137,7 @@ struct ListingCardView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Listing \(item.addressLine), \(item.priceLabel), \(item.beds) beds, \(item.baths) baths.")
+        .accessibilityIdentifier("card.listing")
     }
 
     private func Meta(_ value: Int, _ unit: String) -> some View {
@@ -173,6 +175,7 @@ struct PersonCardView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(item.name), \(item.roleLabel). \(item.detail)")
+        .accessibilityIdentifier("card.person")
     }
 }
 
@@ -241,6 +244,7 @@ struct DraftConfirmCardView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Draft \(item.actionTitle) to \(item.toLine). \(item.subject).")
+        .accessibilityIdentifier("card.draftConfirm")
         .onAppear { draftBody = item.body }
     }
 
@@ -319,6 +323,7 @@ struct StatuteCardView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(item.title). Confidence \(item.confidence) percent, \(item.band.label). \(item.citation).")
+        .accessibilityIdentifier("card.statute")
     }
 
     private var bandColor: Color {
@@ -380,6 +385,7 @@ struct ConnectGoogleCardView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(item.headline)
+        .accessibilityIdentifier("card.connectGoogle")
     }
 }
 
