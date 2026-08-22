@@ -9,7 +9,16 @@
 
 ## 1. Vision
 
-A realtor opens the app and talks. The app talks back. While it speaks, it draws the right UI: the email, the listing, the people, the calendar, the task, the statute — and how they connect.
+### Voice presence (mandatory)
+Talking to the app must feel like talking to a **real person** who:
+- already knows what the user knows (their mail, calendar, tasks, listings, people, and prior context in the graph), and
+- is **always ready with an answer** — low friction, conversational, no “pick a mode” or command-menu vibe.
+
+The user may ask **anything**, including topics **not** about real estate or the desk (general knowledge, life, brainstorming, etc.). The assistant answers naturally via Grok. When the ask maps to desk data, show the relevant cards; when it doesn’t, stay in conversation without forcing a card.
+
+Never sound like a form, IVR, or keyword router.
+
+A realtor opens the app and talks. The app talks back. While it speaks, it draws the right UI when the topic has desk evidence: the email, the listing, the people, the calendar, the task, the statute — and how they connect.
 
 The product is **one continuous voice loop** over:
 1. Florida real estate expertise (statutes + local + broker rules)
@@ -38,7 +47,7 @@ If the screen works but voice isn’t primary, it’s broken.
 ## 3. Jobs to be done
 
 ### Primary (dead if fails)
-Open app → speak → get a correct spoken answer **and** see the interconnected cards (email ↔ listing ↔ people ↔ calendar ↔ tasks).
+Open app → speak → get a correct spoken answer like a knowledgeable person (any topic); when the ask is about their desk, **also** see the interconnected cards (email ↔ listing ↔ people ↔ calendar ↔ tasks).
 
 ### Supporting
 - Answer Florida / county / local RE questions with **visible confidence** driving tone.
@@ -211,4 +220,4 @@ No multi-page settings wizard.
 
 ## 14. One-line brief for Grok Build
 
-Build a native iPhone app where Grok voice is the primary UI: a conversation thread that spawns best-in-class email, listing, people, calendar, and task cards (and confirm/audit cards for actions), connected as a graph; Google-only productivity; Florida + local + Coastal compliance knowledge with visible confidence; Bridget dogfood first; Android later for Coastal rollout; no silent sends; no MLS in v1.
+Build a native iPhone app where talking feels like a real person who already knows the user’s world and will answer anything (desk or general) via Grok voice; conversation thread spawns best-in-class cards when desk evidence exists; Google-only productivity graph; Florida + local + Coastal compliance with visible confidence; Bridget dogfood first; Android later for Coastal; no silent sends; no MLS in v1.
