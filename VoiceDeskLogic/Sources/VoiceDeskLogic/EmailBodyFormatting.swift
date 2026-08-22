@@ -184,24 +184,69 @@ public enum EmailBodyFormatting: Sendable {
         return (latest, quoted.isEmpty ? nil : quoted)
     }
 
-    public static func spokenSummary(from raw: String?, fallback: String = "") -> String {
+    public enum SpokenSummaryStyle: Sendable {
+        case brief
+        case full
+    }
+
+    public static func spokenSummary(
+        from raw: String?,
+        fallback: String = "",
+        style: SpokenSummaryStyle = .brief
+    ) -> String {
         let source = nonempty(raw) ?? fallback
         var text = source
             .replacingOccurrences(of: #"https?://\S+"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #" {2,}"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         text = normalizeParagraphs(text)
-        guard let first = text.split(whereSeparator: \.isNewline).first else { return "" }
-        var sentence = String(first).trimmingCharacters(in: .whitespaces)
-        if sentence.count > 140 {
-            if let match = sentence.range(of: #"[\.!?]\s"#, options: .regularExpression) {
-                sentence = String(sentence[...match.lowerBound])
-            }
+        switch style {
+        case .brief:
+            guard let first = text.split(whereSeparator: \.isNewline).first else { return "" }
+            var sentence = String(first).trimmingCharacters(in: .whitespaces)
             if sentence.count > 140 {
-                sentence = String(sentence.prefix(140)).trimmingCharacters(in: .whitespaces) + "…"
+                if let match = sentence.range(of: #"[\.!?]\s"#, options: .regularExpression) {
+                    sentence = String(sentence[...match.lowerBound])
+                }
+                if sentence.count > 140 {
+                    sentence = String(sentence.prefix(140)).trimmingCharacters(in: .whitespaces) + "…"
+                }
+            }
+            return sentence
+        case .full:
+            return fullSpokenSummary(from: text)
+        }
+    }
+
+    private static func fullSpokenSummary(from text: String) -> String {
+        let collapsed = text
+            .replacingOccurrences(of: #"\n+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #" {2,}"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !collapsed.isEmpty else { return "" }
+        var sentences: [String] = []
+        var current = ""
+        for character in collapsed {
+            current.append(character)
+            if ".!?".contains(character), current.count >= 12 {
+                let piece = current.trimmingCharacters(in: .whitespaces)
+                if !piece.isEmpty { sentences.append(piece) }
+                current = ""
             }
         }
-        return sentence
+        let tail = current.trimmingCharacters(in: .whitespaces)
+        if !tail.isEmpty { sentences.append(tail) }
+        if sentences.isEmpty { return String(collapsed.prefix(420)) }
+        var out = ""
+        for sentence in sentences.prefix(4) {
+            let next = out.isEmpty ? sentence : out + " " + sentence
+            if next.count > 420 { break }
+            out = next
+        }
+        if out.isEmpty {
+            return String(collapsed.prefix(420)).trimmingCharacters(in: .whitespaces)
+        }
+        return out
     }
 
     public static func looksLikeHTML(_ raw: String) -> Bool {

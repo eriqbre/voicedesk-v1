@@ -320,6 +320,14 @@ final class GoogleJSONMappingTests: XCTestCase {
             EmailBodyFormatting.spokenSummary(from: "Track https://www.amazon.com/x shipped.", fallback: ""),
             "Track shipped."
         )
+        let full = EmailBodyFormatting.spokenSummary(
+            from: "Need you to notarize the closing package today. The buyer is coming at 3. Please confirm the walk-through window.",
+            fallback: "",
+            style: .full
+        )
+        XCTAssertTrue(full.contains("Need you to notarize"))
+        XCTAssertTrue(full.contains("buyer is coming"))
+        XCTAssertGreaterThan(full.count, 40)
     }
 
     func testOldCachedEmailJSONStillDecodes() throws {

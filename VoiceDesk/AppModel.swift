@@ -35,6 +35,8 @@ final class AppModel {
     /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
     private var lastFocusedEmail: EmailItem?
     private var pendingThreadSummary = false
+    /// Last local reply asked “Who’s it from?” — next utterance is the brand/sender.
+    private var pendingSearchClarify = false
     private var expandEarlierEmailIDs: Set<UUID> = []
     private var expandEarlierProviderIDs: Set<String> = []
     var expandEarlierEpoch: Int = 0
@@ -330,18 +332,23 @@ final class AppModel {
         if surfaceConnectGoogleIfAsked(text) {
             return
         }
-        if google.isConnected, ConversationPresence.ownsConnectedDeskTurn(text) {
-            claimLocalAssistantReply()
-            if let evidence = ConversationPresence.deskEvidence(
-                for: text,
-                context: deskContext,
-                focusedEmail: lastFocusedEmail
-            ) {
-                surfaceDeskEvidence(evidence)
-            } else {
-                appendAssistant(ConversationPresence.emailNeedMoreReply)
+        if google.isConnected {
+            let awaitingClarify = consumeSearchClarify()
+            if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
+                claimLocalAssistantReply()
+                if let evidence = ConversationPresence.deskEvidence(
+                    for: text,
+                    context: deskContext,
+                    focusedEmail: lastFocusedEmail,
+                    pendingSearchClarify: awaitingClarify
+                ) {
+                    surfaceDeskEvidence(evidence)
+                } else {
+                    pendingSearchClarify = true
+                    appendAssistant(ConversationPresence.emailNeedMoreReply)
+                }
+                return
             }
-            return
         }
         if let evidence = ConversationPresence.deskEvidence(
             for: text,
@@ -442,18 +449,23 @@ final class AppModel {
             return
         }
 
-        if google.isConnected, ConversationPresence.ownsConnectedDeskTurn(text) {
-            claimLocalAssistantReply()
-            if let evidence = ConversationPresence.deskEvidence(
-                for: text,
-                context: deskContext,
-                focusedEmail: lastFocusedEmail
-            ) {
-                await applyDeskEvidence(evidence)
-            } else {
-                appendAssistant(ConversationPresence.emailNeedMoreReply)
+        if google.isConnected {
+            let awaitingClarify = consumeSearchClarify()
+            if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
+                claimLocalAssistantReply()
+                if let evidence = ConversationPresence.deskEvidence(
+                    for: text,
+                    context: deskContext,
+                    focusedEmail: lastFocusedEmail,
+                    pendingSearchClarify: awaitingClarify
+                ) {
+                    await applyDeskEvidence(evidence)
+                } else {
+                    pendingSearchClarify = true
+                    appendAssistant(ConversationPresence.emailNeedMoreReply)
+                }
+                return
             }
-            return
         }
 
         if let evidence = ConversationPresence.deskEvidence(
@@ -592,9 +604,15 @@ final class AppModel {
             lastFocusedEmail = email
         }
         pendingThreadSummary = evidence.expandEarlierMessages
+        pendingSearchClarify = evidence.awaitsSearchClarify
         if evidence.expandEarlierMessages, let email = evidence.focusedEmail {
             markExpandEarlier(for: email)
         }
+    }
+
+    private func consumeSearchClarify() -> Bool {
+        if pendingSearchClarify { return true }
+        return turns.last(where: { $0.role == .assistant })?.text == ConversationPresence.emailNeedMoreReply
     }
 
     private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {

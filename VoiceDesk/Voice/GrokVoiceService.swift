@@ -25,6 +25,8 @@ final class GrokVoiceService: VoiceServicing {
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var isTearingDown = false
+    private var isRecovering = false
+    private var reconnectsUsed = 0
     private var instructions = GrokRealtime.presenceInstructions
 
     var state: VoiceState { session.state }
@@ -39,9 +41,13 @@ final class GrokVoiceService: VoiceServicing {
 
     func startListening() async -> String {
         if session.state != .idle {
+            if !client.isConnected, !isRecovering {
+                await recoverAfterDrop(reason: "tap talk")
+            }
             return ""
         }
         isTearingDown = false
+        reconnectsUsed = 0
         apply(.tapTalk)
         let granted = await AVAudioApplication.requestRecordPermission()
         guard granted else {
@@ -72,6 +78,9 @@ final class GrokVoiceService: VoiceServicing {
         guard !trimmed.isEmpty else { return }
         if session.state == .idle {
             _ = await startListening()
+        }
+        if !client.isConnected {
+            await recoverAfterDrop(reason: "text turn")
         }
         guard client.isConnected else { return }
         interruptAssistant(sendCancel: true)
@@ -164,6 +173,27 @@ final class GrokVoiceService: VoiceServicing {
             readyContinuation.resume(throwing: error)
         }
     }
+
+    private func recoverAfterDrop(reason: String) async {
+        _ = reason
+        guard !isTearingDown, !isRecovering else { return }
+        isRecovering = true
+        client.disconnect()
+        audio.interruptPlayback()
+        do {
+            try await connectAndConfigure()
+            reconnectsUsed = 0
+            isRecovering = false
+            eventHandler?(.recovered)
+            if session.state == .idle {
+                apply(.tapTalk)
+            }
+        } catch {
+            isRecovering = false
+            eventHandler?(.failed(error.localizedDescription))
+            teardown(sendCancel: false)
+        }
+    }
 }
 
 extension GrokVoiceService: LiveGrokVoiceClientDelegate {
@@ -174,15 +204,33 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
 
     func grokWebSocketDidClose(code: Int, reason: String?) {
         failReady(GrokVoiceError.connectFailed("closed \(code) \(reason ?? "")"))
-        guard !isTearingDown, session.state != .idle else { return }
-        eventHandler?(.failed("Grok disconnected"))
+        guard !isTearingDown, !isRecovering else { return }
+        let detail = "Grok disconnected"
+        if session.state != .idle,
+           VoiceSocketRecovery.shouldReconnect(error: detail, alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects) {
+            reconnectsUsed += 1
+            Task { await recoverAfterDrop(reason: detail) }
+            return
+        }
+        guard session.state != .idle else { return }
+        eventHandler?(.failed(detail))
         teardown(sendCancel: false)
     }
 
     func grokWebSocketDidFail(error: String, httpStatus: Int?) {
-        guard !isTearingDown else { return }
         let detail = httpStatus.map { "\($0) \(error)" } ?? error
-        failReady(GrokVoiceError.connectFailed(detail))
+        if !isRecovering {
+            failReady(GrokVoiceError.connectFailed(detail))
+        }
+        guard !isTearingDown, !isRecovering else { return }
+        if VoiceSocketRecovery.shouldReconnect(
+            error: detail,
+            alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects
+        ) {
+            reconnectsUsed += 1
+            Task { await recoverAfterDrop(reason: detail) }
+            return
+        }
         eventHandler?(.failed(detail))
         teardown(sendCancel: false)
     }

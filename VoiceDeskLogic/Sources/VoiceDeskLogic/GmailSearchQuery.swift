@@ -43,7 +43,8 @@ public enum GmailSearchQuery: Sendable {
         "there", "here", "just", "also", "them", "his", "her", "their",
         "seeing", "cards", "card", "where", "last", "first", "give",
         "gave", "got", "asked", "ask", "could", "would", "should",
-        "of", "in", "on", "up", "out", "into", "over", "than", "then"
+        "of", "in", "on", "up", "out", "into", "over", "than", "then",
+        "most", "recent", "by", "who", "whom"
     ]
 
     /// Sender-name match required before we attach a card for a named ask.
@@ -56,7 +57,7 @@ public enum GmailSearchQuery: Sendable {
         plan(from: raw)?.primary
     }
 
-    public static func plan(from raw: String) -> GmailSearchPlan? {
+    public static func plan(from raw: String, treatAsBrand: Bool = false) -> GmailSearchPlan? {
         var senders: [String] = []
         var phrases: [String] = []
         var subjects: [String] = []
@@ -102,6 +103,14 @@ public enum GmailSearchQuery: Sendable {
 
         if let phrase = fromSpokenPhrase(in: raw) {
             rememberPhrase(phrase)
+        }
+
+        if compactLetters(raw).contains("showingtime") {
+            rememberPhrase("showing time")
+        }
+
+        if treatAsBrand, let brand = spokenBrandPhrase(in: raw) {
+            rememberPhrase(brand)
         }
 
         if let regex = try? NSRegularExpression(pattern: #"\b(?:did|has|have|find|get)\s+([A-Za-z]{3,})\b"#) {
@@ -260,21 +269,19 @@ public enum GmailSearchQuery: Sendable {
             .filter { $0.count >= 3 && !stop.contains($0) }
     }
 
-    /// Words after spoken `from`, stopping at filler (`email`, `last`, …).
+    /// Words after spoken `from` / `by`, stopping at filler (`email`, `last`, …).
     public static func fromSpokenPhrase(in raw: String) -> String? {
-        let lower = raw.lowercased()
-        guard let regex = try? NSRegularExpression(pattern: #"\bfrom\s+(.+)$"#),
-              let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
-              let range = Range(match.range(at: 1), in: lower)
-        else { return nil }
+        phraseAfterPreposition(in: raw, prepositions: ["from", "by"])
+    }
+
+    /// Bare brand / name after “Who’s it from?” — no `from`/`email` required.
+    public static func spokenBrandPhrase(in raw: String) -> String? {
+        if let spoken = fromSpokenPhrase(in: raw) { return spoken }
+        if compactLetters(raw).contains("showingtime") { return "showing time" }
         var words: [String] = []
-        for piece in lower[range].split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
+        for piece in raw.lowercased().split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
             let token = sanitize(String(piece))
-            guard token.count >= 2 else { continue }
-            if stop.contains(token) {
-                if !words.isEmpty { break }
-                continue
-            }
+            guard token.count >= 2, !stop.contains(token) else { continue }
             words.append(token)
             if words.count >= 3 { break }
         }
@@ -292,6 +299,7 @@ public enum GmailSearchQuery: Sendable {
         for phrase in phrases where phrase.contains(" ") {
             let compact = compactLetters(phrase)
             add("from:(\"\(phrase)\") OR (\"\(phrase)\") OR \(compact)")
+            add("from:\(compact) OR subject:(\"\(phrase)\") OR \"\(phrase)\"")
         }
 
         if let sender = senders.first {
@@ -317,6 +325,31 @@ public enum GmailSearchQuery: Sendable {
 
     private static func compactLetters(_ raw: String) -> String {
         raw.lowercased().filter(\.isLetter)
+    }
+
+    private static func phraseAfterPreposition(in raw: String, prepositions: [String]) -> String? {
+        let lower = raw.lowercased()
+        for preposition in prepositions {
+            guard let regex = try? NSRegularExpression(pattern: "\\b\(preposition)\\s+(.+)$"),
+                  let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+                  let range = Range(match.range(at: 1), in: lower)
+            else { continue }
+            var words: [String] = []
+            for piece in lower[range].split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
+                let token = sanitize(String(piece))
+                guard token.count >= 2 else { continue }
+                if stop.contains(token) {
+                    if !words.isEmpty { break }
+                    continue
+                }
+                words.append(token)
+                if words.count >= 3 { break }
+            }
+            if !words.isEmpty {
+                return words.joined(separator: " ")
+            }
+        }
+        return nil
     }
 
     private static func phraseHit(_ email: EmailItem, plan: GmailSearchPlan) -> Bool {

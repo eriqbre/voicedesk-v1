@@ -68,6 +68,33 @@ final class GmailSearchQueryTests: XCTestCase {
         }
     }
 
+    func testMostRecentEmailByShowingTimeBuildsPlan() {
+        let ask = "Show me the most recent email by showing time."
+        let plan = GmailSearchQuery.plan(from: ask)
+        XCTAssertNotNil(plan)
+        XCTAssertEqual(GmailSearchQuery.fromSpokenPhrase(in: ask), "showing time")
+        XCTAssertTrue(plan?.phrases.contains("showing time") == true)
+        let primary = plan?.primary ?? ""
+        XCTAssertTrue(primary.contains("\"showing time\"") || primary.contains("showingtime"), primary)
+        XCTAssertFalse(GmailSearchQuery.bareLetterTokens(in: primary).contains("most"))
+        XCTAssertFalse(GmailSearchQuery.bareLetterTokens(in: primary).contains("recent"))
+    }
+
+    func testShowingTimeCompactAndByPhrase() {
+        XCTAssertEqual(GmailSearchQuery.fromSpokenPhrase(in: "email by ShowingTime"), "showingtime")
+        XCTAssertEqual(GmailSearchQuery.spokenBrandPhrase(in: "ShowingTime"), "showing time")
+        XCTAssertEqual(GmailSearchQuery.spokenBrandPhrase(in: "Showing time"), "showing time")
+        let compact = GmailSearchQuery.plan(from: "from ShowingTime")
+        XCTAssertTrue(compact?.phrases.contains("showing time") == true)
+        XCTAssertTrue(compact?.variants.contains(where: { $0.contains("showingtime") }) == true)
+    }
+
+    func testBareBrandAfterClarifyTreatAsBrand() {
+        let plan = GmailSearchQuery.plan(from: "Showing time", treatAsBrand: true)
+        XCTAssertNotNil(plan)
+        XCTAssertTrue(plan?.phrases.contains("showing time") == true)
+    }
+
     func testShowingTimeCapturesMultiWordBrand() {
         let plan = GmailSearchQuery.plan(from: showingAsk)
         XCTAssertNotNil(plan)

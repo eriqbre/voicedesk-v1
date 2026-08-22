@@ -486,6 +486,89 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
     }
 
+    func testMostRecentEmailByShowingTimeSearches() async {
+        var showing = SampleData.syncedEmail()
+        showing.fromName = "ShowingTime"
+        showing.fromEmail = "noreply@showingtime.com"
+        showing.providerID = "msg-showingtime"
+        showing.subject = "New showing confirmed"
+        showing.body = "A buyer booked a showing."
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = [showing]
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(),
+            sync: sync
+        )
+        await model.applyUserTurn("Show me the most recent email by showing time.")
+        XCTAssertFalse(sync.searchQueries.isEmpty)
+        XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.emailNeedMoreReply)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "ShowingTime")
+        } else {
+            XCTFail("expected ShowingTime card")
+        }
+    }
+
+    func testBareShowingTimeAfterNeedMoreSearches() async {
+        var showing = SampleData.syncedEmail()
+        showing.fromName = "ShowingTime"
+        showing.fromEmail = "noreply@showingtime.com"
+        showing.providerID = "msg-showingtime-bare"
+        showing.subject = "New showing confirmed"
+        showing.body = "A buyer booked a showing."
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = [showing]
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(),
+            sync: sync
+        )
+        await model.applyUserTurn("show me the email")
+        XCTAssertEqual(model.turns.last?.text, ConversationPresence.emailNeedMoreReply)
+        await model.applyUserTurn("Showing time")
+        XCTAssertFalse(sync.searchQueries.isEmpty)
+        XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.emailNeedMoreReply)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "ShowingTime")
+        } else {
+            XCTFail("expected ShowingTime card after clarify")
+        }
+    }
+
+    func testFullSummaryOfFocusedMurrayExpandsThread() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-full"
+        murray.subject = "Closing / notarization"
+        murray.body = "Need you to notarize the closing package today. The buyer is coming at 3."
+        murray.earlierMessages = [
+            EmailThreadMessage(id: "e1", fromName: "Murray Mitchell", plainBody: "Can we walk the lot this week?")
+        ]
+        let snapshot = DeskSnapshot(emails: [murray])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies["msg-murray-full"] = murray.body
+        sync.earlierMessages["msg-murray-full"] = murray.earlierMessages
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        await model.applyUserTurn("full summary of Murray’s latest email")
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertTrue(model.expandsEarlierMessages(item))
+        } else {
+            XCTFail("expected Murray thread card")
+        }
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(reply.contains("Need you to notarize") || reply.contains("buyer is coming"))
+        XCTAssertTrue(reply.lowercased().contains("earlier") || reply.contains("walk the lot"))
+    }
+
     func testGmailSearchEmptyIsHonest() async {
         let sync = MockGoogleSync(result: .empty)
         sync.searchable = []

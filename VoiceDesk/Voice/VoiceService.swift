@@ -8,6 +8,7 @@ enum VoiceServiceEvent: Sendable {
     case userTranscript(String, isFinal: Bool, itemID: String?)
     case assistantTranscript(String, isFinal: Bool)
     case failed(String)
+    case recovered
     case setupRequired
 }
 
@@ -117,6 +118,8 @@ final class VoiceBox {
             transcriptHandler?(VoiceTranscript(role: .assistant, text: text, isFinal: isFinal))
         case .failed(let message):
             lastError = message
+        case .recovered:
+            lastError = nil
         case .setupRequired:
             break
         }

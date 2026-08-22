@@ -253,6 +253,10 @@ public enum ConversationPresence {
         public var claimsCardWithoutAttaching: Bool {
             ConversationPresence.replyMentionsCard(text) && cards.isEmpty
         }
+
+        public var awaitsSearchClarify: Bool {
+            text == ConversationPresence.emailNeedMoreReply && cards.isEmpty
+        }
     }
 
     public static func replyMentionsCard(_ raw: String) -> Bool {
@@ -304,7 +308,8 @@ public enum ConversationPresence {
     public static func deskEvidence(
         for raw: String,
         context: DeskContext,
-        focusedEmail: EmailItem? = nil
+        focusedEmail: EmailItem? = nil,
+        pendingSearchClarify: Bool = false
     ) -> DeskEvidence? {
         if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
             return nil
@@ -351,6 +356,11 @@ public enum ConversationPresence {
                 text: taskReply(context: context),
                 cards: cards(for: .task, context: context)
             )
+        }
+
+        if pendingSearchClarify, context.isConnected,
+           let plan = GmailSearchQuery.plan(from: raw, treatAsBrand: true) {
+            return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
         }
 
         if wantsFullThread(raw) {
@@ -502,10 +512,11 @@ public enum ConversationPresence {
 
     public static func wantsFullThread(_ raw: String) -> Bool {
         let lower = raw.lowercased()
-        return contains(lower, [
+        if contains(lower, [
             "full thread",
             "entire thread",
             "whole thread",
+            "full summary",
             "summarize the thread",
             "summarize this thread",
             "summarize the full thread",
@@ -514,7 +525,12 @@ public enum ConversationPresence {
             "earlier messages",
             "show earlier",
             "whole conversation"
-        ])
+        ]) {
+            return true
+        }
+        let summary = contains(lower, ["summarize", "summary of", "summarize the", "give me a summary"])
+        let mail = contains(lower, ["email", "mail", "note", "message", "thread"])
+        return summary && mail
     }
 
     public static func wantsEmailBody(_ raw: String) -> Bool {
@@ -590,10 +606,10 @@ public enum ConversationPresence {
         context: DeskContext,
         focusedEmail: EmailItem?
     ) -> EmailItem? {
-        if let focusedEmail { return focusedEmail }
         if let match = matchingEmail(for: raw, in: context.snapshot.emails) {
             return match
         }
+        if let focusedEmail { return focusedEmail }
         if context.snapshot.emails.count == 1 {
             return context.snapshot.emails.first
         }
@@ -691,34 +707,39 @@ public enum ConversationPresence {
         return emailBodySyncFailedReply(email)
     }
 
-    /// Short spoken summary of latest + earlier. Never claims the thread is unsynced.
+    /// Multi-sentence summary of the latest body, plus a brief earlier beat if present.
     public static func emailThreadReply(_ email: EmailItem) -> String {
+        let latest = EmailBodyFormatting.spokenSummary(
+            from: email.body,
+            fallback: email.preview,
+            style: .full
+        )
         if email.hasEarlierMessages {
-            let latest = EmailBodyFormatting.spokenSummary(from: email.body, fallback: email.preview)
             let earlierBeats = email.earlierMessages.compactMap { message -> String? in
-                let beat = EmailBodyFormatting.spokenSummary(from: message.plainBody, fallback: "")
+                let beat = EmailBodyFormatting.spokenSummary(from: message.plainBody, fallback: "", style: .brief)
                 return beat.isEmpty ? nil : beat
             }
-            var line = "The full thread is on the card — earlier messages are open."
+            var parts: [String] = []
+            if latest.isEmpty {
+                parts.append("Latest from \(email.fromName) is on the card.")
+            } else {
+                parts.append("\(email.fromName) wrote: \(latest)")
+            }
             if let first = earlierBeats.first {
                 let who = email.earlierMessages.first?.fromName
                 if let who, !who.isEmpty {
-                    line += " Earlier from \(who): \(first)"
+                    parts.append("Earlier from \(who): \(first)")
                 } else {
-                    line += " Earlier: \(first)"
+                    parts.append("Earlier: \(first)")
                 }
             }
-            if !latest.isEmpty {
-                line += " Latest from \(email.fromName): \(latest)"
-            }
-            return line
+            return parts.joined(separator: " ")
         }
         if email.hasFullBody {
-            let beat = EmailBodyFormatting.spokenSummary(from: email.body, fallback: email.preview)
-            if beat.isEmpty {
+            if latest.isEmpty {
                 return "This thread is only the latest from \(email.fromName) — no earlier messages in the sync."
             }
-            return "This thread is only the latest from \(email.fromName) — no earlier messages in the sync. \(beat)"
+            return "\(email.fromName) wrote: \(latest)"
         }
         return "The thread is on the card. I’ll load earlier messages here in VoiceDesk."
     }

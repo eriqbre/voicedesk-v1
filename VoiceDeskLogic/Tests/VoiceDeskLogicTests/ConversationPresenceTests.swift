@@ -279,7 +279,68 @@ final class ConversationPresenceTests: XCTestCase {
         }
         XCTAssertTrue(evidence?.cards.isEmpty == true)
         XCTAssertEqual(evidence?.text, ConversationPresence.gmailSearchingBeat)
+        XCTAssertEqual(evidence?.expandEarlierMessages, true)
         assertNotFakeSearchCapability(evidence?.text ?? "")
+    }
+
+    func testMostRecentEmailByShowingTimeSearches() {
+        let ask = "Show me the most recent email by showing time."
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask))
+        XCTAssertNotNil(GmailSearchQuery.plan(from: ask))
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: .empty)
+        )
+        XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertNotEqual(evidence?.text, ConversationPresence.emailNeedMoreReply)
+        let query = evidence?.gmailQuery ?? ""
+        XCTAssertTrue(query.contains("\"showing time\"") || query.contains("showingtime"), query)
+    }
+
+    func testBareShowingTimeAfterNeedMoreSearches() {
+        let evidence = ConversationPresence.deskEvidence(
+            for: "Showing time",
+            context: DeskContext(isConnected: true, snapshot: .empty),
+            pendingSearchClarify: true
+        )
+        XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertTrue(evidence?.gmailQuery?.contains("showing") == true)
+        XCTAssertNotEqual(evidence?.text, ConversationPresence.emailNeedMoreReply)
+    }
+
+    func testFullSummaryOfMurraysEmailExpandsThread() {
+        let murray = EmailItem(
+            providerID: "m-murray",
+            fromName: "Murray Mitchell",
+            fromEmail: "murray@example.com",
+            sentAtLabel: "Today 9:00 AM",
+            subject: "Closing / notarization",
+            preview: "Need you to notarize",
+            body: "Need you to notarize the closing package today. The buyer is coming at 3. Please confirm the walk-through window.",
+            earlierMessages: [
+                EmailThreadMessage(id: "e1", fromName: "Murray Mitchell", plainBody: "Can we walk the lot this week?")
+            ],
+            filterTag: "Inbox"
+        )
+        let ask = "full summary of Murray’s latest email"
+        XCTAssertTrue(ConversationPresence.wantsFullThread(ask))
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: DeskSnapshot(emails: [murray])),
+            focusedEmail: murray
+        )
+        XCTAssertEqual(evidence?.expandEarlierMessages, true)
+        XCTAssertEqual(evidence?.shouldFetchBody, true)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray thread card")
+        }
+        let reply = evidence?.text ?? ""
+        XCTAssertTrue(reply.contains("Need you to notarize"))
+        XCTAssertTrue(reply.contains("buyer is coming") || reply.lowercased().contains("earlier"))
+        XCTAssertFalse(reply == "Latest from Murray Mitchell is on the card.")
     }
 
     func testShowingTimeAskUsesQuotedBrandAndDoesNotAttachWaterfront() {
