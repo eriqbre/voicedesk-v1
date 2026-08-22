@@ -10,8 +10,3 @@ enum Palette {
     static let line = Color.black.opacity(0.06)
     static let userBubble = Color(red: 0.42, green: 0.275, blue: 0.85)
 }
-
-enum VoiceDeskTheme {
-    /// Purple accent is brand-replaceable (PRD §4). Light theme is the v1 default.
-    static let brandNote = "Accent is a stand-in; swap Palette.accent when the name lands."
-}
