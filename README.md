@@ -74,10 +74,10 @@ Talk about anything. Cards show up when the ask is about the desk (inbox, Beach 
 
 | Suite | Where it runs | Command |
 |-------|----------------|---------|
-| Unit + UI fixtures (logic) | Linux / this VM / CI `unit-linux` | `swift test --package-path VoiceDeskLogic` |
-| App unit + XCUITest smoke | Mac + iPhone Simulator / CI `ios-macos` | `xcodebuild test -project VoiceDesk.xcodeproj -scheme VoiceDesk -destination 'platform=iOS Simulator,name=iPhone 16'` |
+| Unit + UI fixtures (logic) | Linux / this VM / CI `unit-linux` on every push/PR — **merge automated gate** | `swift test --package-path VoiceDeskLogic` |
+| App unit + XCUITest smoke | Local Mac, or Actions → CI → **Run workflow** (`workflow_dispatch` only; does not auto-run) | `xcodebuild test -project VoiceDesk.xcodeproj -scheme VoiceDesk -destination 'platform=iOS Simulator,name=iPhone 16'` |
 
-This Linux cloud agent **cannot** run `xcodebuild` or the Simulator. GitHub Actions `macos-15` is the iOS gate. If that runner is unavailable, treat `ios-macos` as blocked and keep `unit-linux` green. UI smoke launches with `-ui-testing` so it uses `MockVoiceService`, not a live socket.
+This Linux cloud agent **cannot** run `xcodebuild` or the Simulator. `ios-macos` is manual because `macos-15` is expensive; it never starts on ordinary push/PR. UI smoke launches with `-ui-testing` so it uses `MockVoiceService`, not a live socket.
 
 ## Next slice
 
