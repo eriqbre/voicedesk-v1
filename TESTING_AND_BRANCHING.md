@@ -1,228 +1,240 @@
 # VoiceDesk — Testing & Branching (v1)
-**Purpose:** Keep Build from turning into the Voxa rabbit hole (PR mill, merge-without-walk, endless polish).  
-**Authority:** Eriq is the only merge gate for product behavior. CI is necessary, not sufficient.  
+**Purpose:** Keep Build from the Voxa rabbit hole. Clear gates. Eriq is the **last** human validator, not the first.  
+**Authority:**  
+- **Automated tests** must be green on every build.  
+- **Elon (this advisor)** reviews every build before Eriq sees it.  
+- **Eriq** validates last; feedback drives the next agent step.  
 **Companion:** `PRODUCT_REQUIREMENTS.md`
 
 ---
 
-## 0. First principles (non-negotiable)
+## 0. First principles
 
-1. **Walk > merge.** If a human did not exercise the change on a device (or Simulator for pure UI), it does not land on `main`.
-2. **One open product PR at a time** per slice. No parallel “while you wait” hygiene PRs.
-3. **Best part is no part.** If a test or branch doesn’t change a ship decision, delete it.
-4. **Dogfood is the product test.** Bridget’s day is the acceptance suite for “ready.”
-5. **CI catches regressions; walks catch wrong products.** Both required. Neither alone.
-6. **Main is always dogfoodable.** Broken main = stop the line.
-
----
-
-## 1. What went wrong on Voxa (so we don’t repeat it)
-
-| Failure | Rule that prevents it |
-|---------|------------------------|
-| Dozens of PRs merged while the real walk (195) sat | One slice PR; no merge of “also-ran” work |
-| Cloud agents + human merges raced | Agents open PRs; **only Eriq merges** after a walk checklist |
-| “Review clean” treated as ship | Review ≠ walk. Walk checklist is mandatory |
-| Auth/spend holes shipped then patched forever | Security slices have a **hard walk** before merge; no “merge then fix” |
-| Testing phase never ended | Each slice has **exit criteria**. When met, stop. Next slice or ship. |
-| Polish PRs (timing, chrome) ate weeks | Polish only after Dogfood Pass 1. Parked by default. |
+1. **Machines first, humans last.** If CI/automation isn’t green, no human walks it.
+2. **Elon reviews before Eriq.** Catch wrong product / broken walks before burning Eriq’s time.
+3. **Eriq is the final validator.** His pass ships the slice. His fail → one fix, not a PR storm.
+4. **One open product PR at a time.** No parallel polish factories.
+5. **Best part is no part.** Tests that don’t change a ship decision get deleted.
+6. **Main is always dogfoodable.**
 
 ---
 
-## 2. Branching model
+## 1. Gate order (every slice / every build)
 
 ```
-main                    # always runnable dogfood candidate
-  └── slice/<n>-<name>  # one active product slice (PR → walk → merge)
-        └── fix/<desc>  # optional: only if walk finds a hole on that slice
+[1] Cursor cloud agent builds on slice/* branch, opens PR
+        ↓
+[2] AUTOMATED suite must be green (required check)
+        ↓
+[3] ELON review — read PR, run/simulate automated evidence, do advisor walk
+        ↓     Fail → reply to agent with one fix brief; do not ping Eriq
+[4] HANDOFF to Eriq — short “what to do / what to tap” only
+        ↓
+[5] ERIQ validation walk (slice checklist, timed)
+        ↓     Fail → Elon turns feedback into one fix task for the agent
+[6] Squash-merge to main (Eriq or Elon after Eriq’s explicit yes)
+```
+
+**Forbidden:** Asking Eriq to test while CI is red, or before Elon has signed the review.
+
+---
+
+## 2. Roles
+
+| Role | Does | Does not |
+|------|------|----------|
+| **Cursor agent** | Implement slice; keep automated tests green; open one PR | Merge; open sibling PRs; ask Eriq to debug |
+| **Elon** | Enforce plan; expand/fix tests; review every PR; only then hand Eriq a short validation script; turn feedback into next agent brief | Dump raw CI logs on Eriq; expand scope mid-slice |
+| **Eriq** | Final validation only; say pass/fail + what felt wrong | Be the first person to find “app doesn’t launch” |
+
+---
+
+## 3. Branching model
+
+```
+main                         # dogfood candidate; protected
+  └── slice/<n>-<name>       # one active product PR
+        └── fix/<desc>       # only after Elon or Eriq fail on that slice
 ```
 
 ### Rules
-- **`main`:** protected. No direct push for agents. Squash-merge only after walk.
-- **`slice/*`:** exactly **one** active slice branch + PR. Finish or close before opening the next.
-- **`fix/*`:** short-lived, branched from the slice under walk (or from `main` if hotfix). Same walk bar scaled to the fix.
-- **No** long-lived `develop`, `staging`, or `release` trains in v1. They hide rot.
-- **No** stacking 5 agent PRs “for later.” Close or park.
+- One active `slice/*` PR. Finish or close before the next.
+- Squash-merge only after **automated green + Elon review pass + Eriq validation pass**.
+- No long-lived `develop` / `staging`.
+- Parked PRs > 7 days: close or re-scope.
 
-### Slice order (aligned to PRD §11)
-1. `slice/1-ios-shell-voice-ui` — conversation + cards + voice shell  
-2. `slice/2-google-sync` — OAuth + Gmail/Calendar/Tasks + offline cache  
-3. `slice/3-graph-listings` — claim/infer listings + related cards  
-4. `slice/4-knowledge-confidence` — FL/local/Coastal pack + confidence UI  
-5. `slice/5-actions-audit` — confirm-before-act + Activity log (real writes)  
-6. `slice/6-onboarding` — welcome tour → Connect Google (may land earlier if tiny)
-
-**Do not start slice N+1 until slice N is on `main` and Pass criteria below are green.**
+### Slice order
+1. `slice/1-ios-shell-voice-ui`
+2. `slice/2-google-sync`
+3. `slice/3-graph-listings`
+4. `slice/4-knowledge-confidence`
+5. `slice/5-actions-audit`
+6. `slice/6-onboarding` (may fold earlier if tiny)
 
 ---
 
-## 3. Merge gate (the algorithm)
+## 4. Comprehensive automated test plan
 
-For every PR into `main`:
+Automation runs on **every PR** and on **main**. Required to merge. If the cloud VM cannot run iOS Simulator, tests must still run via `xcodebuild` on a Mac pool when available; until then, Swift package / logic tests + UI fixture tests that compile on Linux where possible, plus a documented Simulator job.
 
+### 4.1 Required suites (must all pass)
+
+| Suite | Command (target) | Covers |
+|-------|------------------|--------|
+| **Unit** | `swift test` and/or Xcode unit test target | Confidence bands, offline queue, graph link helpers, draft-confirm state machine, wake/tap voice session state |
+| **UI fixtures** | XCTest / XCUITest smoke | App launches; conversation mounts; each card type renders with fixtures; confirm buttons present |
+| **Contract / snapshot (lightweight)** | Card view snapshot or accessibility tree asserts | Email, Listing, Person, Draft-confirm, Statute/confidence cards don’t regress layout identity |
+| **Security stubs** | Unit | Confirm required before any `SendClient` mock fires; no send on draft-only |
+| **Regression gate** | Same jobs as above on PR | Branch protection: all required checks green |
+
+### 4.2 Per-slice automation additions
+
+| Slice | Add automated coverage for |
+|-------|----------------------------|
+| 1 Shell | Launch smoke; card insertion API; voice session state machine; confidence UI binding |
+| 2 Google | OAuth state machine mocks; sync parser tests; offline cache read; sign-out clears store |
+| 3 Graph | Link inference pure functions; no neighbor-id bleed tests; claim/confirm state |
+| 4 Knowledge | Confidence thresholds → firm/options/low behavior; citation required when high |
+| 5 Actions | SendClient called iff confirmed; Activity log entries; failure ≠ “sent” |
+| 6 Onboarding | Tour → Connect Google path; cannot reach “fake day” without connect flag |
+
+### 4.3 What automation does **not** replace
+- Real Google account behavior (Elon can smoke with stubs; Eriq validates with real account on slices 2+)
+- “Feels right in the car” voice latency
+- Bridget’s language of friction
+
+### 4.4 Agent duty on every PR
+PR template must include:
 ```
-1. Question: Does this slice move Bridget closer to Pass 1?
-   No → close or park. Do not merge.
-2. Delete: Any extra commits that aren’t load-bearing?
-3. CI green (build + unit tests for touched logic).
-4. Eriq walk checklist for THAT slice (below) — timed, written.
-5. Squash-merge. Delete branch.
-6. Tag dogfood build if iOS: voicedesk-dogfood-YYYYMMDD
+## Automated
+- [ ] Unit green
+- [ ] UI smoke green
+- [ ] New logic covered (list tests added)
+## Elon
+- [ ] Pending review
+## Eriq
+- [ ] Not yet — wait for Elon handoff
 ```
 
-**Forbidden merges**
-- “CI green, merge to keep moving”
-- Security-sensitive changes without the security walk
-- Agent follow-up PRs opened while a slice walk is unfinished
-- Anything that expands scope mid-slice without a new slice PR
+---
+
+## 5. Elon review (before Eriq)
+
+Elon does **not** hand off until:
+
+1. Required CI checks green on the PR head.
+2. Diff matches the slice — no scope creep; no drive-by polish.
+3. Walk checklist for the slice can be executed (Simulator evidence or clear repro steps).
+4. Security rules for that slice hold (especially slices 2 and 5).
+5. Written handoff to Eriq is **≤ 10 steps**, only what he must feel.
+
+If Elon finds a fail: **one** reply to the cloud agent with the hole + expected fix. No Eriq ping. No new PR unless the agent can’t amend.
+
+### Elon handoff message shape
+```
+Slice N ready for you.
+Automated: green (link).
+I checked: <one line>.
+You do (≤10 min):
+1. …
+2. …
+Pass = reply "pass" + anything weird.
+Fail = reply "fail" + what broke.
+```
 
 ---
 
-## 4. What you test, and when
+## 6. Eriq validation checklists (final only)
 
-### 4.1 Layers (keep thin)
+Timebox **≤ 20 minutes**. Copy from handoff.
 
-| Layer | Who | When | What |
-|-------|-----|------|------|
-| **Unit** | Agent/CI | Every PR | Pure logic: confidence bands, graph link helpers, offline queue |
-| **UI smoke** | Agent/CI or Simulator | Every PR | App launches; conversation renders; cards mount with fixtures |
-| **Slice walk** | **Eriq** | Before merge | Scripted 10–20 min checklist for that slice |
-| **Dogfood pass** | **Eriq then Bridget** | After slices 2–5 land | Real morning / real listing — see §5 |
-| **Broker gate** | Eriq + Coastal | Before office rollout | Invite path, compliance pack, Android exists |
+### Slice 1
+- Cold launch to conversation
+- Tap-to-talk → bubbles
+- See Email / Listing / Person / Draft-confirm / Statute cards
+- Draft Confirm does not fake-send
+- Confidence % visible and changes tone
+- No crash background/foreground
 
-If a test doesn’t map to a row above, delete it.
+### Slice 2
+- Connect Google; see real inbox/calendar/tasks
+- Open email card
+- Airplane mode: cached read works; write explains/queues
+- Sign-out: no leftover mail bodies
 
-### 4.2 Slice walk checklists (you run these)
+### Slice 3
+- Claim listing; infer+confirm from email
+- Email shows related listing + people
+- Listing hub graph; no wrong house
 
-Copy into the PR comment and check off. **Timebox: 20 minutes.** If you can’t finish, the slice is too big — split.
+### Slice 4
+- High-confidence statute → firm + cite
+- Ambiguous → options + mid confidence
+- Coastal pack attributed
 
-#### Slice 1 — Shell + voice UI
-- [ ] Cold launch < 3s to conversation UI (Simulator or device)
-- [ ] Tap-to-talk shows listening state; release/end shows a user bubble
-- [ ] Assistant turn can insert **Email**, **Listing**, **Person**, **Draft-confirm**, **Statute/confidence** fixture cards
-- [ ] Draft-confirm shows Confirm / Edit; Confirm does not silently “send” (mock OK)
-- [ ] Statute card shows a **visible confidence %** and firm vs options behavior changes with the number
-- [ ] No crash on rotate / background / foreground
-- [ ] README build steps work on your Mac
+### Slice 5
+- Confirm send → real Gmail Sent
+- Cancel before confirm aborts
+- Calendar create confirms
+- Activity log truthful on success/fail
 
-**Exit:** Merge. Stop. Do not open polish PRs.
-
-#### Slice 2 — Google sync
-- [ ] Connect Google from the card; scopes: Gmail, Calendar, Tasks
-- [ ] Inbox list shows real threads; open one email card
-- [ ] Calendar shows today’s events; Tasks show open items
-- [ ] Airplane mode: last-synced cards readable; action attempt queues or explains offline
-- [ ] Disconnect / sign-out clears local cache of mail bodies (no leftover account bleed)
-
-**Exit:** Merge only after the above on a **device or Simulator signed into your Google**.
-
-#### Slice 3 — Graph + listings
-- [ ] Claim a listing by address (voice or UI)
-- [ ] Infer candidate from a real Gmail thread → confirm/dismiss
-- [ ] Email detail shows **Related listing** + **Connected people** when linked
-- [ ] Listing hub shows related emails / next event / tasks / people
-- [ ] No neighbor-address bleed (wrong house on a card)
-
-**Exit:** Merge.
-
-#### Slice 4 — Knowledge + confidence
-- [ ] Ask a high-confidence FL statute question → firm tone + cite on card
-- [ ] Ask an ambiguous question → options, not fake certainty; mid confidence shown
-- [ ] Coastal compliance doc answer attributes the broker pack
-- [ ] Confidence meter always visible on law/compliance cards
-
-**Exit:** Merge.
-
-#### Slice 5 — Actions + audit
-- [ ] “Email X…” → draft card → Confirm sends for real → appears in Gmail Sent
-- [ ] “Undo/cancel” before confirm aborts
-- [ ] Schedule a calendar event → confirm → exists in Google Calendar
-- [ ] Activity log shows each write with timestamp + result
-- [ ] Failed send shows failed on Activity — never “sent” on failure
-
-**Exit:** Merge. This is the last hard gate before Bridget Pass 1.
-
-#### Slice 6 — Onboarding (if separate)
-- [ ] Fresh install: welcome → sample tour → Connect Google → first real turn
-- [ ] Skip-tour path still forces Google before pretending to know the day
-- [ ] Under a few minutes to first useful answer
+### Slice 6
+- Welcome → tour → Connect Google → first real turn
 
 ---
 
-## 5. Dogfood passes (world-class bar)
+## 7. Feedback loop (after Eriq)
 
-### Pass 1 — Eriq (before Bridget’s phone)
-**When:** After slices 1–5 on `main`.  
-**Timebox:** One real morning block (≤ 90 min). One retry if fail. No third.
+| Eriq says | Elon does |
+|-----------|-----------|
+| **pass** | Squash-merge (or ask Eriq to hit merge); delete branch; start next slice agent with PRD + this doc |
+| **fail** + notes | One `fix/*` or amend on same PR; automated must go green; Elon re-reviews; **only then** Eriq again |
+| Ambiguous feel | Elon reproduces; if product call, ask one widget question; if bug, treat as fail |
 
-Script:
-1. Open app; ask what’s on calendar today by voice.
-2. Ask about one real email; confirm related listing/people cards.
-3. Claim/confirm one listing you care about.
-4. Send one **confirmed** email that you would have sent anyway.
-5. Ask one FL disclosure / Coastal compliance question; check confidence card.
-6. Do **not** open Gmail to finish those five. If you bail, Pass 1 fails.
-
-**Fail →** one fix branch from `main`, walk that fix, merge, **one** retry.  
-**Fail twice →** stop feature work; only Pass-1 blockers.
-
-### Pass 2 — Bridget dogfood
-**When:** Pass 1 green.  
-**Bar:** She completes her version of the script without you narrating around bugs.  
-**Fail →** same one-fix rule. Her language of friction becomes the backlog — not a PR storm.
-
-### Pass 3 — Coastal office
-**When:** Pass 2 green + Android build + invite path + compliance pack.  
-**Not before.**
+**Max loops per slice:** 2 fail cycles. Third fail → stop line; re-scope slice smaller.
 
 ---
 
-## 6. Agent / Cursor rules (encode in every Build prompt)
+## 8. Dogfood passes (after slices 1–5 on main)
 
-1. Open **one** PR for the active slice. Do not open sibling PRs.
-2. Do not merge. Do not ask to merge. Eriq merges after walk.
-3. If you find a P0 outside the slice (auth, data loss), **stop and report** — do not “also fix” in the same PR unless Eriq says so.
-4. No polish PRs (timing, chrome, haptics) until Pass 1.
-5. PR description must include: **Walk checklist** (copy from this doc) + **Out of scope**.
-6. If CI flake blocks merge, fix flake or retry — do not disable gates.
+### Pass 1 — Eriq (still last, but fuller)
+Automated green on `main` + Elon confirms release candidate → Eriq runs full morning script (PRD / prior Pass 1). Fail → one fix train only.
 
----
+### Pass 2 — Bridget
+Only after Pass 1. Same rule.
 
-## 7. Security / money walks (hard stops)
-
-Treat as their own mini-slice if they appear:
-- OAuth / token storage / callback URLs
-- Anything that can send email or mint model spend without confirm
-- Cross-user cache bleed
-
-**Walk:** Prove a stolen/shared URL cannot create a session; prove Confirm is required before send; prove spend has a cap or confirm.  
-**No merge** on “we’ll rate-limit later.”
+### Pass 3 — Coastal
+Android + invite + compliance. Not before.
 
 ---
 
-## 8. Cadence (keep cycle time high without the factory)
+## 9. Cursor agent standing orders
 
-| Cadence | Action |
-|---------|--------|
-| Per slice | Agent builds → CI → Eriq 20-min walk → squash merge → delete branch |
-| Daily (dogfood) | One Pass 1 attempt or real use — not five micro-PRs |
-| Weekly | Kill parked PRs older than 7 days or explicitly re-scope |
-| Never | Merge Friday night “just to clear the queue” without a walk |
-
----
-
-## 9. Definition of “testing phase complete”
-
-Testing phase for v1 dogfood is **done** when:
-- [ ] Pass 1 green once
-- [ ] Pass 2 green once (Bridget)
-- [ ] No open `slice/*` except the next planned Coastal/Android work
-- [ ] Activity log + confirm-before-act proven on real Google writes
-
-Everything after that is product iteration — not an unbounded “testing phase.”
+Include in every launch/reply:
+1. Read `PRODUCT_REQUIREMENTS.md` + `TESTING_AND_BRANCHING.md`.
+2. One slice PR. Expand automated tests for that slice until green.
+3. Do not merge. Do not @ Eriq.
+4. Wait for Elon review. If Elon requests fixes, amend same PR.
+5. No polish until Pass 1.
 
 ---
 
-## 10. One-line brief for Cursor
+## 10. Definition of done (slice)
 
-One slice branch, one PR, CI green, Eriq walks the slice checklist on a device, then squash-merge; no parallel polish; Pass 1/2 are the only acceptance tests that matter; stop when they pass.
+- [ ] Automated suites green on PR
+- [ ] Elon review pass + handoff sent
+- [ ] Eriq validation pass
+- [ ] Squash-merged; branch deleted
+- [ ] Next slice only after that
+
+## Definition of done (dogfood testing phase)
+
+- [ ] Pass 1 + Pass 2 green
+- [ ] No open slice except planned Coastal/Android
+- [ ] Confirm-before-act + Activity proven on real Google writes
+
+---
+
+## 11. One-line brief
+
+Automations green → Elon reviews and only then briefs Eriq → Eriq validates last → one fix loop max → merge → next slice.
