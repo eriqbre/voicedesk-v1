@@ -70,6 +70,7 @@ After checkout, keep the committed `VoiceDesk.xcodeproj/project.xcworkspace/xcsh
 - If `VoiceDesk.xcodeproj` or `Package.resolved` is dirty: `git restore VoiceDesk.xcodeproj` **and** `git restore VoiceDesk.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
 - Only `git clean -f` an **untracked** `Package.resolved` that blocks checkout, then check the file out again so the committed pin returns.
 - If Xcode still says `Missing package product 'GoogleSignIn'`: `xcodebuild -resolvePackageDependencies -project VoiceDesk.xcodeproj -scheme VoiceDesk` (uses the committed lockfile).
+- **Signing / Development Team:** set `DEVELOPMENT_TEAM` once in `VoiceDesk/Secrets.plist` (10-character Apple Team ID; copy from `Secrets.example.plist` if needed). The inject script writes `DEVELOPMENT_TEAM = <id>` into `Config/Generated/GoogleSecrets.xcconfig`. Rebuild. Do **not** commit a real team id, and do not rely on the Xcode Team picker — `git restore VoiceDesk.xcodeproj` no longer clears Team.
 
 ### Slice order
 1. `slice/1-ios-shell-voice-ui`

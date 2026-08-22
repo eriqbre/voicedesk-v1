@@ -58,10 +58,26 @@ final class XcodeProjectLayoutTests: XCTestCase {
         let xcconfig = try XCTUnwrap(repoFile("Config/VoiceDesk.xcconfig"))
         XCTAssertTrue(xcconfig.contains("#include? \"Generated/GoogleSecrets.xcconfig\""))
         XCTAssertTrue(xcconfig.contains("INFOPLIST_FILE = Config/Info.plist"))
+        XCTAssertTrue(xcconfig.contains("DEVELOPMENT_TEAM ="))
         XCTAssertFalse(xcconfig.contains("REPLACE_ME"))
         let includeIndex = try XCTUnwrap(xcconfig.range(of: "#include? \"Generated/GoogleSecrets.xcconfig\""))
         let reversedDefault = try XCTUnwrap(xcconfig.range(of: "GOOGLE_REVERSED_CLIENT_ID ="))
+        let teamDefault = try XCTUnwrap(xcconfig.range(of: "DEVELOPMENT_TEAM ="))
         XCTAssertLessThan(reversedDefault.lowerBound, includeIndex.lowerBound)
+        XCTAssertLessThan(teamDefault.lowerBound, includeIndex.lowerBound)
+
+        let example = try XCTUnwrap(repoFile("VoiceDesk/Secrets.example.plist"))
+        XCTAssertTrue(example.contains("<key>DEVELOPMENT_TEAM</key>"))
+        XCTAssertTrue(script.contains("DEVELOPMENT_TEAM"))
+        XCTAssertTrue(pbx.contains("DEVELOPMENT_TEAM = \"$(DEVELOPMENT_TEAM)\""))
+        let teamLines = pbx.split(separator: "\n").filter { $0.contains("DEVELOPMENT_TEAM") }
+        XCTAssertFalse(teamLines.isEmpty)
+        for line in teamLines {
+            XCTAssertTrue(
+                line.contains("$(DEVELOPMENT_TEAM)"),
+                "pbxproj must not pin a literal team id: \(line)"
+            )
+        }
 
         let scheme = try XCTUnwrap(repoFile("VoiceDesk.xcodeproj/xcshareddata/xcschemes/VoiceDesk.xcscheme"))
         XCTAssertTrue(scheme.contains("PreActions"))
@@ -93,6 +109,8 @@ final class XcodeProjectLayoutTests: XCTestCase {
             <string>123-abc.apps.googleusercontent.com</string>
             <key>GOOGLE_REVERSED_CLIENT_ID</key>
             <string>com.googleusercontent.apps.REPLACE_ME</string>
+            <key>DEVELOPMENT_TEAM</key>
+            <string>A1B2C3D4E5</string>
         </dict>
         </plist>
         """
@@ -112,7 +130,53 @@ final class XcodeProjectLayoutTests: XCTestCase {
         )
         XCTAssertTrue(generated.contains("GOOGLE_CLIENT_ID = 123-abc.apps.googleusercontent.com"))
         XCTAssertTrue(generated.contains("GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.123-abc"))
+        XCTAssertTrue(generated.contains("DEVELOPMENT_TEAM = A1B2C3D4E5"))
         XCTAssertFalse(generated.contains("REPLACE_ME"))
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testInjectScriptWritesDevelopmentTeamWithoutGoogleClient() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        var scriptURL: URL?
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let candidate = url.appendingPathComponent("scripts/inject-google-secrets.sh")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                scriptURL = candidate
+                break
+            }
+        }
+        let inject = try XCTUnwrap(scriptURL)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voicedesk-inject-team-\(UUID().uuidString)")
+        let secretsDir = root.appendingPathComponent("VoiceDesk")
+        try FileManager.default.createDirectory(at: secretsDir, withIntermediateDirectories: true)
+        let secrets = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>DEVELOPMENT_TEAM</key>
+            <string>Z9Y8X7W6V5</string>
+        </dict>
+        </plist>
+        """
+        try secrets.write(to: secretsDir.appendingPathComponent("Secrets.plist"), atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [inject.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["SRCROOT"] = root.path
+        process.environment = environment
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        let generated = try String(
+            contentsOf: root.appendingPathComponent("Config/Generated/GoogleSecrets.xcconfig"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(generated.contains("DEVELOPMENT_TEAM = Z9Y8X7W6V5"))
+        XCTAssertTrue(generated.contains("GOOGLE_CLIENT_ID ="))
         try? FileManager.default.removeItem(at: root)
     }
 
