@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  unit-linux:
+    name: Unit (Linux)
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        run: swift test --package-path VoiceDeskLogic
+
+  ios-macos:
+    name: iOS unit + UI smoke (macOS)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+      - name: Destination
+        id: dest
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available
+          ID=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin)
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for d in devices:
+                  if d.get("isAvailable") and "iPhone" in d.get("name",""):
+                      print(d["udid"])
+                      raise SystemExit
+          raise SystemExit("no iPhone simulator")
+          ')
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+      - name: xcodebuild test
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project VoiceDesk.xcodeproj \
+            -scheme VoiceDesk \
+            -destination "platform=iOS Simulator,id=${{ steps.dest.outputs.id }}" \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
