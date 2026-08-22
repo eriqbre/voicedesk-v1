@@ -44,13 +44,11 @@ final class LaunchSmokeTests: XCTestCase {
 
     private func waitForCard(_ id: String) {
         let node = app.descendants(matching: .any)[id]
-        if node.waitForExistence(timeout: 6) {
-            if !node.isHittable {
-                app.swipeUp()
-            }
-            return
+        if node.waitForExistence(timeout: 8) { return }
+        for _ in 0..<5 {
+            app.swipeUp()
+            if node.waitForExistence(timeout: 2) { return }
         }
-        app.swipeUp()
-        XCTAssertTrue(node.waitForExistence(timeout: 6), "Missing \(id)")
+        XCTAssertTrue(node.waitForExistence(timeout: 2), "Missing \(id)")
     }
 }

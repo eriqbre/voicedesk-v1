@@ -12,7 +12,7 @@ struct ConversationScreen: View {
                 VStack(spacing: 0) {
                     ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 18) {
+                            VStack(alignment: .leading, spacing: 18) {
                                 ForEach(model.turns) { turn in
                                     TurnView(turn: turn)
                                         .id(turn.id)

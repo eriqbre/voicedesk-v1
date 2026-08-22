@@ -5,20 +5,22 @@ struct ContentCardView: View {
     let card: ContentCard
 
     var body: some View {
-        switch card {
-        case .email(let item): EmailCardView(item: item)
-        case .listing(let item): ListingCardView(item: item)
-        case .person(let item): PersonCardView(item: item)
-        case .draftConfirm(let item): DraftConfirmCardView(item: item)
-        case .statute(let item): StatuteCardView(item: item)
-        case .connectGoogle(let item): ConnectGoogleCardView(item: item)
+        Group {
+            switch card {
+            case .email(let item): EmailCardView(item: item)
+            case .listing(let item): ListingCardView(item: item)
+            case .person(let item): PersonCardView(item: item)
+            case .draftConfirm(let item): DraftConfirmCardView(item: item)
+            case .statute(let item): StatuteCardView(item: item)
+            case .connectGoogle(let item): ConnectGoogleCardView(item: item)
+            }
         }
+        // Outer ID is what made CI green (91b54e4). CardChrome must stay visual-only.
+        .accessibilityIdentifier(card.fixtureID)
     }
 }
 
 struct CardChrome<Content: View>: View {
-    var fixtureID: String
-    var accessibilityText: String
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -31,10 +33,6 @@ struct CardChrome<Content: View>: View {
                     .strokeBorder(Palette.line)
             )
             .shadow(color: Color.black.opacity(0.05), radius: 12, y: 4)
-            // Identifier after `.contain` so XCTest can find `card.*` (combine hid IDs as StaticText).
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(accessibilityText)
-            .accessibilityIdentifier(fixtureID)
     }
 }
 
@@ -42,10 +40,7 @@ struct EmailCardView: View {
     let item: EmailItem
 
     var body: some View {
-        CardChrome(
-            fixtureID: "card.email",
-            accessibilityText: "Email from \(item.fromName). \(item.subject). \(item.preview)"
-        ) {
+        CardChrome {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
                     InitialsMark(initials: item.initials, hue: 0.72)
@@ -84,6 +79,9 @@ struct EmailCardView: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Email from \(item.fromName). \(item.subject). \(item.preview)")
+        .accessibilityIdentifier("card.email")
     }
 }
 
@@ -91,10 +89,7 @@ struct ListingCardView: View {
     let item: ListingItem
 
     var body: some View {
-        CardChrome(
-            fixtureID: "card.listing",
-            accessibilityText: "Listing \(item.addressLine), \(item.priceLabel), \(item.beds) beds, \(item.baths) baths."
-        ) {
+        CardChrome {
             VStack(alignment: .leading, spacing: 12) {
                 ZStack(alignment: .bottomLeading) {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -141,6 +136,9 @@ struct ListingCardView: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Listing \(item.addressLine), \(item.priceLabel), \(item.beds) beds, \(item.baths) baths.")
+        .accessibilityIdentifier("card.listing")
     }
 
     private func Meta(_ value: Int, _ unit: String) -> some View {
@@ -154,10 +152,7 @@ struct PersonCardView: View {
     let item: PersonItem
 
     var body: some View {
-        CardChrome(
-            fixtureID: "card.person",
-            accessibilityText: "\(item.name), \(item.roleLabel). \(item.detail)"
-        ) {
+        CardChrome {
             HStack(alignment: .center, spacing: 12) {
                 InitialsMark(initials: item.initials, hue: item.accentHue, size: 48)
                 VStack(alignment: .leading, spacing: 3) {
@@ -179,6 +174,9 @@ struct PersonCardView: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(item.name), \(item.roleLabel). \(item.detail)")
+        .accessibilityIdentifier("card.person")
     }
 }
 
@@ -188,10 +186,7 @@ struct DraftConfirmCardView: View {
     @State private var draftBody: String = ""
 
     var body: some View {
-        CardChrome(
-            fixtureID: "card.draftConfirm",
-            accessibilityText: "Draft \(item.actionTitle) to \(item.toLine). \(item.subject)."
-        ) {
+        CardChrome {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label("Review before sending", systemImage: "checkmark.shield")
@@ -248,6 +243,9 @@ struct DraftConfirmCardView: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Draft \(item.actionTitle) to \(item.toLine). \(item.subject).")
+        .accessibilityIdentifier("card.draftConfirm")
         .onAppear { draftBody = item.body }
     }
 
@@ -284,10 +282,7 @@ struct StatuteCardView: View {
     let item: StatuteItem
 
     var body: some View {
-        CardChrome(
-            fixtureID: "card.statute",
-            accessibilityText: "\(item.title). Confidence \(item.confidence) percent, \(item.band.label). \(item.citation)."
-        ) {
+        CardChrome {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Statute / confidence")
@@ -327,6 +322,9 @@ struct StatuteCardView: View {
                     .foregroundStyle(Palette.muted)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.title). Confidence \(item.confidence) percent, \(item.band.label). \(item.citation).")
+        .accessibilityIdentifier("card.statute")
     }
 
     private var bandColor: Color {
@@ -343,10 +341,7 @@ struct ConnectGoogleCardView: View {
     let item: ConnectGoogleItem
 
     var body: some View {
-        CardChrome(
-            fixtureID: "card.connectGoogle",
-            accessibilityText: item.headline
-        ) {
+        CardChrome {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     ZStack {
@@ -389,6 +384,9 @@ struct ConnectGoogleCardView: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(item.headline)
+        .accessibilityIdentifier("card.connectGoogle")
     }
 }
 
