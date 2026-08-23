@@ -20,4 +20,25 @@ final class DeskReplySpeechTests: XCTestCase {
             ConversationPresence.emailNeedMoreReply
         )
     }
+
+    func testInboxOverviewAndDeskPersonRepliesAreSpoken() {
+        let digest = ConversationPresence.inboxOverviewCopy([
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve
+        ])
+        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+        let madison = ConversationPresence.emailBodyReply(
+            EmailItem(
+                fromName: "John Madison",
+                fromEmail: "john@example.com",
+                sentAtLabel: "Today",
+                subject: "Beach Drive",
+                preview: "Can we talk numbers",
+                body: "Can we talk numbers on Beach Drive.",
+                filterTag: "Inbox"
+            )
+        )
+        XCTAssertEqual(DeskReplySpeech.textToSpeak(madison, lastSpoken: digest), madison)
+        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+    }
 }

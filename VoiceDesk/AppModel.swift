@@ -710,15 +710,7 @@ final class AppModel {
     }
 
     private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
-        rememberEvidence(evidence)
-        if evidence.shouldSearchGmail || (evidence.shouldFetchBody && evidence.focusedEmail != nil) {
-            Task { await applyDeskEvidence(evidence) }
-            return
-        }
-        scrubGrokDeskRefusals()
-        appendAssistant(evidence.text, cards: evidence.cards)
-        speakDeskReplyLater(evidence.text)
-        logVoiceTurn(evidence: evidence, reply: evidence.text)
+        Task { await applyDeskEvidence(evidence) }
     }
 
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {

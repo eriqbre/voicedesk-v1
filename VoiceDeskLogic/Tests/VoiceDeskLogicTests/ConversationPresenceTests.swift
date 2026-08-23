@@ -550,7 +550,8 @@ final class ConversationPresenceTests: XCTestCase {
             "summarize my recent email",
             "what's in my inbox",
             "latest emails",
-            "recent emails"
+            "recent emails",
+            "see my latest emails"
         ] {
             XCTAssertTrue(ConversationPresence.wantsInboxOverview(ask), ask)
             XCTAssertFalse(ConversationPresence.wantsFullThread(ask), ask)
@@ -597,6 +598,46 @@ final class ConversationPresenceTests: XCTestCase {
         if case .email(let item) = murrayEvidence?.cards.first {
             XCTAssertFalse(item.isCompactListRow, "single Murray thread stays the full reader")
         }
+    }
+
+    func testSeeLatestEmailsThenJohnMadisonFollowUpIsSpeakableDeskTurn() {
+        let madison = EmailItem(
+            fromName: "John Madison",
+            fromEmail: "john@example.com",
+            sentAtLabel: "Today",
+            subject: "Beach Drive",
+            preview: "Can we talk numbers",
+            body: "Can we talk numbers on Beach Drive.",
+            filterTag: "Inbox"
+        )
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [madison, VoiceRegressionDesk.murray])
+        )
+        let overviewAsk = "see my latest emails"
+        XCTAssertTrue(ConversationPresence.wantsInboxOverview(overviewAsk))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(overviewAsk))
+        let overview = ConversationPresence.deskEvidence(for: overviewAsk, context: context, focusedEmail: nil)
+        XCTAssertEqual(overview?.resetsFocusedEmail, true)
+        XCTAssertNotEqual(overview?.shouldFetchBody, true)
+        let digest = overview?.text ?? ""
+        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(digest))
+
+        let follow = "summarize that email from John Madison"
+        XCTAssertFalse(ConversationPresence.wantsInboxOverview(follow))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(follow))
+        let person = ConversationPresence.deskEvidence(for: follow, context: context, focusedEmail: nil)
+        XCTAssertEqual(person?.shouldFetchBody, true)
+        if case .email(let item) = person?.cards.first {
+            XCTAssertEqual(item.fromName, "John Madison")
+            XCTAssertFalse(item.isCompactListRow)
+        } else {
+            XCTFail("expected John Madison full card")
+        }
+        let spoken = ConversationPresence.emailBodyReply(madison)
+        XCTAssertEqual(DeskReplySpeech.textToSpeak(spoken, lastSpoken: digest), spoken)
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(spoken))
     }
 
     func testGrokDeskHandoffIsMetaNotASpokenDeskSummary() {

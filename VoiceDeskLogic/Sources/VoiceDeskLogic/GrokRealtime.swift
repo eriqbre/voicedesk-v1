@@ -236,7 +236,7 @@ public enum GrokRealtime {
         case assistantTranscriptDone
         case outputAudioDelta(String)
         case outputAudioDone
-        case responseDone
+        case responseDone(id: String?)
         case ping(timestamp: Int64)
         case error(code: String, message: String)
         case ignored
@@ -275,7 +275,7 @@ public enum GrokRealtime {
         case "response.output_audio.done", "response.audio.done":
             return .outputAudioDone
         case "response.done":
-            return .responseDone
+            return .responseDone(id: responseID(in: json))
         case "ping":
             if let timestamp = int64(json["ping_timestamp"]) {
                 return .ping(timestamp: timestamp)
@@ -289,6 +289,15 @@ public enum GrokRealtime {
         default:
             return .ignored
         }
+    }
+
+    public static func responseID(in json: [String: Any]) -> String? {
+        if let id = json["response_id"] as? String, !id.isEmpty { return id }
+        if let response = json["response"] as? [String: Any],
+           let id = response["id"] as? String, !id.isEmpty {
+            return id
+        }
+        return nil
     }
 
     public static func itemID(in json: [String: Any]) -> String? {

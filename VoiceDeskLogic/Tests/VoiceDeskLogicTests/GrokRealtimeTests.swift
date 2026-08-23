@@ -162,6 +162,17 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             .error(code: "timeout", message: "idle")
         )
+        XCTAssertEqual(
+            GrokRealtime.parse(
+                type: "response.done",
+                json: ["response": ["id": "handoff-1"] as [String: Any]]
+            ),
+            .responseDone(id: "handoff-1")
+        )
+        XCTAssertEqual(
+            GrokRealtime.parse(type: "response.done", json: ["response_id": "verbatim-2"]),
+            .responseDone(id: "verbatim-2")
+        )
     }
 
     func testLiveSpeakUsesRealtimeWhenConnected() {

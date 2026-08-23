@@ -726,6 +726,54 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(reply.contains("<html"))
     }
 
+    func testSeeLatestEmailsAndJohnMadisonFollowUpBothInvokeSpeak() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-overview"
+        murray.subject = "Closing / notarization"
+        murray.body = "Need you to notarize the closing package today."
+        var madison = SampleData.syncedEmail()
+        madison.fromName = "John Madison"
+        madison.fromEmail = "john@example.com"
+        madison.providerID = "msg-madison-overview"
+        madison.subject = "Beach Drive"
+        madison.body = "Can we talk numbers on Beach Drive."
+        let snapshot = DeskSnapshot(emails: [murray, madison])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies["msg-madison-overview"] = madison.body
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+
+        await model.applyUserTurn("see my latest emails")
+        XCTAssertEqual(fake.spoken.count, 1, "inbox-overview digest must Eve-speak")
+        XCTAssertEqual(fake.spoken.last, model.turns.last?.text)
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Murray Mitchell"))
+        XCTAssertTrue(model.turns.last?.cards.allSatisfy { card in
+            if case .email(let item) = card { return item.isCompactListRow }
+            return false
+        } == true)
+
+        await model.applyUserTurn("summarize that email from John Madison")
+        XCTAssertEqual(fake.spoken.count, 2, "desk-person follow-up must Eve-speak")
+        XCTAssertEqual(fake.spoken.last, model.turns.last?.text)
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("John Madison")
+                      || (model.turns.last?.text ?? "").contains("Beach Drive")
+                      || (model.turns.last?.text ?? "").contains("talk numbers"))
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "John Madison")
+            XCTAssertFalse(item.isCompactListRow)
+        } else {
+            XCTFail("expected John Madison full card")
+        }
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+    }
+
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)

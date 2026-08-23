@@ -25,7 +25,11 @@ final class GrokVoiceAudioEngine {
         do {
             let session = AVAudioSession.sharedInstance()
             let mode: AVAudioSession.Mode = echoCancellation ? .voiceChat : .default
-            try session.setCategory(.playAndRecord, mode: mode, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+            try session.setCategory(
+                .playAndRecord,
+                mode: mode,
+                options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers]
+            )
             try session.setActive(true)
             logs.append("Audio session active")
         } catch {

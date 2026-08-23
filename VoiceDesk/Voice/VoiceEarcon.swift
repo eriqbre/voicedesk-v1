@@ -1,26 +1,66 @@
 import Foundation
-#if canImport(AudioToolbox)
-import AudioToolbox
+import VoiceDeskLogic
+#if canImport(AVFAudio)
+@preconcurrency import AVFAudio
 #endif
 
-/// Local tap-to-talk click. DEBUG / Mock safe. Does not go through Grok.
+/// Local tap-to-talk click. Plays a generated WAV through AVAudioPlayer
+/// (and the live Grok player node when that engine is running).
+/// System sound IDs are silent under `.playAndRecord` / `.voiceChat`.
+@MainActor
 enum VoiceEarcon {
-    /// Begin-record tock.
-    private static let listenOn: SystemSoundID = 1113
-    /// Softer end-record tick.
-    private static let listenOff: SystemSoundID = 1114
+    /// Returns true when the live engine consumed the PCM (skip local player).
+    static var playThroughLiveEngine: ((Data) -> Bool)?
+
+    #if canImport(AVFAudio)
+    private static var player: AVAudioPlayer?
+    #endif
 
     static func listenStarted() {
-        play(listenOn)
+        play(started: true)
     }
 
     static func listenEnded() {
-        play(listenOff)
+        play(started: false)
     }
 
-    private static func play(_ sound: SystemSoundID) {
-        #if canImport(AudioToolbox)
-        AudioServicesPlaySystemSound(sound)
+    private static func play(started: Bool) {
+        let pcm = started ? VoiceEarconClick.startPCM16() : VoiceEarconClick.endPCM16()
+        if playThroughLiveEngine?(pcm) == true {
+            return
+        }
+        playLocally(wav: started ? VoiceEarconClick.startWAV() : VoiceEarconClick.endWAV())
+    }
+
+    private static func playLocally(wav: Data) {
+        #if canImport(AVFAudio)
+        prepareSessionForClick()
+        do {
+            let next = try AVAudioPlayer(data: wav)
+            next.volume = 1
+            next.prepareToPlay()
+            player = next
+            next.play()
+        } catch {
+            // Best-effort local click; listening visual still works.
+        }
         #endif
     }
+
+    #if canImport(AVFAudio)
+    private static func prepareSessionForClick() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(
+                .playAndRecord,
+                mode: session.mode,
+                options: [.defaultToSpeaker, .mixWithOthers]
+            )
+            try session.overrideOutputAudioPort(.speaker)
+            try session.setActive(true)
+        } catch {
+            // Playback may still succeed on the current session.
+        }
+    }
+    #endif
 }

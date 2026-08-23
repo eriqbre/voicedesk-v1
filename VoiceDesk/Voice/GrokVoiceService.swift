@@ -32,8 +32,7 @@ final class GrokVoiceService: VoiceServicing {
     private var userWantsVoiceOff = false
     private var dropAssistantTranscript = false
     private var dropAssistantAudio = false
-    private var speakingVerbatim = false
-    private var verbatimAwaitingResponse = false
+    private var verbatim = VerbatimSpeakGate()
     private var restoreAudioSuppressAfterVerbatim = false
     private var instructions = GrokRealtime.presenceInstructions
 
@@ -45,6 +44,11 @@ final class GrokVoiceService: VoiceServicing {
         self.model = model
         self.backendLabel = "Grok live · \(model) · voice \(voiceID)"
         client.delegate = self
+        VoiceEarcon.playThroughLiveEngine = { [weak self] pcm in
+            guard let self, self.audio.isRunning else { return false }
+            self.audio.playPCM16(pcm)
+            return true
+        }
     }
 
     func startListening() async -> String {
@@ -94,10 +98,9 @@ final class GrokVoiceService: VoiceServicing {
     /// only leftover Grok handoff audio stays dropped until this response starts.
     private func speakVerbatimViaGrok(_ text: String) {
         ClientVoiceSpeech.shared.stop()
-        speakingVerbatim = true
-        verbatimAwaitingResponse = true
+        verbatim.begin()
         restoreAudioSuppressAfterVerbatim = dropAssistantAudio || dropAssistantTranscript
-        // Keep leftover Grok audio muted until this verbatim response starts.
+        // Keep leftover Grok handoff muted until THIS verbatim response.created.
         dropAssistantAudio = true
         dropAssistantTranscript = true
         interruptAssistant(sendCancel: true)
@@ -134,17 +137,28 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {
+        // claimLocalAssistantReply() calls this on every desk turn. Do not
+        // cancel an in-flight Eve SPEAK_VERBATIM — leftover Grok handoff
+        // is already muted, and response.cancel here kills the digest.
+        if verbatim.isSpeaking { return }
         interruptAssistant(sendCancel: true)
     }
 
     func suppressAssistantOutput(_ suppress: Bool) {
-        dropAssistantTranscript = suppress
-        dropAssistantAudio = suppress
         if suppress {
-            speakingVerbatim = false
-            verbatimAwaitingResponse = false
+            // Claim/mute Grok handoff only. An in-flight Eve digest must keep speaking.
+            if verbatim.isSpeaking {
+                dropAssistantTranscript = true
+                dropAssistantAudio = verbatim.awaitingCreated
+                return
+            }
+            dropAssistantTranscript = true
+            dropAssistantAudio = true
             interruptAssistant(sendCancel: true)
+            return
         }
+        dropAssistantTranscript = false
+        dropAssistantAudio = false
     }
 
     func cancel() {
@@ -331,9 +345,8 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .responseCreated(let id):
             currentResponseID = id
             assistantGate.reset()
-            if speakingVerbatim, verbatimAwaitingResponse {
+            if verbatim.created(id) {
                 dropAssistantAudio = false
-                verbatimAwaitingResponse = false
             }
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
@@ -349,14 +362,16 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             }
         case .outputAudioDone:
             break
-        case .responseDone:
+        case .responseDone(let doneID):
+            if verbatim.shouldIgnoreDone(eventID: doneID, currentID: currentResponseID) {
+                break
+            }
             apply(.turnFinished)
+            let finishedID = currentResponseID
             currentResponseID = nil
             audioDeltaCount = 0
             assistantGate.reset()
-            if speakingVerbatim {
-                speakingVerbatim = false
-                verbatimAwaitingResponse = false
+            if verbatim.finishDone(eventID: doneID, currentID: finishedID) {
                 dropAssistantAudio = restoreAudioSuppressAfterVerbatim
                 dropAssistantTranscript = restoreAudioSuppressAfterVerbatim
                 sendSessionUpdate()
