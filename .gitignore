@@ -3,6 +3,8 @@
 **/.debug/
 voice-log.jsonl
 **/voice-log.jsonl
+!VoiceDeskLogic/Tests/Fixtures/**/*.jsonl
+!VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/**/*.jsonl
 xcuserdata/
 DerivedData/
 Secrets.plist
