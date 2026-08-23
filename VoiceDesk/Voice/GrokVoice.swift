@@ -80,6 +80,50 @@ enum VoiceDeskSecrets {
         return types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
     }
 
+    /// Fine-grained PAT with gist or contents:write. DEBUG / TestFlight only.
+    static var voiceDogfoodGitHubToken: String? {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["VOICE_DOGFOOD_GITHUB_TOKEN"],
+            plistString("VOICE_DOGFOOD_GITHUB_TOKEN")
+        ])
+    }
+
+    static var voiceDogfoodGistID: String? {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["VOICE_DOGFOOD_GIST_ID"],
+            plistString("VOICE_DOGFOOD_GIST_ID")
+        ])
+    }
+
+    /// `owner/repo` for a private dogfood log repo.
+    static var voiceDogfoodGitHubRepo: String? {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["VOICE_DOGFOOD_GITHUB_REPO"],
+            plistString("VOICE_DOGFOOD_GITHUB_REPO")
+        ])
+    }
+
+    static var voiceDogfoodGitHubPath: String? {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["VOICE_DOGFOOD_GITHUB_PATH"],
+            plistString("VOICE_DOGFOOD_GITHUB_PATH")
+        ])
+    }
+
+    static var voiceDogfoodUploadURL: String? {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["VOICE_DOGFOOD_UPLOAD_URL"],
+            plistString("VOICE_DOGFOOD_UPLOAD_URL")
+        ])
+    }
+
+    static var voiceDogfoodUploadSecret: String? {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["VOICE_DOGFOOD_UPLOAD_SECRET"],
+            plistString("VOICE_DOGFOOD_UPLOAD_SECRET")
+        ])
+    }
+
     static var signInDiagnosis: GoogleSignInSetup.Diagnosis {
         GoogleSignInSetup.diagnose(
             clientID: googleClientID,

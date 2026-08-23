@@ -107,9 +107,69 @@ If Desktop is in iCloud, they can Save to Files into `Desktop/projects/voicedesk
 
 If an iCloud Documents container is later entitled, Debug also appends to that container’s `Documents/VoiceDesk-debug/` (nil-safe today — no entitlement shipped).
 
-**What each line contains:** exact transcript, intent (general / inbox-overview / desk-person / …), sticky cleared vs reused, Gmail `q=`, cards, assistant reply, Eve vs AVSpeech.
+**What each line contains (schema v2):** `timestamp`, `userTranscript`, `intent`, `sticky` (`cleared` / `reused` / `none`) + `focusedPerson`, `searchQuery`, `cardsAttached`, `assistantReply`, `voicePath`, `errors`. Routing notes stay as a human-readable echo. **No raw audio.**
 
 Never commit `.debug/` or raw `voice-log.jsonl`.
+
+### Cloud dogfood log (physical iPhone — no paste)
+
+Opt-in. **DEBUG and TestFlight only.** App Store production is off (`VoiceDogfoodGate`: DEBUG *or* sandbox receipt). Default toggle is **off**. Flip **Cloud dogfood log** in the ladybug sheet. A purple **Cloud dogfood log ON** bar shows while it is on.
+
+Do **not** put the token in git. Copy `VoiceDesk/Secrets.example.plist` → `Secrets.plist` (or scheme env) and set one destination:
+
+| Prefer | Secrets keys | What the phone does |
+|--------|----------------|---------------------|
+| **Private gist** | `VOICE_DOGFOOD_GITHUB_TOKEN` + optional `VOICE_DOGFOOD_GIST_ID` | Token-only: creates a **private** gist on first turn and keeps the id on device. Token + gist id: appends JSONL to that gist. |
+| Private repo | `VOICE_DOGFOOD_GITHUB_TOKEN` + `VOICE_DOGFOOD_GITHUB_REPO` (`owner/repo`) + optional `VOICE_DOGFOOD_GITHUB_PATH` (default `.debug/voice-log.jsonl`) | GET + PUT contents (append JSONL). |
+| HTTPS store | `VOICE_DOGFOOD_UPLOAD_URL` + `VOICE_DOGFOOD_UPLOAD_SECRET` | POST JSON envelope. Header `X-VoiceDesk-Secret`. Query string never carries the secret. |
+
+Token: fine-grained PAT with **gists** (gist path) or **contents: write** on the dogfood repo. Never App Store.
+
+**Enable (Eriq / TestFlight)**
+
+1. Debug or TestFlight build (not App Store).
+2. Secrets token (or HTTPS URL+secret) on the device build.
+3. Ladybug → **Cloud dogfood log** ON. Banner must read **Cloud dogfood log ON**.
+4. Talk. No Copy / Share.
+
+**Elon / Cursor — pull (no chat paste)**
+
+Gist (after first upload the ladybug sheet shows `gist:<id>`):
+
+```bash
+# last turns
+gh gist view "$GIST_ID" --filename voice-log.jsonl | tail -n 40
+
+# or
+curl -sS \
+  -H "Authorization: Bearer $VOICE_DOGFOOD_GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/gists/$GIST_ID" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["files"]["voice-log.jsonl"]["content"])' \
+  | tail -n 40
+```
+
+Private repo:
+
+```bash
+gh api "repos/$OWNER/$REPO/contents/.debug/voice-log.jsonl" --jq .content | base64 -d | tail -n 40
+
+# or
+curl -sS \
+  -H "Authorization: Bearer $VOICE_DOGFOOD_GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/$OWNER/$REPO/contents/.debug/voice-log.jsonl" \
+  | python3 -c 'import json,sys,base64; d=json.load(sys.stdin); print(base64.b64decode(d["content"]).decode())' \
+  | tail -n 40
+```
+
+HTTPS store (whatever the store returns; secret in a header only):
+
+```bash
+curl -sS -H "X-VoiceDesk-Secret: $VOICE_DOGFOOD_UPLOAD_SECRET" "$VOICE_DOGFOOD_UPLOAD_URL" | tail -n 40
+```
+
+Cloud lines are redacted (tokens, phones, `user@redacted`). Names and transcripts stay so a Murray ask vs a John Madison card is visible immediately.
 
 ### Voice regression fixtures (promote a pass)
 
@@ -119,7 +179,7 @@ After a good dogfood turn, **do not paste the log into chat**. Elon reads `.debu
 VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/voice-regression/*.jsonl
 ```
 
-Same schema as the DEBUG log (`userTranscript`, `intent`, `routingNotes`, `cardsAttached`, `assistantReply`, `voicePath`, `source`). Add replay keys when needed:
+Same schema as the DEBUG log (`userTranscript`, `intent`, `sticky`, `focusedPerson`, `searchQuery`, `routingNotes`, `cardsAttached`, `assistantReply`, `voicePath`, `errors`, `source`). Add replay keys when needed:
 
 | Key | When |
 |-----|------|

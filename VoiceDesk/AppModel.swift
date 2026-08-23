@@ -44,6 +44,7 @@ final class AppModel {
     private var lastUserUtterance = ""
     private var lastUserSource = "text"
     private var hadFocusedEmailAtTurnStart = false
+    private var focusedPersonAtTurnStart: String?
     private var pendingGeneralVoiceLog = false
     private var pendingClarifyAtTurnStart = false
     private var expandEarlierEmailIDs: Set<UUID> = []
@@ -882,6 +883,7 @@ final class AppModel {
         lastUserUtterance = text
         lastUserSource = source
         hadFocusedEmailAtTurnStart = lastFocusedEmail != nil
+        focusedPersonAtTurnStart = lastFocusedEmail?.fromName
         pendingClarifyAtTurnStart = pendingSearchClarify
         pendingGeneralVoiceLog = false
     }
@@ -904,7 +906,14 @@ final class AppModel {
         cards: [ContentCard]? = nil,
         notes extraNotes: [String] = []
     ) {
-        #if DEBUG
+        guard VoiceDogfoodGate.allowsLogging else {
+            _ = evidence
+            _ = intentHint
+            _ = reply
+            _ = cards
+            _ = extraNotes
+            return
+        }
         let classified = VoiceInteractionLog.classify(
             utterance: lastUserUtterance,
             evidence: evidence,
@@ -913,30 +922,37 @@ final class AppModel {
         )
         var notes = classified.notes + extraNotes
         if intentHint == "cancel" { notes.append("user stop") }
+        var errors: [String] = []
+        if let error = voice.lastError, !error.isEmpty {
+            errors.append(error)
+        }
         let voicePath: String
         if voice.usesLiveLoop {
             voicePath = "Eve realtime"
         } else {
             voicePath = "AVSpeech"
         }
+        let focused = classified.focusedPerson
+            ?? evidence?.focusedEmail?.fromName
+            ?? (classified.sticky == .reused ? focusedPersonAtTurnStart : nil)
         let entry = VoiceInteractionEntry(
             source: lastUserSource,
             userTranscript: lastUserUtterance,
             intent: intentHint ?? classified.intent,
+            sticky: classified.sticky,
+            focusedPerson: focused,
+            searchQuery: classified.searchQuery ?? evidence?.gmailQuery,
             routingNotes: notes,
             cardsAttached: VoiceInteractionLog.cardLabels(cards ?? evidence?.cards ?? []),
             assistantReply: reply ?? evidence?.text ?? "",
-            voicePath: voicePath
+            voicePath: voicePath,
+            errors: errors
         )
         VoiceInteractionLog.record(entry)
+        #if DEBUG
         DebugVoiceLogFile.append(entry)
-        #else
-        _ = evidence
-        _ = intentHint
-        _ = reply
-        _ = cards
-        _ = extraNotes
         #endif
+        VoiceCloudDogfoodClient.shared.enqueue(entry)
     }
 
     private func upsertSnapshotEmail(_ email: EmailItem) {

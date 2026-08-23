@@ -3,6 +3,7 @@ import VoiceDeskLogic
 
 struct ConversationScreen: View {
     @Environment(AppModel.self) private var model
+    @Bindable private var cloudLog = VoiceCloudDogfoodSettings.shared
 
     var body: some View {
         @Bindable var model = model
@@ -10,6 +11,9 @@ struct ConversationScreen: View {
             ZStack {
                 Palette.background.ignoresSafeArea()
                 VStack(spacing: 0) {
+                    if cloudLog.showsBanner {
+                        CloudDogfoodBanner()
+                    }
                     ScrollViewReader { proxy in
                         ScrollView {
                             VStack(alignment: .leading, spacing: 18) {
@@ -56,17 +60,17 @@ struct ConversationScreen: View {
                     }
                     .accessibilityLabel("Activity")
                 }
-                #if DEBUG
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        model.showVoiceLog = true
-                    } label: {
-                        Image(systemName: "ladybug")
+                if cloudLog.allowsLogging {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            model.showVoiceLog = true
+                        } label: {
+                            Image(systemName: cloudLog.showsBanner ? "ladybug.fill" : "ladybug")
+                        }
+                        .accessibilityLabel("Voice log")
+                        .accessibilityIdentifier("debug.voice.log")
                     }
-                    .accessibilityLabel("Voice log")
-                    .accessibilityIdentifier("debug.voice.log")
                 }
-                #endif
             }
             .onChange(of: model.voice.state) { _, state in
                 model.voiceBecame(state)
@@ -74,11 +78,9 @@ struct ConversationScreen: View {
             .sheet(isPresented: $model.showActivity) {
                 ActivitySheet()
             }
-            #if DEBUG
             .sheet(isPresented: $model.showVoiceLog) {
                 VoiceInteractionLogSheet()
             }
-            #endif
         }
     }
 
