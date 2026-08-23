@@ -519,6 +519,76 @@ final class ConversationPresenceTests: XCTestCase {
         assertDoesNotContradictConnectCard(plan.text)
     }
 
+    func testInboxOverviewDoesNotReuseStickyMurray() {
+        let murray = EmailItem(
+            providerID: "m-murray-overview",
+            fromName: "Murray Mitchell",
+            fromEmail: "murray@example.com",
+            sentAtLabel: "Today 9:00 AM",
+            subject: "Closing / notarization",
+            preview: "Need you to notarize",
+            body: "Need you to notarize the closing package today.",
+            filterTag: "Inbox"
+        )
+        let steve = EmailItem(
+            providerID: "m-steve-overview",
+            fromName: "Steve Brown",
+            fromEmail: "steve@example.com",
+            sentAtLabel: "Today 8:00 AM",
+            subject: "Inspection note",
+            preview: "Punch list is attached.",
+            body: "Punch list is attached.",
+            filterTag: "Inbox"
+        )
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [murray, steve])
+        )
+
+        for ask in [
+            "summary of my latest emails",
+            "summarize my recent email",
+            "what's in my inbox",
+            "latest emails",
+            "recent emails"
+        ] {
+            XCTAssertTrue(ConversationPresence.wantsInboxOverview(ask), ask)
+            XCTAssertFalse(ConversationPresence.wantsFullThread(ask), ask)
+            XCTAssertFalse(ConversationPresence.wantsEmailFollowUp(ask), ask)
+            let evidence = ConversationPresence.deskEvidence(
+                for: ask,
+                context: context,
+                focusedEmail: murray
+            )
+            XCTAssertEqual(evidence?.topic, .inbox, ask)
+            XCTAssertEqual(evidence?.resetsFocusedEmail, true, ask)
+            XCTAssertNil(evidence?.focusedEmail, ask)
+            XCTAssertNotEqual(evidence?.shouldFetchBody, true, ask)
+            XCTAssertNotEqual(evidence?.expandEarlierMessages, true, ask)
+            XCTAssertEqual(evidence?.cards.count, 2, ask)
+            XCTAssertTrue(evidence?.cards.allSatisfy { $0.kind == .email } == true, ask)
+            let reply = evidence?.text ?? ""
+            XCTAssertTrue(reply.contains("Murray Mitchell") || reply.contains("Steve Brown"), ask)
+            XCTAssertTrue(reply.contains("Closing") || reply.contains("Inspection") || reply.lowercased().contains("recent inbox"), ask)
+            XCTAssertFalse(reply.contains("Need you to notarize the closing package") && !reply.contains("Steve"), "must not be a single Murray thread summary: \(ask)")
+        }
+
+        let murrayAsk = "summarize the Murray email"
+        XCTAssertFalse(ConversationPresence.wantsInboxOverview(murrayAsk))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(murrayAsk))
+        let murrayEvidence = ConversationPresence.deskEvidence(
+            for: murrayAsk,
+            context: context,
+            focusedEmail: steve
+        )
+        if case .email(let item) = murrayEvidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card for person-specific summary")
+        }
+        XCTAssertNotEqual(murrayEvidence?.resetsFocusedEmail, true)
+    }
+
     func testJohnWickTriviaIsNotADeskTurn() {
         let ask = "What year did John Wick get released"
         XCTAssertFalse(ConversationPresence.ownsConnectedDeskTurn(ask))

@@ -167,6 +167,36 @@ public enum GrokRealtime {
         ["type": "input_audio_buffer.clear"]
     }
 
+    public static let speakVerbatimMarker = "SPEAK_VERBATIM"
+
+    /// Live Eve should read this block aloud. AVSpeech is only for Mock / no session.
+    public static func shouldSpeakViaRealtime(
+        usesLiveLoop: Bool,
+        isConnected: Bool,
+        userWantsVoiceOff: Bool
+    ) -> Bool {
+        usesLiveLoop && isConnected && !userWantsVoiceOff
+    }
+
+    public static func verbatimSpeakInstructions(text: String) -> String {
+        """
+        Speak the SPEAK_VERBATIM block word-for-word. No other words. No greeting. No paraphrase.
+        After you finish, stay silent.
+
+        SPEAK_VERBATIM
+        \(text)
+        SPEAK_VERBATIM
+        """
+    }
+
+    public static func verbatimSpeakUserText(text: String) -> String {
+        "SPEAK_VERBATIM\n\(text)\nSPEAK_VERBATIM"
+    }
+
+    public static func isVerbatimSpeakPrompt(_ raw: String) -> Bool {
+        raw.contains(speakVerbatimMarker)
+    }
+
     public static func textItemObject(_ text: String) -> [String: Any] {
         [
             "type": "conversation.item.create",

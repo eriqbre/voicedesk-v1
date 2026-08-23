@@ -162,6 +162,44 @@ final class GrokRealtimeTests: XCTestCase {
         )
     }
 
+    func testLiveSpeakUsesRealtimeWhenConnected() {
+        XCTAssertTrue(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: true,
+                userWantsVoiceOff: false
+            )
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: false,
+                isConnected: true,
+                userWantsVoiceOff: false
+            ),
+            "Mock / ui-testing uses client TTS"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: false,
+                userWantsVoiceOff: false
+            )
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: true,
+                userWantsVoiceOff: true
+            )
+        )
+        let spoken = "Murray wrote: Need you to notarize today."
+        let prompt = GrokRealtime.verbatimSpeakUserText(text: spoken)
+        XCTAssertTrue(GrokRealtime.isVerbatimSpeakPrompt(prompt))
+        XCTAssertTrue(prompt.contains(spoken))
+        XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("word-for-word"))
+        XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
+    }
+
     func testCancelAndTextTurnPayloads() {
         XCTAssertEqual(GrokRealtime.responseCancelObject()["type"] as? String, "response.cancel")
         XCTAssertEqual(GrokRealtime.clearBufferObject()["type"] as? String, "input_audio_buffer.clear")

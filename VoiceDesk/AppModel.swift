@@ -10,6 +10,7 @@ final class AppModel {
     var activity: [ActivityEntry] = []
     var composerText = ""
     var showActivity = false
+    var showVoiceLog = false
     var isTourRunning = false
     var showVoiceSetup = false
     var hasCompletedPlaybook = false
@@ -39,6 +40,11 @@ final class AppModel {
     private var pendingSearchClarify = false
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
+    private var lastUserUtterance = ""
+    private var lastUserSource = "text"
+    private var hadFocusedEmailAtTurnStart = false
+    private var pendingGeneralVoiceLog = false
+    private var pendingClarifyAtTurnStart = false
     private var expandEarlierEmailIDs: Set<UUID> = []
     private var expandEarlierProviderIDs: Set<String> = []
     var expandEarlierEpoch: Int = 0
@@ -316,6 +322,7 @@ final class AppModel {
 
     private func handleLiveUser(_ raw: String, itemID: String?) {
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
+        rememberUserTurn(text, source: "live voice")
         completePlaybook()
 
         if matchesCancel(text) {
@@ -323,6 +330,7 @@ final class AppModel {
             cancelPendingDraftsFromVoice()
             appendUser(text)
             appendAssistant("Stopped. Nothing was sent.")
+            logVoiceTurn(intentHint: "cancel", reply: "Stopped. Nothing was sent.", notes: ["voice stop"])
             return
         }
 
@@ -335,6 +343,7 @@ final class AppModel {
             return
         }
         if surfaceConnectGoogleIfAsked(text) {
+            logVoiceTurn(intentHint: "connect", reply: turns.last?.text, cards: turns.last?.cards ?? [])
             return
         }
         if google.isConnected {
@@ -352,6 +361,11 @@ final class AppModel {
                     pendingSearchClarify = true
                     appendAssistant(ConversationPresence.emailNeedMoreReply)
                     speakDeskReplyLater(ConversationPresence.emailNeedMoreReply)
+                    logVoiceTurn(
+                        evidence: nil,
+                        reply: ConversationPresence.emailNeedMoreReply,
+                        notes: ["need-more"]
+                    )
                 }
                 return
             }
@@ -367,8 +381,11 @@ final class AppModel {
         }
         unmuteGrokAssistant()
         pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
+        pendingGeneralVoiceLog = true
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
+            pendingGeneralVoiceLog = false
+            logVoiceTurn(intentHint: "tour", reply: turns.last?.text, notes: ["tour"])
         }
         offerConnectIfNeeded()
     }
@@ -381,6 +398,7 @@ final class AppModel {
             if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
                 attachPendingCards(to: index)
                 liveAssistantID = nil
+                finishGeneralVoiceLog(reply: turns[index].text)
             }
             return
         }
@@ -390,6 +408,7 @@ final class AppModel {
             if isFinal {
                 attachPendingCards(to: index)
                 liveAssistantID = nil
+                finishGeneralVoiceLog(reply: turns[index].text)
             }
             return
         }
@@ -401,6 +420,7 @@ final class AppModel {
         if isFinal {
             attachPendingCards(to: turns.count - 1)
             liveAssistantID = nil
+            finishGeneralVoiceLog(reply: turns.last?.text ?? text)
         }
     }
 
@@ -420,6 +440,7 @@ final class AppModel {
 
     private func handleUserText(_ raw: String) async {
         guard let text = userDedupe.accept(text: raw, itemID: nil) else { return }
+        rememberUserTurn(text, source: "text")
         completePlaybook()
 
         if matchesCancel(text) {
@@ -427,6 +448,7 @@ final class AppModel {
             cancelPendingDraftsFromVoice()
             appendUser(text)
             appendAssistant("Stopped. Nothing was sent.")
+            logVoiceTurn(intentHint: "cancel", reply: "Stopped. Nothing was sent.", notes: ["voice stop"])
             return
         }
 
@@ -435,6 +457,7 @@ final class AppModel {
         if ConversationPresence.isJustTalk(text) {
             appendAssistant(ConversationPresence.justTalkReply)
             offerConnectIfNeeded()
+            logVoiceTurn(intentHint: "general", reply: ConversationPresence.justTalkReply, notes: ["just talk"])
             return
         }
 
@@ -445,6 +468,7 @@ final class AppModel {
 
         if ConversationPresence.wantsTour(text) {
             await runTour()
+            logVoiceTurn(intentHint: "tour", reply: turns.last?.text, notes: ["tour"])
             return
         }
         if phase == .welcome {
@@ -452,6 +476,7 @@ final class AppModel {
         }
 
         if surfaceConnectGoogleIfAsked(text) {
+            logVoiceTurn(intentHint: "connect", reply: turns.last?.text, cards: turns.last?.cards ?? [])
             return
         }
 
@@ -470,6 +495,11 @@ final class AppModel {
                     pendingSearchClarify = true
                     appendAssistant(ConversationPresence.emailNeedMoreReply)
                     await speakDeskReply(ConversationPresence.emailNeedMoreReply)
+                    logVoiceTurn(
+                        evidence: nil,
+                        reply: ConversationPresence.emailNeedMoreReply,
+                        notes: ["need-more"]
+                    )
                 }
                 return
             }
@@ -488,6 +518,7 @@ final class AppModel {
         if voice.usesLiveLoop {
             unmuteGrokAssistant()
             pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
+            pendingGeneralVoiceLog = true
             await voice.sendTextTurn(text)
             return
         }
@@ -553,6 +584,7 @@ final class AppModel {
         let cards = ConversationPresence.cards(for: plan.topic, context: deskContext)
         appendAssistant(plan.text, cards: cards)
         await voice.speak(plan.text)
+        logVoiceTurn(intentHint: "general", reply: plan.text, cards: cards, notes: ["local plan"])
     }
 
     /// Stop Grok from contradicting a local Connect / email-body reply on the thread.
@@ -634,7 +666,9 @@ final class AppModel {
     }
 
     private func rememberEvidence(_ evidence: ConversationPresence.DeskEvidence) {
-        if let email = evidence.focusedEmail {
+        if evidence.resetsFocusedEmail {
+            lastFocusedEmail = nil
+        } else if let email = evidence.focusedEmail {
             lastFocusedEmail = email
         }
         pendingThreadSummary = evidence.expandEarlierMessages
@@ -658,20 +692,32 @@ final class AppModel {
         scrubGrokDeskRefusals()
         appendAssistant(evidence.text, cards: evidence.cards)
         speakDeskReplyLater(evidence.text)
+        logVoiceTurn(evidence: evidence, reply: evidence.text)
     }
 
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
         rememberEvidence(evidence)
         if evidence.shouldSearchGmail, let query = evidence.gmailQuery, !query.isEmpty {
             await searchGmail(query, plan: evidence.gmailPlan, ask: evidence.searchAsk)
+            logVoiceTurn(
+                evidence: evidence,
+                reply: turns.last?.text,
+                cards: turns.last?.cards ?? []
+            )
             return
         }
         if evidence.shouldFetchBody, let email = evidence.focusedEmail {
             await revealEmailBody(email)
+            logVoiceTurn(
+                evidence: evidence,
+                reply: turns.last?.text,
+                cards: turns.last?.cards ?? []
+            )
             return
         }
         appendAssistant(evidence.text, cards: evidence.cards)
         await speakDeskReply(evidence.text)
+        logVoiceTurn(evidence: evidence, reply: evidence.text)
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {
@@ -801,6 +847,67 @@ final class AppModel {
         }
         lastSpokenDeskReply = spoken
         await voice.speak(spoken)
+    }
+
+    private func rememberUserTurn(_ text: String, source: String) {
+        lastUserUtterance = text
+        lastUserSource = source
+        hadFocusedEmailAtTurnStart = lastFocusedEmail != nil
+        pendingClarifyAtTurnStart = pendingSearchClarify
+        pendingGeneralVoiceLog = false
+    }
+
+    private func finishGeneralVoiceLog(reply: String) {
+        guard pendingGeneralVoiceLog else { return }
+        pendingGeneralVoiceLog = false
+        logVoiceTurn(
+            intentHint: "general",
+            reply: reply,
+            cards: turns.last?.cards ?? [],
+            notes: ["live Grok"]
+        )
+    }
+
+    private func logVoiceTurn(
+        evidence: ConversationPresence.DeskEvidence? = nil,
+        intentHint: String? = nil,
+        reply: String? = nil,
+        cards: [ContentCard]? = nil,
+        notes extraNotes: [String] = []
+    ) {
+        #if DEBUG
+        let classified = VoiceInteractionLog.classify(
+            utterance: lastUserUtterance,
+            evidence: evidence,
+            pendingSearchClarify: pendingClarifyAtTurnStart,
+            hadFocusedEmail: hadFocusedEmailAtTurnStart
+        )
+        var notes = classified.notes + extraNotes
+        if intentHint == "cancel" { notes.append("user stop") }
+        let voicePath: String
+        if voice.usesLiveLoop {
+            voicePath = "Eve realtime"
+        } else {
+            voicePath = "AVSpeech"
+        }
+        let entry = VoiceInteractionEntry(
+            source: lastUserSource,
+            userTranscript: lastUserUtterance,
+            intent: intentHint ?? classified.intent,
+            routingNotes: notes,
+            cardsAttached: VoiceInteractionLog.cardLabels(cards ?? evidence?.cards ?? []),
+            assistantReply: reply ?? evidence?.text ?? "",
+            voicePath: voicePath
+        )
+        VoiceInteractionLog.record(entry)
+        DebugVoiceLogFile.append(entry)
+        #else
+        _ = evidence
+        _ = intentHint
+        _ = reply
+        _ = cards
+        _ = extraNotes
+        #endif
     }
 
     private func upsertSnapshotEmail(_ email: EmailItem) {

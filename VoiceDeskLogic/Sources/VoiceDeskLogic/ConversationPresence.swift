@@ -167,8 +167,31 @@ public enum ConversationPresence {
         if !context.isOnline {
             return "Here’s the last-synced inbox. I’m offline, so this may be stale."
         }
-        let first = context.snapshot.emails[0]
-        return "Latest from \(first.fromName): \(first.subject). I’m only showing mail I actually synced."
+        return inboxOverviewCopy(context.snapshot.emails)
+    }
+
+    public static func inboxOverviewCopy(_ emails: [EmailItem]) -> String {
+        let recent = Array(emails.prefix(3))
+        guard let first = recent.first else {
+            return "Google is connected, but I don’t have any synced threads yet. I’m not inventing mail."
+        }
+        if recent.count == 1 {
+            return "Latest from \(first.fromName): \(first.subject). I’m only showing mail I actually synced."
+        }
+        var parts = ["Here’s the recent inbox."]
+        for email in recent {
+            let gist = EmailBodyFormatting.spokenSummary(
+                from: email.body,
+                fallback: email.preview,
+                style: .brief
+            )
+            if gist.isEmpty {
+                parts.append("\(email.fromName): \(email.subject).")
+            } else {
+                parts.append("\(email.fromName): \(email.subject). \(gist)")
+            }
+        }
+        return parts.joined(separator: " ")
     }
 
     public static func calendarReply(context: DeskContext) -> String {
@@ -225,6 +248,8 @@ public enum ConversationPresence {
         public var gmailQuery: String?
         public var gmailPlan: GmailSearchPlan?
         public var searchAsk: String?
+        /// Inbox-overview / list intents must not keep a prior person/thread sticky.
+        public var resetsFocusedEmail: Bool
 
         public init(
             topic: Topic,
@@ -236,7 +261,8 @@ public enum ConversationPresence {
             shouldSearchGmail: Bool = false,
             gmailQuery: String? = nil,
             gmailPlan: GmailSearchPlan? = nil,
-            searchAsk: String? = nil
+            searchAsk: String? = nil,
+            resetsFocusedEmail: Bool = false
         ) {
             self.topic = topic
             self.text = text
@@ -248,6 +274,7 @@ public enum ConversationPresence {
             self.gmailQuery = gmailQuery
             self.gmailPlan = gmailPlan
             self.searchAsk = searchAsk
+            self.resetsFocusedEmail = resetsFocusedEmail
         }
 
         public var claimsCardWithoutAttaching: Bool {
@@ -303,7 +330,8 @@ public enum ConversationPresence {
         if wantsTaskAsk(raw), !contains(raw.lowercased(), ["email", "mail", "note", "message", "thread"]) {
             return false
         }
-        if wantsFullThread(raw) || wantsEmailFollowUp(raw) || wantsShowEmail(raw) || wantsInbox(raw) {
+        if wantsFullThread(raw) || wantsEmailFollowUp(raw) || wantsShowEmail(raw)
+            || wantsInbox(raw) || wantsInboxOverview(raw) {
             return true
         }
         // A bare person name is not desk intent. Trivia (“what year did John Wick…”) stays with Grok.
@@ -404,6 +432,10 @@ public enum ConversationPresence {
             return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
         }
 
+        if wantsInboxOverview(raw) {
+            return inboxOverviewEvidence(context: context)
+        }
+
         if wantsFullThread(raw) {
             if let email = resolveThreadEmail(for: raw, context: context, focusedEmail: focusedEmail) {
                 return threadEvidence(email)
@@ -466,6 +498,7 @@ public enum ConversationPresence {
     }
 
     public static func wantsInbox(_ raw: String) -> Bool {
+        if wantsInboxOverview(raw) { return true }
         let lower = raw.lowercased()
         if contains(lower, [
             "what's in my inbox",
@@ -489,7 +522,44 @@ public enum ConversationPresence {
             && !wantsSpecificEmail(raw)
     }
 
+    /// List / digest of recent mail — not a person or last-thread follow-up.
+    public static func wantsInboxOverview(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, [
+            "what's in my inbox",
+            "whats in my inbox",
+            "what emails do i have",
+            "what email do i have",
+            "other emails",
+            "emails i have today",
+            "emails today",
+            "show me my emails",
+            "show me my inbox",
+            "show my emails",
+            "what other emails"
+        ]) {
+            return true
+        }
+        if lower.contains("inbox"), !contains(lower, ["that inbox"]) {
+            return true
+        }
+        if contains(lower, ["latest emails", "recent emails"]) {
+            return true
+        }
+        let recent = contains(lower, ["latest", "recent"])
+        let mail = contains(lower, ["email", "emails", "mail"])
+        if recent, mail, contains(lower, ["my"]) {
+            return true
+        }
+        if contains(lower, ["summarize", "summary of", "summary"]), mail, contains(lower, ["my"]) {
+            return true
+        }
+        return false
+    }
+
     public static func isBareInboxList(_ raw: String) -> Bool {
+        if wantsInboxOverview(raw) { return true }
         let lower = raw.lowercased()
         if GmailSearchQuery.hasSenderPattern(raw) { return false }
         if contains(lower, [
@@ -531,7 +601,7 @@ public enum ConversationPresence {
 
     public static func wantsEmailFollowUp(_ raw: String) -> Bool {
         let lower = raw.lowercased()
-        if wantsDeskPreview(raw) { return false }
+        if wantsDeskPreview(raw) || wantsInboxOverview(raw) { return false }
         if wantsFullThread(raw) { return true }
         return contains(lower, [
             "show it to me",
@@ -552,6 +622,7 @@ public enum ConversationPresence {
     }
 
     public static func wantsFullThread(_ raw: String) -> Bool {
+        if wantsInboxOverview(raw) { return false }
         let lower = raw.lowercased()
         if contains(lower, [
             "full thread",
@@ -726,7 +797,15 @@ public enum ConversationPresence {
     public static let taskMissReply =
         "No matching open task in the last sync. I’m not inventing one."
 
-    private static func inboxEvidence(context: DeskContext, followUp: Bool) -> DeskEvidence {
+    private static func inboxOverviewEvidence(context: DeskContext) -> DeskEvidence {
+        inboxEvidence(context: context, followUp: false, resetsFocus: true)
+    }
+
+    private static func inboxEvidence(
+        context: DeskContext,
+        followUp: Bool,
+        resetsFocus: Bool = false
+    ) -> DeskEvidence {
         let cards = cards(for: .inbox, context: context)
         let text: String
         if followUp {
@@ -738,8 +817,9 @@ public enum ConversationPresence {
             topic: .inbox,
             text: text,
             cards: cards,
-            focusedEmail: context.snapshot.emails.first,
-            shouldFetchBody: false
+            focusedEmail: resetsFocus ? nil : context.snapshot.emails.first,
+            shouldFetchBody: false,
+            resetsFocusedEmail: resetsFocus
         )
     }
 

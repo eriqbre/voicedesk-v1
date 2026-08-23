@@ -55,6 +55,17 @@ struct ConversationScreen: View {
                     }
                     .accessibilityLabel("Activity")
                 }
+                #if DEBUG
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        model.showVoiceLog = true
+                    } label: {
+                        Image(systemName: "ladybug")
+                    }
+                    .accessibilityLabel("Voice log")
+                    .accessibilityIdentifier("debug.voice.log")
+                }
+                #endif
             }
             .onChange(of: model.voice.state) { _, state in
                 model.voiceBecame(state)
@@ -62,6 +73,11 @@ struct ConversationScreen: View {
             .sheet(isPresented: $model.showActivity) {
                 ActivitySheet()
             }
+            #if DEBUG
+            .sheet(isPresented: $model.showVoiceLog) {
+                VoiceInteractionLogSheet()
+            }
+            #endif
         }
     }
 

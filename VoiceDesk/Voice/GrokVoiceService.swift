@@ -30,7 +30,10 @@ final class GrokVoiceService: VoiceServicing {
     /// User tap-stop / cancel / explicit voice off. Blocks auto-reconnect and
     /// auto `startListening` until the next Tap to talk.
     private var userWantsVoiceOff = false
-    private var dropAssistantOutput = false
+    private var dropAssistantTranscript = false
+    private var dropAssistantAudio = false
+    private var speakingVerbatim = false
+    private var restoreAudioSuppressAfterVerbatim = false
     private var instructions = GrokRealtime.presenceInstructions
 
     var state: VoiceState { session.state }
@@ -75,8 +78,32 @@ final class GrokVoiceService: VoiceServicing {
     func speak(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        // Client TTS. Does not unmute live Grok deltas.
+        if GrokRealtime.shouldSpeakViaRealtime(
+            usesLiveLoop: usesLiveLoop,
+            isConnected: client.isConnected,
+            userWantsVoiceOff: userWantsVoiceOff
+        ) {
+            speakVerbatimViaGrok(trimmed)
+            return
+        }
         ClientVoiceSpeech.shared.speak(trimmed)
+    }
+
+    /// Eve reads the already-written local reply. Do not emit a user bubble.
+    private func speakVerbatimViaGrok(_ text: String) {
+        ClientVoiceSpeech.shared.stop()
+        speakingVerbatim = true
+        restoreAudioSuppressAfterVerbatim = dropAssistantAudio
+        dropAssistantAudio = false
+        interruptAssistant(sendCancel: true)
+        client.sendJSON(
+            GrokRealtime.sessionUpdateObject(
+                voice: voiceID,
+                instructions: GrokRealtime.verbatimSpeakInstructions(text: text)
+            )
+        )
+        client.sendJSON(GrokRealtime.textItemObject(GrokRealtime.verbatimSpeakUserText(text: text)))
+        client.sendJSON(GrokRealtime.responseCreateObject())
     }
 
     func sendTextTurn(_ text: String) async {
@@ -106,8 +133,10 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func suppressAssistantOutput(_ suppress: Bool) {
-        dropAssistantOutput = suppress
+        dropAssistantTranscript = suppress
+        dropAssistantAudio = suppress
         if suppress {
+            speakingVerbatim = false
             interruptAssistant(sendCancel: true)
         }
     }
@@ -266,7 +295,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
-        guard !dropAssistantOutput else { return }
+        guard !dropAssistantAudio else { return }
         audio.playPCM16(data)
     }
 
@@ -289,6 +318,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             break
         case .userTranscript(let text, let itemID):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             if !trimmed.isEmpty {
                 eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
             }
@@ -297,12 +327,12 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             assistantGate.reset()
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
-            guard !dropAssistantOutput, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
+            guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
             eventHandler?(.assistantTranscript(delta, isFinal: false))
         case .assistantTranscriptDone:
             break
         case .outputAudioDelta(let delta):
-            guard !dropAssistantOutput else { break }
+            guard !dropAssistantAudio else { break }
             if json["response_id"] as? String == currentResponseID || currentResponseID == nil {
                 audio.playAudioDelta(base64: delta)
                 audioDeltaCount += 1
@@ -314,6 +344,12 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             currentResponseID = nil
             audioDeltaCount = 0
             assistantGate.reset()
+            if speakingVerbatim {
+                speakingVerbatim = false
+                dropAssistantAudio = restoreAudioSuppressAfterVerbatim
+                sendSessionUpdate()
+                break
+            }
             eventHandler?(.assistantTranscript("", isFinal: true))
         case .ping(let timestamp):
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))

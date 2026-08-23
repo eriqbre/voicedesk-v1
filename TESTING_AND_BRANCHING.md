@@ -72,6 +72,14 @@ After checkout, keep the committed `VoiceDesk.xcodeproj/project.xcworkspace/xcsh
 - If Xcode still says `Missing package product 'GoogleSignIn'`: `xcodebuild -resolvePackageDependencies -project VoiceDesk.xcodeproj -scheme VoiceDesk` (uses the committed lockfile).
 - **Signing / Development Team:** do **not** require `DEVELOPMENT_TEAM` in `Secrets.plist`. If a device build needs a team, pick it in Xcode → Signing & Capabilities. `git restore VoiceDesk.xcodeproj` may clear a picker value; just re-select Team. Putting a Team ID in Secrets is optional (inject writes it only when set). A Team ID may be committed later if we choose to — it is not a secret — not now.
 
+### DEBUG voice interaction log (dogfood only)
+
+Debug / Testing builds only. **Release and App Store builds compile this out** — no utterance storage, no JSONL, no ladybug UI.
+
+1. Run a **Debug** scheme (⌘R default). Toolbar ladybug → Voice log.
+2. Each turn records: exact transcript, intent (general / inbox-overview / desk-person / …), sticky cleared vs reused, Gmail `q=`, cards, assistant reply, Eve vs AVSpeech.
+3. **Copy all** or **Share** the JSON. Also written locally to `Documents/VoiceDesk-debug/voice-log.jsonl` (Files app / share sheet). Never uploaded.
+
 ### Slice order
 1. `slice/1-ios-shell-voice-ui`
 2. `slice/2-google-sync`
