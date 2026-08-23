@@ -51,6 +51,8 @@ final class AppModel {
     var expandEarlierEpoch: Int = 0
     /// Last known listening visual — used for the off earcon, not Grok.
     private var voiceListeningVisual = false
+    /// Transcript-level half-duplex. Never mutes the mic.
+    private var echoGate = EchoTranscriptGate()
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -90,6 +92,9 @@ final class AppModel {
         self.deskSnapshot = self.cache.load()
         self.voice.transcriptHandler = { [weak self] event in
             self?.handleLiveTranscript(event)
+        }
+        self.voice.stateHandler = { [weak self] state in
+            self?.voiceBecame(state)
         }
         startWelcome()
         refreshPresence()
@@ -149,6 +154,13 @@ final class AppModel {
     }
 
     func voiceBecame(_ state: VoiceState) {
+        if state == .speaking {
+            echoGate.assistantStarted()
+        } else if state == .idle {
+            echoGate.reset()
+        } else if echoGate.assistantSpeaking {
+            echoGate.assistantFinished()
+        }
         voiceListeningVisual = state == .listening
         guard state == .idle, waitingToOfferConnectAfterTalk else { return }
         waitingToOfferConnectAfterTalk = false
@@ -176,6 +188,7 @@ final class AppModel {
             liveAssistantID = nil
             cancelPendingDraftsFromVoice()
         case .idle:
+            echoGate.reset()
             VoiceEarcon.listenStarted()
             voiceListeningVisual = true
             Task { await listenAndHandle() }
@@ -325,6 +338,7 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
+            guard echoGate.shouldAcceptUserTranscript(voiceState: voice.state) else { return }
             if !event.isFinal {
                 preemptGrokIfDeskTurn(event.text)
                 return

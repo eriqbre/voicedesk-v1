@@ -69,6 +69,8 @@ final class VoiceBox {
     let usesLiveLoop: Bool
 
     var transcriptHandler: ((VoiceTranscript) -> Void)?
+    /// Fired on every voice-state event so echo gating works without SwiftUI.
+    var stateHandler: ((VoiceState) -> Void)?
 
     private let service: any VoiceServicing
 
@@ -117,6 +119,7 @@ final class VoiceBox {
         switch event {
         case .state(let next):
             state = next
+            stateHandler?(next)
         case .userTranscript(let text, let isFinal, let itemID):
             transcriptHandler?(VoiceTranscript(role: .user, text: text, isFinal: isFinal, itemID: itemID))
         case .assistantTranscript(let text, let isFinal):

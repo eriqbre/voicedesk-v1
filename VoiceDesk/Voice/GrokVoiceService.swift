@@ -35,6 +35,8 @@ final class GrokVoiceService: VoiceServicing {
     private var verbatim = VerbatimSpeakGate()
     private var restoreAudioSuppressAfterVerbatim = false
     private var instructions = GrokRealtime.presenceInstructions
+    /// Drop echo transcripts / barge-in. Mic tap stays live.
+    private var echo = EchoTranscriptGate()
 
     var state: VoiceState { session.state }
 
@@ -61,6 +63,7 @@ final class GrokVoiceService: VoiceServicing {
         }
         isTearingDown = false
         reconnectsUsed = 0
+        echo.reset()
         apply(.tapTalk)
         let granted = await AVAudioApplication.requestRecordPermission()
         guard granted else {
@@ -99,6 +102,7 @@ final class GrokVoiceService: VoiceServicing {
     private func speakVerbatimViaGrok(_ text: String) {
         ClientVoiceSpeech.shared.stop()
         verbatim.begin()
+        echo.assistantStarted()
         restoreAudioSuppressAfterVerbatim = dropAssistantAudio || dropAssistantTranscript
         // Keep leftover Grok handoff muted until THIS verbatim response.created.
         dropAssistantAudio = true
@@ -210,6 +214,7 @@ final class GrokVoiceService: VoiceServicing {
             client.sendJSON(GrokRealtime.clearBufferObject())
         }
         failReady(GrokVoiceError.connectFailed("Cancelled"))
+        echo.assistantAborted()
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
         audio.stop()
@@ -329,6 +334,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             startAudioIfNeeded()
             finishReady()
         case .speechStarted:
+            guard echo.shouldAcceptSpeechStarted() else { break }
             interruptAssistant(sendCancel: true)
         case .speechStopped:
             if session.state == .listening {
@@ -337,6 +343,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .audioCommitted:
             break
         case .userTranscript(let text, let itemID):
+            guard echo.shouldAcceptUserInput() else { break }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             if !trimmed.isEmpty {
@@ -345,6 +352,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .responseCreated(let id):
             currentResponseID = id
             assistantGate.reset()
+            echo.assistantStarted()
             if verbatim.created(id) {
                 dropAssistantAudio = false
             }
@@ -367,6 +375,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                 break
             }
             apply(.turnFinished)
+            echo.assistantFinished()
             let finishedID = currentResponseID
             currentResponseID = nil
             audioDeltaCount = 0
