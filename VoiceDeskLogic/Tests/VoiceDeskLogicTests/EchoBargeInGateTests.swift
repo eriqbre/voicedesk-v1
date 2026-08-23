@@ -22,4 +22,14 @@ final class EchoBargeInGateTests: XCTestCase {
         gate.reset()
         XCTAssertTrue(gate.shouldAcceptUserInput())
     }
+
+    func testAbortDoesNotCooldownNextWeatherAsk() {
+        var gate = EchoBargeInGate()
+        let t0 = Date(timeIntervalSince1970: 8_000)
+        gate.assistantStarted(at: t0)
+        gate.assistantAborted()
+        XCTAssertTrue(gate.shouldAcceptUserInput(at: t0))
+        XCTAssertFalse(gate.assistantSpeaking)
+        XCTAssertNil(gate.cooldownUntil)
+    }
 }

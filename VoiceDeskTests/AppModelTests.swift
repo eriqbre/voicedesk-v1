@@ -824,6 +824,41 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
+    func testDeskTurnThenGeneralTurnUnmutesGrok() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-wx"
+        murray.subject = "Closing / notarization"
+        murray.body = "Need you to notarize the closing package today."
+        let snapshot = DeskSnapshot(emails: [murray])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+
+        await model.applyUserTurn("see my latest emails")
+        XCTAssertFalse(fake.spoken.isEmpty, "inbox digest must Eve-speak")
+        XCTAssertTrue(fake.assistantOutputSuppressed, "desk claim mutes Grok handoff")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+
+        await model.applyUserTurn("What's the weather like in Tarpon Springs?")
+        XCTAssertFalse(
+            fake.assistantOutputSuppressed,
+            "general turn after desk must clear suppress so Eve can speak"
+        )
+        XCTAssertEqual(fake.sentTurns, ["What's the weather like in Tarpon Springs?"])
+        XCTAssertTrue(model.turns.contains { $0.role == .user && $0.text.contains("Tarpon Springs") })
+
+        model.tapTalk()
+        await waitUntil { fake.started }
+        fake.emitUser("How's the weather today in Tarpon Springs?", itemID: "wx-live")
+        XCTAssertFalse(fake.assistantOutputSuppressed)
+        XCTAssertTrue(model.turns.contains { $0.role == .user && $0.text.contains("weather today") })
+    }
+
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)

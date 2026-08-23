@@ -282,13 +282,37 @@ public enum GrokRealtime {
             }
             return .ignored
         case "error":
-            return .error(
-                code: json["code"] as? String ?? "",
-                message: json["message"] as? String ?? "Unknown"
-            )
+            let fields = errorFields(in: json)
+            return .error(code: fields.code, message: fields.message)
         default:
             return .ignored
         }
+    }
+
+    /// Nested `error` object plus top-level `code` / `message`.
+    public static func errorFields(in json: [String: Any]) -> (code: String, message: String) {
+        var code = nonempty(json["code"]) ?? ""
+        var message = nonempty(json["message"]) ?? ""
+        if let err = json["error"] as? [String: Any] {
+            if code.isEmpty { code = nonempty(err["code"]) ?? "" }
+            if code.isEmpty { code = nonempty(err["type"]) ?? "" }
+            if message.isEmpty || message.compare("unknown", options: .caseInsensitive) == .orderedSame {
+                message = nonempty(err["message"]) ?? nonempty(err["type"]) ?? ""
+            }
+        }
+        return (code, message)
+    }
+
+    /// Never surface a bare "Unknown" under the mic.
+    public static func formatError(code: String?, message: String?) -> String {
+        let code = (code ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = (message ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let unknownMessage = message.isEmpty
+            || message.compare("unknown", options: .caseInsensitive) == .orderedSame
+        if !code.isEmpty && !unknownMessage { return "\(code): \(message)" }
+        if !code.isEmpty { return code }
+        if !unknownMessage { return message }
+        return "Grok session error"
     }
 
     public static func responseID(in json: [String: Any]) -> String? {

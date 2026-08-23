@@ -28,6 +28,13 @@ public struct EchoBargeInGate: Equatable, Sendable {
         cooldownUntil = now.addingTimeInterval(cooldown)
     }
 
+    /// Abort a speak that never played (error, dropped handoff, watchdog).
+    /// No cooldown — the next real weather ask must not be eaten.
+    public mutating func assistantAborted() {
+        assistantSpeaking = false
+        cooldownUntil = nil
+    }
+
     public func shouldAcceptUserInput(at now: Date = Date()) -> Bool {
         if assistantSpeaking { return false }
         if let cooldownUntil, now < cooldownUntil { return false }

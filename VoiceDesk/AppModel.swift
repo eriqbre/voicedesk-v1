@@ -154,7 +154,11 @@ final class AppModel {
         if state == .speaking {
             echoGate.assistantStarted()
         } else if echoGate.assistantSpeaking {
-            echoGate.assistantFinished()
+            if voice.lastError != nil {
+                echoGate.assistantAborted()
+            } else {
+                echoGate.assistantFinished()
+            }
         }
         voiceListeningVisual = state == .listening
         guard state == .idle, waitingToOfferConnectAfterTalk else { return }

@@ -164,6 +164,19 @@ final class GrokRealtimeTests: XCTestCase {
         )
         XCTAssertEqual(
             GrokRealtime.parse(
+                type: "error",
+                json: [
+                    "error": [
+                        "type": "invalid_request_error",
+                        "code": "session_expired",
+                        "message": "session is no longer active"
+                    ] as [String: Any]
+                ]
+            ),
+            .error(code: "session_expired", message: "session is no longer active")
+        )
+        XCTAssertEqual(
+            GrokRealtime.parse(
                 type: "response.done",
                 json: ["response": ["id": "handoff-1"] as [String: Any]]
             ),
@@ -213,6 +226,24 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("let the app handle"))
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains(spoken))
         XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
+    }
+
+    func testFormatErrorNeverBareUnknown() {
+        XCTAssertEqual(GrokRealtime.formatError(code: "timeout", message: "idle"), "timeout: idle")
+        XCTAssertEqual(GrokRealtime.formatError(code: "session_expired", message: "Unknown"), "session_expired")
+        XCTAssertEqual(GrokRealtime.formatError(code: "", message: "Unknown"), "Grok session error")
+        XCTAssertEqual(GrokRealtime.formatError(code: nil, message: nil), "Grok session error")
+        XCTAssertEqual(GrokRealtime.formatError(code: nil, message: "Unknown"), "Grok session error")
+        XCTAssertNotEqual(GrokRealtime.formatError(code: "", message: ""), "Unknown")
+        let nested = GrokRealtime.parse(
+            type: "error",
+            json: [:]
+        )
+        if case .error(let code, let message) = nested {
+            XCTAssertNotEqual(GrokRealtime.formatError(code: code, message: message), "Unknown")
+        } else {
+            XCTFail("expected error kind")
+        }
     }
 
     func testCancelAndTextTurnPayloads() {

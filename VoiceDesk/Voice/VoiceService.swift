@@ -122,7 +122,7 @@ final class VoiceBox {
         case .assistantTranscript(let text, let isFinal):
             transcriptHandler?(VoiceTranscript(role: .assistant, text: text, isFinal: isFinal))
         case .failed(let message):
-            lastError = message
+            lastError = GrokRealtime.formatError(code: nil, message: message)
         case .recovered:
             lastError = nil
         case .setupRequired:
