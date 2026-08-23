@@ -35,6 +35,9 @@ final class GrokVoiceService: VoiceServicing {
     private var verbatim = VerbatimSpeakGate()
     private var restoreAudioSuppressAfterVerbatim = false
     private var instructions = GrokRealtime.presenceInstructions
+    private var echo = EchoBargeInGate()
+    private let captureGate = MicrophoneCaptureGate()
+    private var unmuteTask: Task<Void, Never>?
 
     var state: VoiceState { session.state }
 
@@ -61,6 +64,8 @@ final class GrokVoiceService: VoiceServicing {
         }
         isTearingDown = false
         reconnectsUsed = 0
+        echo.reset()
+        captureGate.setMuted(false)
         apply(.tapTalk)
         let granted = await AVAudioApplication.requestRecordPermission()
         guard granted else {
@@ -99,6 +104,7 @@ final class GrokVoiceService: VoiceServicing {
     private func speakVerbatimViaGrok(_ text: String) {
         ClientVoiceSpeech.shared.stop()
         verbatim.begin()
+        beginHalfDuplex()
         restoreAudioSuppressAfterVerbatim = dropAssistantAudio || dropAssistantTranscript
         // Keep leftover Grok handoff muted until THIS verbatim response.created.
         dropAssistantAudio = true
@@ -163,6 +169,7 @@ final class GrokVoiceService: VoiceServicing {
 
     func cancel() {
         userWantsVoiceOff = true
+        VoiceEarcon.listenEnded()
         teardown(sendCancel: true)
     }
 
@@ -184,8 +191,33 @@ final class GrokVoiceService: VoiceServicing {
     private func startAudioIfNeeded() {
         guard !userWantsVoiceOff, !audio.isRunning else { return }
         let socket = client
+        let gate = captureGate
         _ = audio.start(echoCancellation: true) { base64 in
+            guard !gate.isMuted() else { return }
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
+        }
+    }
+
+    private func beginHalfDuplex() {
+        echo.assistantStarted()
+        captureGate.setMuted(true)
+        unmuteTask?.cancel()
+        if client.isConnected {
+            client.sendJSON(GrokRealtime.clearBufferObject())
+        }
+    }
+
+    private func endHalfDuplex() {
+        echo.assistantFinished()
+        unmuteTask?.cancel()
+        unmuteTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(320))
+            guard let self, !Task.isCancelled else { return }
+            guard !self.echo.assistantSpeaking, !self.verbatim.isSpeaking else { return }
+            self.captureGate.setMuted(false)
+            if self.client.isConnected, !self.userWantsVoiceOff {
+                self.client.sendJSON(GrokRealtime.clearBufferObject())
+            }
         }
     }
 
@@ -210,6 +242,9 @@ final class GrokVoiceService: VoiceServicing {
             client.sendJSON(GrokRealtime.clearBufferObject())
         }
         failReady(GrokVoiceError.connectFailed("Cancelled"))
+        unmuteTask?.cancel()
+        captureGate.setMuted(true)
+        echo.reset()
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
         audio.stop()
@@ -329,6 +364,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             startAudioIfNeeded()
             finishReady()
         case .speechStarted:
+            guard echo.shouldAcceptUserInput() else { break }
             interruptAssistant(sendCancel: true)
         case .speechStopped:
             if session.state == .listening {
@@ -337,6 +373,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .audioCommitted:
             break
         case .userTranscript(let text, let itemID):
+            guard echo.shouldAcceptUserInput() else { break }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             if !trimmed.isEmpty {
@@ -345,6 +382,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .responseCreated(let id):
             currentResponseID = id
             assistantGate.reset()
+            beginHalfDuplex()
             if verbatim.created(id) {
                 dropAssistantAudio = false
             }
@@ -371,6 +409,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             currentResponseID = nil
             audioDeltaCount = 0
             assistantGate.reset()
+            endHalfDuplex()
             if verbatim.finishDone(eventID: doneID, currentID: finishedID) {
                 dropAssistantAudio = restoreAudioSuppressAfterVerbatim
                 dropAssistantTranscript = restoreAudioSuppressAfterVerbatim

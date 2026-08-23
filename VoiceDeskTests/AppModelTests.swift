@@ -867,12 +867,53 @@ final class AppModelTests: XCTestCase {
     func testLiveCancelStopsSessionWithoutFakeUtterance() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)
+        VoiceEarcon.resetPlayLog()
         model.tapTalk()
         await waitUntil { fake.started }
+        XCTAssertEqual(VoiceEarcon.playLog, [true], "mic ON must play listen earcon")
         model.tapTalk()
         XCTAssertTrue(fake.cancelled)
         XCTAssertEqual(model.turns.count, 1)
         XCTAssertEqual(model.voice.state, .idle)
+        XCTAssertEqual(VoiceEarcon.playLog, [true, false], "mic OFF must play the disarm earcon")
+    }
+
+    func testEchoWhileEveSpeaksDoesNotCreateUserTurnOrDeskAction() async {
+        let event = CalendarItem(
+            title: "Dinner reservation",
+            whenLabel: "Tonight 7:00 PM",
+            location: "Oak & Stone",
+            relatedPeople: ["Massimo Ricci"],
+            notes: "Window table, party of 4."
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(events: [event]))
+        )
+        model.tapTalk()
+        await waitUntil { fake.started }
+        fake.emitUser("What's on my calendar?", itemID: "cal-week")
+        let userTurns = model.turns.filter { $0.role == .user }.count
+        let calendarCards = model.turns.flatMap(\.cards).filter { $0.kind == .calendar }.count
+        XCTAssertEqual(userTurns, 1)
+        XCTAssertGreaterThanOrEqual(calendarCards, 1)
+
+        fake.beginAssistantPlayback()
+        fake.emitUser("reservation", itemID: "echo-eve")
+        fake.emitUser("Dinner reservation", itemID: "echo-eve-2")
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.count,
+            userTurns,
+            "Eve’s own TTS must not become a user bubble"
+        )
+        XCTAssertEqual(
+            model.turns.flatMap(\.cards).filter { $0.kind == .calendar }.count,
+            calendarCards,
+            "echo must not attach a second calendar card"
+        )
+        XCTAssertFalse(model.turns.contains { $0.role == .user && $0.text == "reservation" })
     }
 
     func testClientSecretExtraction() {
@@ -935,6 +976,16 @@ final class FakeLiveVoiceService: VoiceServicing {
     func cancel() {
         cancelled = true
         session.apply(.cancel)
+        eventHandler?(.state(session.state))
+    }
+
+    func beginAssistantPlayback() {
+        session.apply(.speakStarted)
+        eventHandler?(.state(session.state))
+    }
+
+    func endAssistantPlayback() {
+        session.apply(.turnFinished)
         eventHandler?(.state(session.state))
     }
 
