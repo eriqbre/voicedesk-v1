@@ -32,7 +32,18 @@ with open(sys.argv[1], "rb") as handle:
 value = data.get(sys.argv[2], "")
 print("" if value is None else value)
 ' "$1" "$2" 2>/dev/null || true
+        return 0
     fi
+    # Linux CI (swift:6.0) has neither PlistBuddy nor python3.
+    awk -v key="$2" '
+        index($0, "<key>" key "</key>") {
+            if (getline <= 0) exit
+            sub(/^[[:space:]]*<string>/, "")
+            sub(/<\/string>[[:space:]]*$/, "")
+            print
+            exit
+        }
+    ' "$1" 2>/dev/null || true
 }
 
 trim() {
