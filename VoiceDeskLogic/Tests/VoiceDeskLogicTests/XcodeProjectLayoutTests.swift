@@ -68,6 +68,9 @@ final class XcodeProjectLayoutTests: XCTestCase {
 
         let example = try XCTUnwrap(repoFile("VoiceDesk/Secrets.example.plist"))
         XCTAssertTrue(example.contains("<key>DEVELOPMENT_TEAM</key>"))
+        XCTAssertTrue(example.contains("<key>VOICE_DOGFOOD_GITHUB_TOKEN</key>"))
+        XCTAssertTrue(example.contains("<key>VOICE_DOGFOOD_GIST_ID</key>"))
+        XCTAssertTrue(example.contains("<key>VOICE_DOGFOOD_UPLOAD_SECRET</key>"))
         XCTAssertTrue(script.contains("DEVELOPMENT_TEAM"))
         XCTAssertTrue(pbx.contains("DEVELOPMENT_TEAM = \"$(DEVELOPMENT_TEAM)\""))
         let teamLines = pbx.split(separator: "\n").filter { $0.contains("DEVELOPMENT_TEAM") }

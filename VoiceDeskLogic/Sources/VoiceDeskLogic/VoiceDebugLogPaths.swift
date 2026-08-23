@@ -66,15 +66,6 @@ public enum VoiceDebugLogPaths: Sendable {
     }
 
     public static func jsonlLineData(for entry: VoiceInteractionEntry) -> Data? {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(entry),
-              var line = String(data: data, encoding: .utf8)
-        else { return nil }
-        if !line.hasSuffix("\n") {
-            line.append("\n")
-        }
-        return line.data(using: .utf8)
+        VoiceCloudLogCodec.jsonlLine(for: entry)
     }
 }

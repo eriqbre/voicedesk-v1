@@ -107,9 +107,40 @@ If Desktop is in iCloud, they can Save to Files into `Desktop/projects/voicedesk
 
 If an iCloud Documents container is later entitled, Debug also appends to that container’s `Documents/VoiceDesk-debug/` (nil-safe today — no entitlement shipped).
 
-**What each line contains:** exact transcript, intent (general / inbox-overview / desk-person / …), sticky cleared vs reused, Gmail `q=`, cards, assistant reply, Eve vs AVSpeech.
+**What each line contains (schema v2):** `timestamp`, `userTranscript`, `intent`, `sticky` (`cleared` / `reused` / `none`) + `focusedPerson`, `searchQuery`, `cardsAttached`, `assistantReply`, `voicePath`, `errors`. Routing notes stay as a human-readable echo. **No raw audio.**
 
 Never commit `.debug/` or raw `voice-log.jsonl`.
+
+### Cloud dogfood log (automatic — no paste, no ladybug)
+
+**DEBUG and TestFlight default ON** and stay on. App Store production is forced off. Every turn uploads. Ladybug toggle is an escape hatch only.
+
+Token once in gitignored `VoiceDesk/Secrets.plist` (or scheme env): `VOICE_DOGFOOD_GITHUB_TOKEN` (gist PAT). If missing in DEBUG, a quiet banner: **Add VOICE_DOGFOOD_GITHUB_TOKEN to Secrets.plist once**. Not a per-session ritual.
+
+On launch / first turn the app `GET /gists` and reuses a **private** gist whose description is exactly `VoiceDesk dogfood voice-log` (file `voice-log.jsonl`). If none exists it creates one and persists the id. Eriq never pastes a gist id.
+
+**Walk (Eriq):** pull tip → token already in Secrets → ⌘R Debug → **do not touch ladybug** → talk.
+
+**Elon pull (one line — token from local Secrets.plist, gist by description):**
+
+```bash
+./scripts/pull-voice-dogfood-log.sh | tail -n 40
+```
+
+Equivalent:
+
+```bash
+TOKEN=$(plutil -extract VOICE_DOGFOOD_GITHUB_TOKEN raw -o - VoiceDesk/Secrets.plist)
+curl -sS -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/gists?per_page=100" \
+  | python3 -c 'import json,sys; gs=json.load(sys.stdin); g=next(x for x in gs if (x.get("description") or "").startswith("VoiceDesk dogfood voice-log")); print(g["id"])' \
+  | xargs -I{} curl -sS -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/gists/{}" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["voice-log.jsonl"]["content"])' \
+  | tail -n 40
+```
+
+Do not ask Eriq for a gist id. Cloud lines are redacted (tokens, phones, `user@redacted`). Names and transcripts stay so a Murray ask vs a John Madison card is visible immediately.
 
 ### Voice regression fixtures (promote a pass)
 
@@ -119,7 +150,7 @@ After a good dogfood turn, **do not paste the log into chat**. Elon reads `.debu
 VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/voice-regression/*.jsonl
 ```
 
-Same schema as the DEBUG log (`userTranscript`, `intent`, `routingNotes`, `cardsAttached`, `assistantReply`, `voicePath`, `source`). Add replay keys when needed:
+Same schema as the DEBUG log (`userTranscript`, `intent`, `sticky`, `focusedPerson`, `searchQuery`, `routingNotes`, `cardsAttached`, `assistantReply`, `voicePath`, `errors`, `source`). Add replay keys when needed:
 
 | Key | When |
 |-----|------|

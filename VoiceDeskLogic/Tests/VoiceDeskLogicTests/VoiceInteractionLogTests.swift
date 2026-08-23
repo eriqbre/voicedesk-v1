@@ -154,10 +154,14 @@ final class VoiceInteractionLogTests: XCTestCase {
             source: "text",
             userTranscript: "secret line\nwith break",
             intent: "general",
+            sticky: .cleared,
+            focusedPerson: nil,
+            searchQuery: "from:murray@example.com",
             routingNotes: ["sticky cleared"],
             cardsAttached: ["email:Murray:Hi"],
             assistantReply: "ok",
-            voicePath: "Eve realtime"
+            voicePath: "Eve realtime",
+            errors: ["socket drop"]
         )
         guard let data = VoiceDebugLogPaths.jsonlLineData(for: entry),
               let text = String(data: data, encoding: .utf8)
@@ -168,5 +172,77 @@ final class VoiceInteractionLogTests: XCTestCase {
         XCTAssertEqual(text.filter { $0 == "\n" }.count, 1)
         XCTAssertTrue(text.contains("secret line"))
         XCTAssertTrue(text.contains("Eve realtime"))
+        XCTAssertTrue(text.contains("\"sticky\":\"cleared\""))
+        XCTAssertTrue(text.contains("from:murray@example.com"))
+        XCTAssertTrue(text.contains("socket drop"))
+        XCTAssertFalse(text.contains("audioBase64"))
+    }
+
+    func testClassifyExposesFirstClassStickyAndFocusedPerson() {
+        let murray = EmailItem(
+            providerID: "log-murray-fields",
+            fromName: "Murray Mitchell",
+            fromEmail: "murray@example.com",
+            sentAtLabel: "Today 9:00 AM",
+            subject: "Closing / notarization",
+            preview: "Need you to notarize",
+            body: "Need you to notarize today.",
+            filterTag: "Inbox"
+        )
+        let steve = EmailItem(
+            providerID: "log-steve-fields",
+            fromName: "Steve Brown",
+            fromEmail: "steve@example.com",
+            sentAtLabel: "Today 8:00 AM",
+            subject: "Inspection note",
+            preview: "Punch list",
+            filterTag: "Inbox"
+        )
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [murray, steve])
+        )
+        let overview = ConversationPresence.deskEvidence(
+            for: "summary of my latest emails",
+            context: context,
+            focusedEmail: murray
+        )
+        let cleared = VoiceInteractionLog.classify(
+            utterance: "summary of my latest emails",
+            evidence: overview,
+            hadFocusedEmail: true
+        )
+        XCTAssertEqual(cleared.sticky, .cleared)
+        XCTAssertNil(cleared.focusedPerson)
+
+        let person = ConversationPresence.deskEvidence(
+            for: "summarize the Murray email",
+            context: context,
+            focusedEmail: steve
+        )
+        let reused = VoiceInteractionLog.classify(
+            utterance: "summarize the Murray email",
+            evidence: person,
+            hadFocusedEmail: true
+        )
+        XCTAssertEqual(reused.sticky, .reused)
+        XCTAssertEqual(reused.focusedPerson, "Murray Mitchell")
+    }
+
+    func testRecordNoopsWhenGateOverrideIsOff() {
+        VoiceInteractionLog.testEnabledOverride = false
+        VoiceInteractionLog.record(
+            VoiceInteractionEntry(
+                source: "text",
+                userTranscript: "should not persist",
+                intent: "general",
+                routingNotes: [],
+                cardsAttached: [],
+                assistantReply: "ok",
+                voicePath: "AVSpeech"
+            )
+        )
+        XCTAssertTrue(VoiceInteractionLog.snapshot().isEmpty)
+        XCTAssertEqual(VoiceInteractionLog.exportJSON(), "[]")
     }
 }
