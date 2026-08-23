@@ -117,6 +117,9 @@ final class VoiceBox {
         switch event {
         case .state(let next):
             state = next
+            if next == .speaking {
+                lastError = nil
+            }
         case .userTranscript(let text, let isFinal, let itemID):
             transcriptHandler?(VoiceTranscript(role: .user, text: text, isFinal: isFinal, itemID: itemID))
         case .assistantTranscript(let text, let isFinal):

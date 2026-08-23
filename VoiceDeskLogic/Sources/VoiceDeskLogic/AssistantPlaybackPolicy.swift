@@ -25,4 +25,25 @@ public enum AssistantPlaybackPolicy: Sendable {
     ) -> Bool {
         audioDeltaCount == 0 && elapsed >= timeout
     }
+
+    /// User finished speaking but Grok never created a playable response.
+    public static func shouldForceEndThinking(
+        elapsed: TimeInterval,
+        timeout: TimeInterval = silentSpeakingTimeout
+    ) -> Bool {
+        elapsed >= timeout
+    }
+
+    /// Local desk digest must go to Eve when the live loop is up and voice is on.
+    public static func shouldSpeakVerbatim(
+        reply: String?,
+        liveConnected: Bool,
+        userWantsVoiceOff: Bool
+    ) -> Bool {
+        guard let reply, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        if userWantsVoiceOff { return false }
+        return liveConnected
+    }
 }

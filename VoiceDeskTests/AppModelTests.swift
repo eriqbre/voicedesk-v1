@@ -852,6 +852,12 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(fake.sentTurns, ["What's the weather like in Tarpon Springs?"])
         XCTAssertTrue(model.turns.contains { $0.role == .user && $0.text.contains("Tarpon Springs") })
 
+        fake.emitAssistant("Tampa Bay this time of year I’d plan on warm.", isFinal: true)
+        XCTAssertTrue(
+            model.turns.contains { $0.role == .assistant && $0.text.contains("Tampa Bay") },
+            "desk claim must not swallow the next general Eve transcript"
+        )
+
         model.tapTalk()
         await waitUntil { fake.started }
         fake.emitUser("How's the weather today in Tarpon Springs?", itemID: "wx-live")
@@ -951,6 +957,41 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.turns.contains { $0.role == .user && $0.text == "reservation" })
     }
 
+    func testUnknownErrorIsFormattedAndClearsWhenEveSpeaks() {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        fake.emitFailed("Unknown")
+        XCTAssertEqual(model.voice.lastError, "Grok session error")
+        XCTAssertNotEqual(model.voice.lastError, "Unknown")
+
+        fake.emitFailed("session_expired: session is no longer active")
+        XCTAssertEqual(model.voice.lastError, "session_expired: session is no longer active")
+
+        fake.beginAssistantPlayback()
+        XCTAssertNil(model.voice.lastError, "successful speak clears lastError")
+    }
+
+    func testDeskDigestThenLiveAssistantTranscriptIsNotSwallowed() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-live-wx"
+        murray.body = "Need you to notarize the closing package today."
+        let snapshot = DeskSnapshot(emails: [murray])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        await model.applyUserTurn("see my latest emails")
+        XCTAssertFalse(fake.spoken.isEmpty)
+        fake.emitAssistant("I’ll let the app handle that.", isFinal: true)
+        XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("let the app handle") })
+        fake.emitAssistant("Warm in Tarpon Springs, late storm possible.", isFinal: true)
+        XCTAssertTrue(model.turns.contains { $0.text.contains("Tarpon Springs") })
+    }
+
     func testClientSecretExtraction() {
         XCTAssertEqual(
             LiveGrokVoiceClient.extractClientSecret(from: ["value": "tok_1"]),
@@ -1030,6 +1071,10 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func emitAssistant(_ text: String, isFinal: Bool) {
         eventHandler?(.assistantTranscript(text, isFinal: isFinal))
+    }
+
+    func emitFailed(_ message: String) {
+        eventHandler?(.failed(message))
     }
 
     func updatePresenceInstructions(_ text: String) {

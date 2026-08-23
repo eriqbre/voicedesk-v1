@@ -58,8 +58,8 @@ final class GrokVoiceService: VoiceServicing {
 
     func startListening() async -> String {
         userWantsVoiceOff = false
-        if session.state == .speaking || session.state == .thinking {
-            recoverToListening(playedAudio: audioDeltaCount > 0)
+        if (session.state == .speaking || session.state == .thinking), !verbatim.isSpeaking {
+            recoverToListening(playedAudio: audioDeltaCount > 0, cancelVerbatim: false)
         }
         if session.state != .idle {
             if !client.isConnected, !isRecovering {
@@ -93,6 +93,7 @@ final class GrokVoiceService: VoiceServicing {
     func speak(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        guard !userWantsVoiceOff else { return }
         if GrokRealtime.shouldSpeakViaRealtime(
             usesLiveLoop: usesLiveLoop,
             isConnected: client.isConnected,
@@ -239,9 +240,9 @@ final class GrokVoiceService: VoiceServicing {
         }
     }
 
-    /// Never leave `.speaking` after error, cancel leftover, or a silent response.
-    private func recoverToListening(playedAudio: Bool) {
-        if verbatim.isSpeaking {
+    /// Never leave `.speaking` / `.thinking` after error, leftover, or a silent response.
+    private func recoverToListening(playedAudio: Bool, cancelVerbatim: Bool = true) {
+        if cancelVerbatim, verbatim.isSpeaking {
             verbatim.cancel()
         }
         endHalfDuplex(playedAudio: playedAudio)
@@ -250,6 +251,7 @@ final class GrokVoiceService: VoiceServicing {
         if session.state == .speaking || session.state == .thinking {
             apply(.turnFinished)
         }
+        eventHandler?(.recovered)
     }
 
     private func scheduleSpeakingWatchdog() {
@@ -266,7 +268,20 @@ final class GrokVoiceService: VoiceServicing {
                 audioDeltaCount: self.audioDeltaCount,
                 elapsed: elapsed
             ) else { return }
-            self.recoverToListening(playedAudio: false)
+            self.recoverToListening(playedAudio: false, cancelVerbatim: true)
+        }
+    }
+
+    private func scheduleThinkingWatchdog() {
+        speakingWatchdog?.cancel()
+        speakingWatchdog = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(AssistantPlaybackPolicy.silentSpeakingTimeout))
+            guard let self, !Task.isCancelled else { return }
+            guard self.session.state == .thinking, !self.verbatim.isSpeaking else { return }
+            guard AssistantPlaybackPolicy.shouldForceEndThinking(
+                elapsed: AssistantPlaybackPolicy.silentSpeakingTimeout
+            ) else { return }
+            self.recoverToListening(playedAudio: false, cancelVerbatim: false)
         }
     }
 
@@ -276,10 +291,15 @@ final class GrokVoiceService: VoiceServicing {
         }
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
+        let wasLive = session.state == .speaking || session.state == .thinking
+        let played = audioDeltaCount > 0
         currentResponseID = nil
         audioDeltaCount = 0
-        if session.state == .speaking || session.state == .thinking {
+        if wasLive {
             apply(.turnFinished)
+            if !verbatim.isSpeaking {
+                endHalfDuplex(playedAudio: played)
+            }
         }
     }
 
@@ -332,6 +352,9 @@ final class GrokVoiceService: VoiceServicing {
     private func recoverAfterDrop(reason: String) async {
         _ = reason
         guard !userWantsVoiceOff, !isTearingDown, !isRecovering else { return }
+        if session.state == .speaking || session.state == .thinking {
+            recoverToListening(playedAudio: audioDeltaCount > 0, cancelVerbatim: !verbatim.isSpeaking)
+        }
         isRecovering = true
         client.disconnect()
         audio.interruptPlayback()
@@ -431,6 +454,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .speechStopped:
             if session.state == .listening {
                 apply(.listenFinished)
+                scheduleThinkingWatchdog()
             }
         case .audioCommitted:
             break
@@ -455,6 +479,8 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                 beginHalfDuplex()
                 apply(.speakStarted)
                 scheduleSpeakingWatchdog()
+            } else if session.state == .thinking || session.state == .speaking {
+                recoverToListening(playedAudio: false, cancelVerbatim: false)
             }
         case .assistantTranscriptDelta(let delta, let source):
             guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
@@ -493,7 +519,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .error(let code, let message):
             let detail = GrokRealtime.formatError(code: code, message: message)
             eventHandler?(.failed(detail))
-            recoverToListening(playedAudio: audioDeltaCount > 0)
+            recoverToListening(playedAudio: audioDeltaCount > 0, cancelVerbatim: true)
             if code == "timeout" || code == "max_duration" {
                 teardown(sendCancel: false)
             }

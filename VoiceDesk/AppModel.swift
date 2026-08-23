@@ -889,6 +889,9 @@ final class AppModel {
         }
         lastSpokenDeskReply = spoken
         await voice.speak(spoken)
+        // Card + digest are already on screen. Allow the next Grok general
+        // transcript. Leave Grok audio suppressed until verbatim created / speech_started.
+        suppressLiveAssistant = false
     }
 
     private func rememberUserTurn(_ text: String, source: String) {

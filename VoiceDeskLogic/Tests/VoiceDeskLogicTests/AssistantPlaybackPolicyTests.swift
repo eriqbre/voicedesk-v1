@@ -46,6 +46,33 @@ final class AssistantPlaybackPolicyTests: XCTestCase {
         )
     }
 
+    func testThinkingWatchdogAndVerbatimSpeakGate() {
+        XCTAssertFalse(AssistantPlaybackPolicy.shouldForceEndThinking(elapsed: 1))
+        XCTAssertTrue(AssistantPlaybackPolicy.shouldForceEndThinking(elapsed: 4))
+        XCTAssertTrue(
+            AssistantPlaybackPolicy.shouldSpeakVerbatim(
+                reply: "Murray wrote: notarize today.",
+                liveConnected: true,
+                userWantsVoiceOff: false
+            )
+        )
+        XCTAssertFalse(
+            AssistantPlaybackPolicy.shouldSpeakVerbatim(
+                reply: "Murray wrote: notarize today.",
+                liveConnected: true,
+                userWantsVoiceOff: true
+            ),
+            "tap-stop must not AVSpeech / verbatim after voice-off"
+        )
+        XCTAssertFalse(
+            AssistantPlaybackPolicy.shouldSpeakVerbatim(
+                reply: "   ",
+                liveConnected: true,
+                userWantsVoiceOff: false
+            )
+        )
+    }
+
     func testErrorRecoveryReturnsToListening() {
         var session = VoiceSession(state: .listening)
         session.apply(.speakStarted)
