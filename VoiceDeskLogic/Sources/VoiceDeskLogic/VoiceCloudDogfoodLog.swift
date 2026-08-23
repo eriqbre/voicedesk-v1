@@ -29,6 +29,41 @@ public enum VoiceDogfoodGate: Sendable {
     }
 }
 
+/// DEBUG / TestFlight default ON. App Store production cannot enable.
+/// `storedValue` is nil when the user has never flipped the escape-hatch toggle.
+public enum VoiceCloudDogfoodPreference: Sendable {
+    public static func isEnabled(allowsLogging: Bool, storedValue: Bool?) -> Bool {
+        guard allowsLogging else { return false }
+        return storedValue ?? true
+    }
+}
+
+/// Fixed private gist Elon discovers without a gist id from Eriq.
+public enum VoiceCloudGistStore: Sendable {
+    public static let description = "VoiceDesk dogfood voice-log"
+    public static let filename = VoiceDebugLogPaths.fileName
+    public static let bootstrapLine = "# VoiceDesk dogfood voice-log\n"
+
+    public static func matchesDescription(_ raw: String?) -> Bool {
+        let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value == description || value.hasPrefix(description)
+    }
+
+    public static func idMatchingDescription(in listBody: Data) -> String? {
+        guard let items = try? JSONSerialization.jsonObject(with: listBody) as? [[String: Any]] else {
+            return nil
+        }
+        for item in items {
+            guard matchesDescription(item["description"] as? String),
+                  let id = item["id"] as? String,
+                  !id.isEmpty
+            else { continue }
+            return id
+        }
+        return nil
+    }
+}
+
 /// Where a dogfood turn is posted. Prefer a private GitHub gist or repo.
 public enum VoiceCloudLogKind: String, Sendable, Equatable {
     case githubGist
@@ -182,9 +217,9 @@ public enum VoiceCloudLogError: Error, Equatable, CustomStringConvertible, Local
     public var description: String {
         switch self {
         case .notAllowed:
-            return "cloud dogfood log is off (DEBUG/TestFlight + toggle required)"
+            return "cloud dogfood log is off (App Store, or escape-hatch toggle off)"
         case .missingConfig:
-            return "no gist/repo token or HTTPS secret in Secrets.plist"
+            return "Add VOICE_DOGFOOD_GITHUB_TOKEN to Secrets.plist once"
         case .missingToken:
             return "VOICE_DOGFOOD_GITHUB_TOKEN missing"
         case .badURL:
@@ -391,6 +426,90 @@ public enum VoiceCloudLogRedactor: Sendable {
     }
 }
 
+enum VoiceCloudGitHub {
+    static func request(method: String, url: String, token: String, body: Data = Data()) -> VoiceCloudLogHTTPRequest {
+        VoiceCloudLogHTTPRequest(
+            method: method,
+            url: url,
+            headers: [
+                "Accept": "application/vnd.github+json",
+                "Authorization": "Bearer \(token)",
+                "User-Agent": "VoiceDesk-dogfood",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/json"
+            ],
+            body: body
+        )
+    }
+
+    static func send(
+        _ transport: any VoiceCloudLogTransporting,
+        method: String,
+        url: String,
+        token: String,
+        body: Data = Data()
+    ) async throws -> VoiceCloudLogHTTPResponse {
+        let response = try await transport.send(request(method: method, url: url, token: token, body: body))
+        guard (200..<300).contains(response.status) else {
+            let snippet = String(data: response.body, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw VoiceCloudLogError.http(response.status, String(snippet.prefix(180)))
+        }
+        return response
+    }
+}
+
+/// List-or-create the private dogfood gist. Persisted id wins; else description match; else create once.
+public struct VoiceCloudGistResolver: Sendable {
+    public var token: String
+    public var filename: String
+    public var persistedID: String?
+    public var transport: any VoiceCloudLogTransporting
+
+    public init(
+        token: String,
+        filename: String = VoiceCloudGistStore.filename,
+        persistedID: String? = nil,
+        transport: any VoiceCloudLogTransporting
+    ) {
+        self.token = token
+        self.filename = filename
+        self.persistedID = persistedID
+        self.transport = transport
+    }
+
+    public func resolve() async throws -> (id: String, created: Bool) {
+        if let persistedID, !persistedID.isEmpty {
+            return (persistedID, false)
+        }
+        let listed = try await VoiceCloudGitHub.send(
+            transport,
+            method: "GET",
+            url: "https://api.github.com/gists?per_page=100",
+            token: token
+        )
+        if let found = VoiceCloudGistStore.idMatchingDescription(in: listed.body) {
+            return (found, false)
+        }
+        let body = try VoiceCloudLogCodec.gistCreateBody(
+            filename: filename,
+            content: VoiceCloudGistStore.bootstrapLine,
+            description: VoiceCloudGistStore.description
+        )
+        let created = try await VoiceCloudGitHub.send(
+            transport,
+            method: "POST",
+            url: "https://api.github.com/gists",
+            token: token,
+            body: body
+        )
+        guard let id = VoiceCloudLogCodec.gistID(from: created.body) else {
+            throw VoiceCloudLogError.gistParse
+        }
+        return (id, true)
+    }
+}
+
 public struct VoiceCloudLogUploader: Sendable {
     public var config: VoiceCloudLogConfig
     public var transport: any VoiceCloudLogTransporting
@@ -430,51 +549,50 @@ public struct VoiceCloudLogUploader: Sendable {
 
     private func uploadGist(line: Data) async throws -> VoiceCloudLogResult {
         guard let token = config.token, !token.isEmpty else { throw VoiceCloudLogError.missingToken }
-        if let gistID = config.gistID, !gistID.isEmpty {
-            let existing = try await gistContent(id: gistID, token: token)
-            let merged = VoiceCloudLogCodec.appendJSONL(existing: existing, line: line)
-            let body = try VoiceCloudLogCodec.gistUpdateBody(filename: config.filename, content: merged)
-            _ = try await github(
-                method: "PATCH",
-                url: "https://api.github.com/gists/\(gistID)",
-                token: token,
-                body: body
-            )
-            return VoiceCloudLogResult(
-                destination: "gist:\(gistID)",
-                gistID: gistID,
-                bytes: merged.utf8.count
-            )
-        }
-        let content = String(data: line, encoding: .utf8) ?? ""
-        let body = try VoiceCloudLogCodec.gistCreateBody(
+        let resolved = try await VoiceCloudGistResolver(
+            token: token,
             filename: config.filename,
-            content: content,
-            description: "VoiceDesk dogfood voice-log (DEBUG/TestFlight). No audio."
-        )
-        let created = try await github(
-            method: "POST",
-            url: "https://api.github.com/gists",
+            persistedID: config.gistID,
+            transport: transport
+        ).resolve()
+        do {
+            return try await patchGist(id: resolved.id, token: token, line: line)
+        } catch VoiceCloudLogError.http(let status, _) where status == 404 {
+            let created = try await VoiceCloudGistResolver(
+                token: token,
+                filename: config.filename,
+                persistedID: nil,
+                transport: transport
+            ).resolve()
+            return try await patchGist(id: created.id, token: token, line: line)
+        }
+    }
+
+    private func patchGist(id: String, token: String, line: Data) async throws -> VoiceCloudLogResult {
+        let existing = try await gistContent(id: id, token: token)
+        let merged = VoiceCloudLogCodec.appendJSONL(existing: existing, line: line)
+        let body = try VoiceCloudLogCodec.gistUpdateBody(filename: config.filename, content: merged)
+        _ = try await VoiceCloudGitHub.send(
+            transport,
+            method: "PATCH",
+            url: "https://api.github.com/gists/\(id)",
             token: token,
             body: body
         )
-        guard let id = VoiceCloudLogCodec.gistID(from: created.body) else {
-            throw VoiceCloudLogError.gistParse
-        }
         return VoiceCloudLogResult(
             destination: "gist:\(id)",
             gistID: id,
-            createdGistID: config.persistCreatedGistID ? id : nil,
-            bytes: content.utf8.count
+            createdGistID: id,
+            bytes: merged.utf8.count
         )
     }
 
     private func gistContent(id: String, token: String) async throws -> String {
-        let response = try await github(
+        let response = try await VoiceCloudGitHub.send(
+            transport,
             method: "GET",
             url: "https://api.github.com/gists/\(id)",
-            token: token,
-            body: Data()
+            token: token
         )
         return VoiceCloudLogCodec.gistFileContent(from: response.body, filename: config.filename) ?? ""
     }
@@ -489,7 +607,7 @@ public struct VoiceCloudLogUploader: Sendable {
         var existing = ""
         var sha: String?
         do {
-            let current = try await github(method: "GET", url: url, token: token, body: Data())
+            let current = try await VoiceCloudGitHub.send(transport, method: "GET", url: url, token: token)
             if let parsed = VoiceCloudLogCodec.repoFile(from: current.body) {
                 existing = parsed.content
                 sha = parsed.sha
@@ -504,7 +622,7 @@ public struct VoiceCloudLogUploader: Sendable {
             content: merged,
             sha: sha
         )
-        _ = try await github(method: "PUT", url: url, token: token, body: body)
+        _ = try await VoiceCloudGitHub.send(transport, method: "PUT", url: url, token: token, body: body)
         return VoiceCloudLogResult(destination: "repo:\(repo)/\(config.repoPath)", bytes: merged.utf8.count)
     }
 
@@ -530,24 +648,6 @@ public struct VoiceCloudLogUploader: Sendable {
         let response = try await transport.send(request)
         try Self.throwIfFailed(response)
         return VoiceCloudLogResult(destination: "https:\(url.host ?? rawURL)", bytes: body.count)
-    }
-
-    private func github(method: String, url: String, token: String, body: Data) async throws -> VoiceCloudLogHTTPResponse {
-        let request = VoiceCloudLogHTTPRequest(
-            method: method,
-            url: url,
-            headers: [
-                "Accept": "application/vnd.github+json",
-                "Authorization": "Bearer \(token)",
-                "User-Agent": "VoiceDesk-dogfood",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json"
-            ],
-            body: body
-        )
-        let response = try await transport.send(request)
-        try Self.throwIfFailed(response)
-        return response
     }
 
     private static func throwIfFailed(_ response: VoiceCloudLogHTTPResponse) throws {

@@ -11,6 +11,21 @@ final class VoiceCloudDogfoodLogTests: XCTestCase {
         XCTAssertFalse(VoiceDogfoodGate.isTestFlightReceipt(receiptLastPathComponent: nil))
     }
 
+    func testDefaultOnInDebugAndTestFlightAppStoreForcedOff() {
+        XCTAssertTrue(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: true, storedValue: nil))
+        XCTAssertTrue(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: true, storedValue: true))
+        XCTAssertFalse(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: true, storedValue: false))
+        XCTAssertFalse(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: false, storedValue: nil))
+        XCTAssertFalse(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: false, storedValue: true))
+        let debugAllows = VoiceDogfoodGate.allowsLogging(compileDebug: true, isTestFlight: false)
+        let testFlightAllows = VoiceDogfoodGate.allowsLogging(compileDebug: false, isTestFlight: true)
+        let appStoreAllows = VoiceDogfoodGate.allowsLogging(compileDebug: false, isTestFlight: false)
+        XCTAssertTrue(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: debugAllows, storedValue: nil))
+        XCTAssertTrue(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: testFlightAllows, storedValue: nil))
+        XCTAssertFalse(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: appStoreAllows, storedValue: nil))
+        XCTAssertFalse(VoiceCloudDogfoodPreference.isEnabled(allowsLogging: appStoreAllows, storedValue: true))
+    }
+
     func testSerializeIncludesStickyFocusedPersonSearchAndErrors() throws {
         let entry = sampleEntry()
         guard let data = VoiceCloudLogCodec.jsonlLine(for: entry),
@@ -168,10 +183,55 @@ final class VoiceCloudDogfoodLogTests: XCTestCase {
         )
         let result = try await uploader.upload(sampleEntry())
         XCTAssertEqual(result.createdGistID, "newgist99")
-        XCTAssertEqual(transport.requests.first?.method, "POST")
-        XCTAssertEqual(transport.requests.first?.url, "https://api.github.com/gists")
-        let created = try JSONSerialization.jsonObject(with: transport.requests[0].body) as? [String: Any]
+        XCTAssertEqual(transport.requests.map(\.method), ["GET", "POST", "GET", "PATCH"])
+        XCTAssertTrue(transport.requests[0].url.contains("https://api.github.com/gists"))
+        XCTAssertEqual(transport.requests[1].url, "https://api.github.com/gists")
+        let created = try JSONSerialization.jsonObject(with: transport.requests[1].body) as? [String: Any]
         XCTAssertEqual(created?["public"] as? Bool, false)
+        XCTAssertEqual(created?["description"] as? String, VoiceCloudGistStore.description)
+    }
+
+    func testGistReuseByDescriptionDoesNotCreate() async throws {
+        let transport = FakeVoiceCloudTransport()
+        transport.listedGists = [
+            ["id": "noise1", "description": "other gist"],
+            ["id": "keep42", "description": VoiceCloudGistStore.description],
+        ]
+        transport.gistFiles["voice-log.jsonl"] = "{\"userTranscript\":\"prior\"}\n"
+        let resolver = VoiceCloudGistResolver(
+            token: "ghp_TESTTOKENTESTTOKENTESTTOK",
+            transport: transport
+        )
+        let resolved = try await resolver.resolve()
+        XCTAssertEqual(resolved.id, "keep42")
+        XCTAssertFalse(resolved.created)
+        XCTAssertEqual(transport.requests.map(\.method), ["GET"])
+        XCTAssertFalse(transport.requests.contains { $0.method == "POST" })
+
+        let uploader = VoiceCloudLogUploader(
+            config: VoiceCloudLogConfig(
+                kind: .githubGist,
+                token: "ghp_TESTTOKENTESTTOKENTESTTOK"
+            ),
+            transport: transport,
+            allowsLogging: true,
+            optedIn: true
+        )
+        _ = try await uploader.upload(sampleEntry())
+        XCTAssertFalse(transport.requests.contains { $0.method == "POST" })
+        XCTAssertTrue(transport.gistFiles["voice-log.jsonl"]?.contains("Murray") == true)
+    }
+
+    func testGistResolverUsesPersistedIDWithoutListing() async throws {
+        let transport = FakeVoiceCloudTransport()
+        transport.listedGists = [["id": "other", "description": VoiceCloudGistStore.description]]
+        let resolved = try await VoiceCloudGistResolver(
+            token: "ghp_TESTTOKENTESTTOKENTESTTOK",
+            persistedID: "already123",
+            transport: transport
+        ).resolve()
+        XCTAssertEqual(resolved.id, "already123")
+        XCTAssertTrue(transport.requests.isEmpty)
     }
 
     func testHTTPSUsesSecretHeaderNotQueryAndRedactedBody() async throws {
@@ -331,6 +391,7 @@ private func sampleEntry() -> VoiceInteractionEntry {
 private final class FakeVoiceCloudTransport: VoiceCloudLogTransporting, @unchecked Sendable {
     var requests: [VoiceCloudLogHTTPRequest] = []
     var gistFiles: [String: String] = [:]
+    var listedGists: [[String: Any]] = []
     var nextCreatedGistID = "created1"
     var repoContent = ""
     var repoSHA: String?
@@ -349,6 +410,10 @@ private final class FakeVoiceCloudTransport: VoiceCloudLogTransporting, @uncheck
 
     private func gistResponse(_ request: VoiceCloudLogHTTPRequest) throws -> VoiceCloudLogHTTPResponse {
         if request.method == "GET" {
+            if isGistListURL(request.url) {
+                let data = try JSONSerialization.data(withJSONObject: listedGists)
+                return VoiceCloudLogHTTPResponse(status: 200, body: data)
+            }
             let files = gistFiles.mapValues { ["content": $0] }
             let data = try JSONSerialization.data(withJSONObject: ["files": files])
             return VoiceCloudLogHTTPResponse(status: 200, body: data)
@@ -371,6 +436,10 @@ private final class FakeVoiceCloudTransport: VoiceCloudLogTransporting, @uncheck
             return VoiceCloudLogHTTPResponse(status: 200)
         }
         return VoiceCloudLogHTTPResponse(status: 400)
+    }
+
+    private func isGistListURL(_ url: String) -> Bool {
+        url == "https://api.github.com/gists" || url.hasPrefix("https://api.github.com/gists?")
     }
 
     private func repoResponse(_ request: VoiceCloudLogHTTPRequest) throws -> VoiceCloudLogHTTPResponse {

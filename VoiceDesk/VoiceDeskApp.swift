@@ -14,6 +14,7 @@ struct VoiceDeskApp: App {
                 }
                 .task {
                     await model.restoreGoogleIfNeeded()
+                    VoiceCloudDogfoodClient.shared.prepareOnLaunch()
                 }
         }
     }

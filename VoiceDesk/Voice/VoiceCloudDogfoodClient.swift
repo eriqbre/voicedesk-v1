@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import VoiceDeskLogic
 
-/// Opt-in DEBUG / TestFlight cloud upload. App Store production never enables.
+/// DEBUG / TestFlight cloud upload. Default ON. App Store production never enables.
 @MainActor
 @Observable
 final class VoiceCloudDogfoodSettings {
@@ -22,8 +22,17 @@ final class VoiceCloudDogfoodSettings {
         VoiceDogfoodGate.allowsLogging
     }
 
-    var showsBanner: Bool {
-        allowsLogging && isEnabled
+    var hasGitHubToken: Bool {
+        VoiceDeskSecrets.voiceDogfoodGitHubToken != nil
+    }
+
+    var hasAnyDestination: Bool {
+        config != nil
+    }
+
+    /// Quiet one-time setup hint. Not a per-session ritual.
+    var showsMissingTokenBanner: Bool {
+        allowsLogging && isEnabled && !hasGitHubToken && VoiceDeskSecrets.voiceDogfoodUploadURL == nil
     }
 
     var config: VoiceCloudLogConfig? {
@@ -39,11 +48,18 @@ final class VoiceCloudDogfoodSettings {
     }
 
     var pullHint: String {
-        config?.pullHint ?? "Add VOICE_DOGFOOD_GITHUB_TOKEN (and gist/repo) or HTTPS URL+secret."
+        config?.pullHint ?? "Add VOICE_DOGFOOD_GITHUB_TOKEN to Secrets.plist once"
     }
 
     private init() {
-        isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        let stored = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool
+        isEnabled = VoiceCloudDogfoodPreference.isEnabled(
+            allowsLogging: VoiceDogfoodGate.allowsLogging,
+            storedValue: stored
+        )
+        if stored == nil, isEnabled {
+            UserDefaults.standard.set(true, forKey: Self.enabledKey)
+        }
         persistedGistID = UserDefaults.standard.string(forKey: Self.gistIDKey)
     }
 
@@ -59,18 +75,55 @@ final class VoiceCloudDogfoodClient {
 
     private var queue: [VoiceInteractionEntry] = []
     private var running = false
+    private var ensuring = false
     private let transport = URLSessionVoiceCloudTransport()
 
+    private var isUITesting: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-testing")
+    }
+
+    func prepareOnLaunch() {
+        guard !isUITesting else { return }
+        let settings = VoiceCloudDogfoodSettings.shared
+        guard settings.allowsLogging, settings.isEnabled else { return }
+        guard let token = VoiceDeskSecrets.voiceDogfoodGitHubToken else { return }
+        Task { await ensureGist(token: token) }
+    }
+
     func enqueue(_ entry: VoiceInteractionEntry) {
+        guard !isUITesting else { return }
         let settings = VoiceCloudDogfoodSettings.shared
         guard settings.allowsLogging, settings.isEnabled else { return }
         guard settings.config != nil else {
             settings.lastError = VoiceCloudLogError.missingConfig.description
-            settings.lastStatus = "missing Secrets token"
+            settings.lastStatus = "missing token"
             return
         }
         queue.append(entry)
         pump()
+    }
+
+    private func ensureGist(token: String) async {
+        guard !ensuring else { return }
+        ensuring = true
+        defer { ensuring = false }
+        let settings = VoiceCloudDogfoodSettings.shared
+        do {
+            let resolved = try await VoiceCloudGistResolver(
+                token: token,
+                persistedID: settings.persistedGistID ?? VoiceDeskSecrets.voiceDogfoodGistID,
+                transport: transport
+            ).resolve()
+            settings.rememberGistID(resolved.id)
+            settings.lastDestination = "gist:\(resolved.id)"
+            settings.lastError = ""
+            if settings.lastStatus.isEmpty {
+                settings.lastStatus = resolved.created ? "gist ready" : "gist reused"
+            }
+        } catch {
+            settings.lastError = error.localizedDescription
+            settings.lastStatus = "gist setup failed"
+        }
     }
 
     private func pump() {
@@ -81,6 +134,9 @@ final class VoiceCloudDogfoodClient {
 
     private func drain() async {
         let settings = VoiceCloudDogfoodSettings.shared
+        if let token = VoiceDeskSecrets.voiceDogfoodGitHubToken, settings.persistedGistID == nil {
+            await ensureGist(token: token)
+        }
         while !queue.isEmpty {
             let entry = queue.removeFirst()
             guard let config = settings.config else {
@@ -95,8 +151,8 @@ final class VoiceCloudDogfoodClient {
             )
             do {
                 let result = try await uploader.upload(entry)
-                if let created = result.createdGistID {
-                    settings.rememberGistID(created)
+                if let id = result.gistID ?? result.createdGistID {
+                    settings.rememberGistID(id)
                 }
                 settings.lastDestination = result.destination
                 settings.lastStatus = "uploaded"

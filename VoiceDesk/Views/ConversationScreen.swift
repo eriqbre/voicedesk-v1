@@ -11,8 +11,8 @@ struct ConversationScreen: View {
             ZStack {
                 Palette.background.ignoresSafeArea()
                 VStack(spacing: 0) {
-                    if cloudLog.showsBanner {
-                        CloudDogfoodBanner()
+                    if cloudLog.showsMissingTokenBanner {
+                        CloudDogfoodMissingTokenBanner()
                     }
                     ScrollViewReader { proxy in
                         ScrollView {
@@ -65,7 +65,7 @@ struct ConversationScreen: View {
                         Button {
                             model.showVoiceLog = true
                         } label: {
-                            Image(systemName: cloudLog.showsBanner ? "ladybug.fill" : "ladybug")
+                            Image(systemName: cloudLog.isEnabled ? "ladybug.fill" : "ladybug")
                         }
                         .accessibilityLabel("Voice log")
                         .accessibilityIdentifier("debug.voice.log")

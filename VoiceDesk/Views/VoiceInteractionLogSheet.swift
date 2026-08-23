@@ -17,33 +17,29 @@ struct VoiceInteractionLogSheet: View {
                 Section {
                     Toggle("Cloud dogfood log", isOn: $cloud.isEnabled)
                         .accessibilityIdentifier("debug.voice.cloud.toggle")
-                    if cloud.isEnabled {
-                        Text("ON — each turn uploads transcript, intent, sticky, focused person, search q, cards, reply, voice path, errors. No audio.")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Palette.accent)
-                            .accessibilityIdentifier("debug.voice.cloud.on")
-                    } else {
-                        Text("Off unless you flip this. DEBUG and TestFlight only. App Store production never uploads.")
+                    Text(cloud.isEnabled
+                         ? "On by default. Every turn uploads automatically. Flip off to stop."
+                         : "Off. DEBUG / TestFlight only. App Store production never uploads.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(cloud.isEnabled ? "debug.voice.cloud.on" : "debug.voice.cloud.off")
+                    if cloud.showsMissingTokenBanner {
+                        Text("Add VOICE_DOGFOOD_GITHUB_TOKEN to Secrets.plist once")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    }
-                    if let destination = cloud.config?.pullHint {
-                        Text(destination)
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                    } else {
-                        Text("Add VOICE_DOGFOOD_GITHUB_TOKEN + gist/repo, or UPLOAD_URL + SECRET, to Secrets.plist.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if !cloud.lastStatus.isEmpty {
-                        Text(cloud.lastStatus)
-                            .font(.caption)
                     }
                     if !cloud.lastDestination.isEmpty {
                         Text(cloud.lastDestination)
                             .font(.caption.monospaced())
                             .textSelection(.enabled)
+                    } else if let destination = cloud.config?.pullHint {
+                        Text(destination)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                    }
+                    if !cloud.lastStatus.isEmpty {
+                        Text(cloud.lastStatus)
+                            .font(.caption)
                     }
                     if !cloud.lastError.isEmpty {
                         Text(cloud.lastError)
@@ -53,7 +49,7 @@ struct VoiceInteractionLogSheet: View {
                 } header: {
                     Text("Cloud dogfood log")
                 } footer: {
-                    Text("Private gist/repo via a Secrets token, or HTTPS + secret. Elon pulls with gh/curl — no paste.")
+                    Text("Elon pulls the gist by description using the Secrets token. No gist id, no paste.")
                 }
 
                 #if DEBUG
@@ -155,29 +151,16 @@ struct VoiceInteractionLogSheet: View {
     }
 }
 
-struct CloudDogfoodBanner: View {
-    @Bindable private var cloud = VoiceCloudDogfoodSettings.shared
-
+struct CloudDogfoodMissingTokenBanner: View {
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "cloud.fill")
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Cloud dogfood log ON")
-                    .font(.caption.weight(.semibold))
-                if !cloud.lastStatus.isEmpty {
-                    Text(cloud.lastStatus)
-                        .font(.caption2)
-                        .opacity(0.9)
-                }
-            }
-            Spacer()
-        }
-        .foregroundStyle(Color.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.accent)
-        .accessibilityIdentifier("debug.voice.cloud.banner")
-        .accessibilityLabel("Cloud dogfood log on")
+        Text("Add VOICE_DOGFOOD_GITHUB_TOKEN to Secrets.plist once")
+            .font(.caption)
+            .foregroundStyle(Palette.muted)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.accentSoft)
+            .accessibilityIdentifier("debug.voice.cloud.missing-token")
+            .accessibilityLabel("Add VOICE_DOGFOOD_GITHUB_TOKEN to Secrets.plist once")
     }
 }

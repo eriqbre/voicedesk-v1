@@ -111,65 +111,36 @@ If an iCloud Documents container is later entitled, Debug also appends to that c
 
 Never commit `.debug/` or raw `voice-log.jsonl`.
 
-### Cloud dogfood log (physical iPhone — no paste)
+### Cloud dogfood log (automatic — no paste, no ladybug)
 
-Opt-in. **DEBUG and TestFlight only.** App Store production is off (`VoiceDogfoodGate`: DEBUG *or* sandbox receipt). Default toggle is **off**. Flip **Cloud dogfood log** in the ladybug sheet. A purple **Cloud dogfood log ON** bar shows while it is on.
+**DEBUG and TestFlight default ON** and stay on. App Store production is forced off. Every turn uploads. Ladybug toggle is an escape hatch only.
 
-Do **not** put the token in git. Copy `VoiceDesk/Secrets.example.plist` → `Secrets.plist` (or scheme env) and set one destination:
+Token once in gitignored `VoiceDesk/Secrets.plist` (or scheme env): `VOICE_DOGFOOD_GITHUB_TOKEN` (gist PAT). If missing in DEBUG, a quiet banner: **Add VOICE_DOGFOOD_GITHUB_TOKEN to Secrets.plist once**. Not a per-session ritual.
 
-| Prefer | Secrets keys | What the phone does |
-|--------|----------------|---------------------|
-| **Private gist** | `VOICE_DOGFOOD_GITHUB_TOKEN` + optional `VOICE_DOGFOOD_GIST_ID` | Token-only: creates a **private** gist on first turn and keeps the id on device. Token + gist id: appends JSONL to that gist. |
-| Private repo | `VOICE_DOGFOOD_GITHUB_TOKEN` + `VOICE_DOGFOOD_GITHUB_REPO` (`owner/repo`) + optional `VOICE_DOGFOOD_GITHUB_PATH` (default `.debug/voice-log.jsonl`) | GET + PUT contents (append JSONL). |
-| HTTPS store | `VOICE_DOGFOOD_UPLOAD_URL` + `VOICE_DOGFOOD_UPLOAD_SECRET` | POST JSON envelope. Header `X-VoiceDesk-Secret`. Query string never carries the secret. |
+On launch / first turn the app `GET /gists` and reuses a **private** gist whose description is exactly `VoiceDesk dogfood voice-log` (file `voice-log.jsonl`). If none exists it creates one and persists the id. Eriq never pastes a gist id.
 
-Token: fine-grained PAT with **gists** (gist path) or **contents: write** on the dogfood repo. Never App Store.
+**Walk (Eriq):** pull tip → token already in Secrets → ⌘R Debug → **do not touch ladybug** → talk.
 
-**Enable (Eriq / TestFlight)**
-
-1. Debug or TestFlight build (not App Store).
-2. Secrets token (or HTTPS URL+secret) on the device build.
-3. Ladybug → **Cloud dogfood log** ON. Banner must read **Cloud dogfood log ON**.
-4. Talk. No Copy / Share.
-
-**Elon / Cursor — pull (no chat paste)**
-
-Gist (after first upload the ladybug sheet shows `gist:<id>`):
+**Elon pull (one line — token from local Secrets.plist, gist by description):**
 
 ```bash
-# last turns
-gh gist view "$GIST_ID" --filename voice-log.jsonl | tail -n 40
+./scripts/pull-voice-dogfood-log.sh | tail -n 40
+```
 
-# or
-curl -sS \
-  -H "Authorization: Bearer $VOICE_DOGFOOD_GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/gists/$GIST_ID" \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["files"]["voice-log.jsonl"]["content"])' \
+Equivalent:
+
+```bash
+TOKEN=$(plutil -extract VOICE_DOGFOOD_GITHUB_TOKEN raw -o - VoiceDesk/Secrets.plist)
+curl -sS -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/gists?per_page=100" \
+  | python3 -c 'import json,sys; gs=json.load(sys.stdin); g=next(x for x in gs if (x.get("description") or "").startswith("VoiceDesk dogfood voice-log")); print(g["id"])' \
+  | xargs -I{} curl -sS -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/gists/{}" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["voice-log.jsonl"]["content"])' \
   | tail -n 40
 ```
 
-Private repo:
-
-```bash
-gh api "repos/$OWNER/$REPO/contents/.debug/voice-log.jsonl" --jq .content | base64 -d | tail -n 40
-
-# or
-curl -sS \
-  -H "Authorization: Bearer $VOICE_DOGFOOD_GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/$OWNER/$REPO/contents/.debug/voice-log.jsonl" \
-  | python3 -c 'import json,sys,base64; d=json.load(sys.stdin); print(base64.b64decode(d["content"]).decode())' \
-  | tail -n 40
-```
-
-HTTPS store (whatever the store returns; secret in a header only):
-
-```bash
-curl -sS -H "X-VoiceDesk-Secret: $VOICE_DOGFOOD_UPLOAD_SECRET" "$VOICE_DOGFOOD_UPLOAD_URL" | tail -n 40
-```
-
-Cloud lines are redacted (tokens, phones, `user@redacted`). Names and transcripts stay so a Murray ask vs a John Madison card is visible immediately.
+Do not ask Eriq for a gist id. Cloud lines are redacted (tokens, phones, `user@redacted`). Names and transcripts stay so a Murray ask vs a John Madison card is visible immediately.
 
 ### Voice regression fixtures (promote a pass)
 
