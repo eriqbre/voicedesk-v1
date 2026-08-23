@@ -22,6 +22,8 @@ final class CardInsertionTests: XCTestCase {
         XCTAssertEqual(ContentCard.draftConfirm(SampleData.draftReply()).fixtureID, "card.draftConfirm")
         XCTAssertEqual(ContentCard.statute(SampleData.statute()).fixtureID, "card.statute")
         XCTAssertEqual(ContentCard.connectGoogle(SampleData.connectGoogle()).fixtureID, "card.connectGoogle")
+        XCTAssertEqual(ContentCard.calendar(SampleData.calendarEvent()).fixtureID, "card.calendar")
+        XCTAssertEqual(ContentCard.task(SampleData.openTask()).fixtureID, "card.task")
     }
 
     func testAccessibilityIdentityIsNonEmptyForEveryKind() {
@@ -31,7 +33,9 @@ final class CardInsertionTests: XCTestCase {
             .person(SampleData.buyer()),
             .draftConfirm(SampleData.draftReply()),
             .statute(SampleData.statute()),
-            .connectGoogle(SampleData.connectGoogle())
+            .connectGoogle(SampleData.connectGoogle()),
+            .calendar(SampleData.calendarEvent()),
+            .task(SampleData.openTask())
         ]
         for card in cards {
             XCTAssertFalse(card.accessibilityIdentity.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -42,5 +46,20 @@ final class CardInsertionTests: XCTestCase {
         var document = ConversationDocument()
         document.appendUser("What's in my inbox?")
         XCTAssertTrue(document.insertedCards.isEmpty)
+    }
+
+    func testMultiEmailListCardsAreCompactSingleIsFull() {
+        let one = EmailItem.listCards([SampleData.email()])
+        if case .email(let item) = one.first {
+            XCTAssertFalse(item.isCompactListRow)
+        } else {
+            XCTFail("expected one full email card")
+        }
+        let many = EmailItem.listCards([SampleData.email(), SampleData.syncedEmail()])
+        XCTAssertEqual(many.count, 2)
+        XCTAssertTrue(many.allSatisfy { card in
+            if case .email(let item) = card { return item.isCompactListRow }
+            return false
+        })
     }
 }

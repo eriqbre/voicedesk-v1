@@ -14,7 +14,10 @@ let package = Package(
         .target(name: "VoiceDeskLogic"),
         .testTarget(
             name: "VoiceDeskLogicTests",
-            dependencies: ["VoiceDeskLogic"]
+            dependencies: ["VoiceDeskLogic"],
+            resources: [
+                .copy("Fixtures/voice-regression")
+            ]
         )
     ]
 )

@@ -30,6 +30,17 @@ final class LaunchSmokeTests: XCTestCase {
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'live Gmail is connected'")).firstMatch.exists)
     }
 
+    func testSamplePreviewOffersConnectGoogle() {
+        XCTAssertTrue(app.buttons["suggestion.tour"].waitForExistence(timeout: 5))
+        app.buttons["suggestion.tour"].tap()
+        waitForCard("card.email")
+        waitForCard("card.connectGoogle")
+        XCTAssertTrue(app.buttons["google.connect"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["suggestion.connectGoogle"].waitForExistence(timeout: 5))
+        let coach = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Connect Google so I can see'")).firstMatch
+        XCTAssertTrue(coach.waitForExistence(timeout: 5))
+    }
+
     func testDraftConfirmDoesNotFakeSend() {
         XCTAssertTrue(app.buttons["suggestion.draft"].waitForExistence(timeout: 5))
         app.buttons["suggestion.draft"].tap()

@@ -13,6 +13,8 @@ struct ContentCardView: View {
             case .draftConfirm(let item): DraftConfirmCardView(item: item)
             case .statute(let item): StatuteCardView(item: item)
             case .connectGoogle(let item): ConnectGoogleCardView(item: item)
+            case .calendar(let item): CalendarCardView(item: item)
+            case .task(let item): TaskCardView(item: item)
             }
         }
         // Outer ID is what made CI green (91b54e4). CardChrome must stay visual-only.
@@ -37,9 +39,65 @@ struct CardChrome<Content: View>: View {
 }
 
 struct EmailCardView: View {
+    @Environment(AppModel.self) private var model
     let item: EmailItem
+    @State private var showingEarlier = false
+    @State private var expandedFromCompact = false
+
+    private var showsFullReader: Bool {
+        item.cardPresentation == .full || expandedFromCompact
+    }
 
     var body: some View {
+        if showsFullReader {
+            fullReader
+        } else {
+            compactRow
+        }
+    }
+
+    private var compactRow: some View {
+        Button {
+            expandedFromCompact = true
+            model.expandCompactEmail(item)
+        } label: {
+            CardChrome {
+                HStack(alignment: .top, spacing: 12) {
+                    InitialsMark(initials: item.initials, hue: 0.72)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(item.fromName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Palette.ink)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(item.sentAtLabel)
+                                .font(.caption)
+                                .foregroundStyle(Palette.muted)
+                        }
+                        Text(item.subject)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Palette.ink)
+                            .lineLimit(1)
+                        Text(item.compactSnippet)
+                            .font(.caption)
+                            .foregroundStyle(Palette.ink.opacity(0.75))
+                            .lineLimit(1)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.muted)
+                        .padding(.top, 4)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("card.email.compact")
+        .accessibilityLabel("Email from \(item.fromName). \(item.subject). \(item.compactSnippet)")
+        .accessibilityHint("Opens the full email")
+    }
+
+    private var fullReader: some View {
         CardChrome {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
@@ -62,10 +120,49 @@ struct EmailCardView: View {
                 Text(item.subject)
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
-                Text(item.preview)
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.ink.opacity(0.85))
-                    .lineLimit(3)
+                if item.hasFullBody {
+                    EmailBodyReader(html: item.htmlBody, plain: item.body, expandsToFit: true)
+                } else {
+                    Text(item.preview)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.ink.opacity(0.85))
+                        .lineLimit(3)
+                }
+                if item.hasEarlierMessages {
+                    Button(showingEarlier ? "Hide earlier messages" : "Show earlier messages") {
+                        showingEarlier.toggle()
+                    }
+                    .buttonStyle(SecondaryCardButton())
+                    .accessibilityIdentifier("email.thread.toggle")
+                    if showingEarlier {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(item.earlierMessages) { message in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(message.fromName)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(Palette.ink)
+                                        Spacer()
+                                        if !message.sentAtLabel.isEmpty {
+                                            Text(message.sentAtLabel)
+                                                .font(.caption2)
+                                                .foregroundStyle(Palette.muted)
+                                        }
+                                    }
+                                    EmailBodyReader(html: message.htmlBody, plain: message.plainBody, expandsToFit: false)
+                                }
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Palette.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                        }
+                    }
+                }
+                if item.providerID != nil, model.google.isConnected {
+                    Button(item.hasFullBody ? "Refresh email" : "Read email") { model.openEmail(item) }
+                        .buttonStyle(SecondaryCardButton())
+                        .accessibilityIdentifier("email.read")
+                }
                 HStack(spacing: 8) {
                     TagChip(text: item.filterTag, systemImage: "tray")
                     if let listing = item.relatedListing {
@@ -80,8 +177,28 @@ struct EmailCardView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Email from \(item.fromName). \(item.subject). \(item.preview)")
+        .accessibilityLabel(emailAccessibilityLabel)
         .accessibilityIdentifier("card.email")
+        .onAppear { expandEarlierIfRequested() }
+        .onChange(of: model.expandEarlierEpoch) { _, _ in
+            expandEarlierIfRequested()
+        }
+        .onChange(of: item.earlierMessages.count) { _, _ in
+            expandEarlierIfRequested()
+        }
+    }
+
+    private func expandEarlierIfRequested() {
+        if model.expandsEarlierMessages(item), item.hasEarlierMessages {
+            showingEarlier = true
+        }
+    }
+
+    private var emailAccessibilityLabel: String {
+        if let body = item.body, item.hasFullBody {
+            return "Email from \(item.fromName). \(item.subject). \(body)"
+        }
+        return "Email from \(item.fromName). \(item.subject). \(item.preview)"
     }
 }
 
@@ -260,6 +377,7 @@ struct DraftConfirmCardView: View {
             Text("Confirmed — logged on Activity. Not sent.")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Palette.accent)
+                .accessibilityIdentifier("draft.queued")
         case .cancelled:
             Text("Cancelled. Nothing was sent.")
                 .font(.caption.weight(.semibold))
@@ -359,24 +477,36 @@ struct ConnectGoogleCardView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(item.headline)
                             .font(.headline)
-                        Text(item.isConnected ? "Connected (stub)" : "Required for a real day")
+                        Text(item.statusLine)
                             .font(.caption)
                             .foregroundStyle(Palette.muted)
                     }
                 }
-                Text(item.body)
+                Text(item.setupNeeded
+                    ? (model.google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy)
+                    : item.body)
                     .font(.subheadline)
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Gmail — read + send on confirm", systemImage: "envelope")
-                    Label("Calendar — read + create on confirm", systemImage: "calendar")
-                    Label("Tasks — read + complete on confirm", systemImage: "checkmark.circle")
+                    Label("Gmail — read now; send only after confirm", systemImage: "envelope")
+                    Label("Calendar — upcoming events", systemImage: "calendar")
+                    Label("Tasks — open items", systemImage: "checkmark.circle")
                 }
                 .font(.caption)
                 .foregroundStyle(Palette.ink.opacity(0.8))
-                if item.isConnected || model.google.isConnected {
-                    Text("Stub only. Tokens are not stored. Next slice: OAuth + sync + offline cache.")
+                if item.setupNeeded {
+                    Text("I am not connected. Add GOOGLE_CLIENT_ID, then try again.")
                         .font(.caption)
                         .foregroundStyle(Palette.muted)
+                        .accessibilityIdentifier("google.setup")
+                } else if item.isConnected || model.google.isConnected {
+                    if let email = item.accountEmail ?? model.google.snapshot.email {
+                        Text(email)
+                            .font(.caption.weight(.semibold))
+                            .accessibilityIdentifier("google.account")
+                    }
+                    Button("Disconnect") { model.disconnectGoogle() }
+                        .buttonStyle(SecondaryCardButton())
+                        .accessibilityIdentifier("google.disconnect")
                 } else {
                     Button("Connect Google") { model.connectGoogle() }
                         .buttonStyle(PrimaryCardButton())
@@ -387,6 +517,103 @@ struct ConnectGoogleCardView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(item.headline)
         .accessibilityIdentifier("card.connectGoogle")
+    }
+}
+
+struct CalendarCardView: View {
+    let item: CalendarItem
+    @State private var showingDetails = false
+
+    var body: some View {
+        CardChrome {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Calendar", systemImage: "calendar")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.accent)
+                Text(item.title)
+                    .font(.headline)
+                labeled("When", item.whenLabel)
+                if item.hasDetails {
+                    Button(showingDetails ? "Hide details" : "Show details") {
+                        showingDetails.toggle()
+                    }
+                    .buttonStyle(SecondaryCardButton())
+                    .accessibilityIdentifier("calendar.details.toggle")
+                }
+                if showingDetails {
+                    calendarDetails
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(item.accessibilityLabel)
+        .accessibilityIdentifier("card.calendar")
+    }
+
+    @ViewBuilder
+    private var calendarDetails: some View {
+        if let location = item.location, !location.isEmpty {
+            labeled("Location", location)
+                .accessibilityIdentifier("calendar.location")
+        }
+        if !item.relatedPeople.isEmpty {
+            labeled("People", item.relatedPeople.joined(separator: " · "))
+                .accessibilityIdentifier("calendar.people")
+        }
+        if let notes = item.notes, !notes.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Notes")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.muted)
+                Text(notes)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityIdentifier("calendar.notes")
+        }
+    }
+
+    private func labeled(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.muted)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.ink)
+        }
+    }
+}
+
+struct TaskCardView: View {
+    let item: TaskItem
+
+    var body: some View {
+        CardChrome {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Task", systemImage: "checkmark.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.accent)
+                Text(item.title)
+                    .font(.headline)
+                if let due = item.dueLabel {
+                    Text(due)
+                        .font(.caption)
+                        .foregroundStyle(Palette.muted)
+                }
+                if let notes = item.notes, !notes.isEmpty {
+                    Text(notes)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.ink.opacity(0.85))
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Task \(item.title).")
+        .accessibilityIdentifier("card.task")
     }
 }
 
@@ -480,6 +707,8 @@ struct SecondaryCardButton: ButtonStyle {
             DraftConfirmCardView(item: SampleData.draftReply())
             StatuteCardView(item: SampleData.statute())
             ConnectGoogleCardView(item: SampleData.connectGoogle())
+            CalendarCardView(item: SampleData.calendarEvent())
+            TaskCardView(item: SampleData.openTask())
         }
         .padding()
     }

@@ -1,8 +1,15 @@
 .DS_Store
+.debug/
+**/.debug/
+voice-log.jsonl
+**/voice-log.jsonl
+!VoiceDeskLogic/Tests/Fixtures/**/*.jsonl
+!VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/**/*.jsonl
 xcuserdata/
 DerivedData/
 Secrets.plist
 **/Secrets.plist
+Config/Generated/GoogleSecrets.xcconfig
 *.xcuserstate
 *.xccheckout
 *.moved-aside

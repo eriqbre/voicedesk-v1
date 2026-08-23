@@ -1,11 +1,12 @@
-import AVFoundation
+@preconcurrency import AVFAudio
 
 /// Simultaneous mic capture + playback at 24 kHz PCM16.
 /// Ported from xai-cookbook `VoiceAgentAudioEngine` (VoiceTesterApp).
 @MainActor
 final class GrokVoiceAudioEngine {
-    static let sampleRate: Double = 24_000
-    static let outputFormat = AVAudioFormat(
+    nonisolated static let sampleRate: Double = 24_000
+
+    nonisolated static let outputFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
         sampleRate: sampleRate,
         channels: 1,
@@ -24,7 +25,11 @@ final class GrokVoiceAudioEngine {
         do {
             let session = AVAudioSession.sharedInstance()
             let mode: AVAudioSession.Mode = echoCancellation ? .voiceChat : .default
-            try session.setCategory(.playAndRecord, mode: mode, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+            try session.setCategory(
+                .playAndRecord,
+                mode: mode,
+                options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers]
+            )
             try session.setActive(true)
             logs.append("Audio session active")
         } catch {
@@ -50,15 +55,24 @@ final class GrokVoiceAudioEngine {
 
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
-        logs.append("Mic format: \(Int(inputFormat.sampleRate)) Hz")
+        let sourceRate = inputFormat.sampleRate
+        logs.append("Mic format: \(Int(sourceRate)) Hz")
 
-        guard inputFormat.sampleRate > 0 else {
+        guard sourceRate > 0 else {
             logs.append("Mic input has zero sample rate")
             return logs
         }
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, _ in
-            guard let data = Self.resampleToInt16(buffer: buffer, inputFormat: inputFormat) else { return }
+            guard let channel = buffer.floatChannelData?[0] else { return }
+            let count = Int(buffer.frameLength)
+            guard count > 0 else { return }
+            var samples = [Float](repeating: 0, count: count)
+            samples.withUnsafeMutableBufferPointer { dest in
+                guard let base = dest.baseAddress else { return }
+                base.update(from: channel, count: count)
+            }
+            guard let data = Self.int16Data(samples: samples, sourceRate: sourceRate) else { return }
             onMicAudio(data.base64EncodedString())
         }
 
@@ -120,38 +134,32 @@ final class GrokVoiceAudioEngine {
         playerNode.scheduleBuffer(buffer)
     }
 
-    nonisolated static func resampleToInt16(buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) -> Data? {
+    /// Convert already-copied floats. Callers must copy off `AVAudioPCMBuffer` first.
+    nonisolated static func int16Data(samples: [Float], sourceRate: Double) -> Data? {
+        guard !samples.isEmpty else { return nil }
         let targetRate = sampleRate
-        let sourceBuffer: AVAudioPCMBuffer
-        if inputFormat.sampleRate != targetRate {
-            guard let format = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: targetRate,
-                channels: 1,
-                interleaved: true
-            ),
-                let converter = AVAudioConverter(from: inputFormat, to: format)
-            else { return nil }
-            let newCount = AVAudioFrameCount(Double(buffer.frameLength) * targetRate / inputFormat.sampleRate)
-            guard let converted = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: newCount) else { return nil }
-            var error: NSError?
-            converter.convert(to: converted, error: &error) { _, status in
-                status.pointee = .haveData
-                return buffer
-            }
-            if error != nil { return nil }
-            sourceBuffer = converted
+        let floats: [Float]
+        if abs(sourceRate - targetRate) < 0.5 {
+            floats = samples
         } else {
-            sourceBuffer = buffer
+            let ratio = targetRate / sourceRate
+            let newCount = max(1, Int((Double(samples.count) * ratio).rounded()))
+            var resampled = [Float](repeating: 0, count: newCount)
+            let last = samples.count - 1
+            for index in 0..<newCount {
+                let src = Double(index) / ratio
+                let left = min(Int(src), last)
+                let right = min(left + 1, last)
+                let frac = Float(src - Double(left))
+                resampled[index] = samples[left] + (samples[right] - samples[left]) * frac
+            }
+            floats = resampled
         }
-
-        guard let floats = sourceBuffer.floatChannelData?[0] else { return nil }
-        let count = Int(sourceBuffer.frameLength)
-        var samples = [Int16](repeating: 0, count: count)
-        for index in 0..<count {
+        var packed = [Int16](repeating: 0, count: floats.count)
+        for index in floats.indices {
             let clipped = max(-1, min(1, floats[index]))
-            samples[index] = Int16(clipped * Float(Int16.max))
+            packed[index] = Int16(clipped * Float(Int16.max))
         }
-        return samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        return packed.withUnsafeBufferPointer { Data(buffer: $0) }
     }
 }

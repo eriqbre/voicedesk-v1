@@ -9,6 +9,12 @@ struct VoiceDeskApp: App {
             ConversationScreen()
                 .environment(model)
                 .preferredColorScheme(.light)
+                .onOpenURL { url in
+                    _ = model.handleOpenURL(url)
+                }
+                .task {
+                    await model.restoreGoogleIfNeeded()
+                }
         }
     }
 }

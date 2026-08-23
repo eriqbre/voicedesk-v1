@@ -63,6 +63,82 @@ main                         # dogfood candidate; protected
 - No long-lived `develop` / `staging`.
 - Parked PRs > 7 days: close or re-scope.
 
+### VoiceDesk pull recipe (Mac dogfood)
+
+After checkout, keep the committed `VoiceDesk.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. It pins GoogleSignIn-iOS **9.2.0** (and GTMAppAuth 5.0.0). **Never delete** that file to “fix” a resolve — a fresh solve of `9.0.0..<10.0.0` can pick a GTMAppAuth tools-version that Xcode 16 rejects.
+
+- If `VoiceDesk.xcodeproj` or `Package.resolved` is dirty: `git restore VoiceDesk.xcodeproj` **and** `git restore VoiceDesk.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
+- Only `git clean -f` an **untracked** `Package.resolved` that blocks checkout, then check the file out again so the committed pin returns.
+- If Xcode still says `Missing package product 'GoogleSignIn'`: `xcodebuild -resolvePackageDependencies -project VoiceDesk.xcodeproj -scheme VoiceDesk` (uses the committed lockfile).
+- **Signing / Development Team:** do **not** require `DEVELOPMENT_TEAM` in `Secrets.plist`. If a device build needs a team, pick it in Xcode → Signing & Capabilities. `git restore VoiceDesk.xcodeproj` may clear a picker value; just re-select Team. Putting a Team ID in Secrets is optional (inject writes it only when set). A Team ID may be committed later if we choose to — it is not a secret — not now.
+
+### DEBUG voice interaction log (dogfood only)
+
+Debug / Testing builds only. **Release and App Store builds compile this out** — no utterance storage, no JSONL, no ladybug UI, no upload.
+
+Agents (Elon / Cursor / Grok Bot) read the file on disk. **Do not ask Eriq or Bridget to Copy / Share / paste.**
+
+**Mac / Simulator (primary — zero paste)**
+
+Each Debug Simulator turn appends JSONL here (survives rebuilds; gitignored):
+
+```
+~/Desktop/projects/voicedesk-v1/.debug/voice-log.jsonl
+```
+
+```bash
+tail -n 40 ~/Desktop/projects/voicedesk-v1/.debug/voice-log.jsonl
+# or
+cat ~/Desktop/projects/voicedesk-v1/.debug/voice-log.jsonl
+```
+
+The Simulator uses `SIMULATOR_HOST_HOME` (fallback: CoreSimulator sandbox prefix) so it writes the **host** Mac path, not the app container. Eriq/Bridget just run the Debug scheme.
+
+**Physical iPhone**
+
+- On-device: `Documents/VoiceDesk-debug/voice-log.jsonl` (Files → On My iPhone → VoiceDesk → VoiceDesk-debug). Ladybug → **Open log folder**.
+- Mac mirror without chat paste: ladybug → **Save to Files** → iCloud Drive → folder `VoiceDesk-debug`. After iCloud sync, agents read:
+
+```
+~/Library/Mobile Documents/com~apple~CloudDocs/VoiceDesk-debug/voice-log.jsonl
+```
+
+If Desktop is in iCloud, they can Save to Files into `Desktop/projects/voicedesk-v1/.debug/` instead (same primary path).
+
+If an iCloud Documents container is later entitled, Debug also appends to that container’s `Documents/VoiceDesk-debug/` (nil-safe today — no entitlement shipped).
+
+**What each line contains:** exact transcript, intent (general / inbox-overview / desk-person / …), sticky cleared vs reused, Gmail `q=`, cards, assistant reply, Eve vs AVSpeech.
+
+Never commit `.debug/` or raw `voice-log.jsonl`.
+
+### Voice regression fixtures (promote a pass)
+
+After a good dogfood turn, **do not paste the log into chat**. Elon reads `.debug/voice-log.jsonl`, copies **one sanitized line** into:
+
+```
+VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/voice-regression/*.jsonl
+```
+
+Same schema as the DEBUG log (`userTranscript`, `intent`, `routingNotes`, `cardsAttached`, `assistantReply`, `voicePath`, `source`). Add replay keys when needed:
+
+| Key | When |
+|-----|------|
+| `hadFocusedEmail` / `stickyFromName` | Prior person/thread (Murray Mitchell / Steve Brown) |
+| `assertReply` | `true` for desk-owned (inbox-overview / desk-person / desk-thread). **`false` for `general`** — never snapshot Eve’s live Grok string |
+| `requiredNotes` | e.g. `sticky cleared` |
+| `forbiddenSubstrings` | e.g. `from:john` |
+| `allowedIntents` | aliases (`desk-thread` + `desk-person`) |
+
+```bash
+tail -n 20 ~/Desktop/projects/voicedesk-v1/.debug/voice-log.jsonl
+# sanitize names/emails → Murray Mitchell / steve@example.com only
+./scripts/promote-voice-regression.sh >> VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/voice-regression/from-log.jsonl
+```
+
+CI: `swift test --package-path VoiceDeskLogic` loads every `*.jsonl` in that folder and replays via `VoiceTurnReplay` (no network; synthetic `VoiceRegressionDesk`). Desk-owned turns assert intent, sticky, Gmail `q=` / notes, cards, and reply text. General turns assert routing only.
+
+**Never commit Bridget/Eriq PII.** Replace real names, addresses, and mailboxes. `@example.com` only. The suite fails fixtures that still contain personal emails or phone numbers.
+
 ### Slice order
 1. `slice/1-ios-shell-voice-ui`
 2. `slice/2-google-sync`

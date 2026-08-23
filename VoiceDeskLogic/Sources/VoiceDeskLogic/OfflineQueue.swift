@@ -1,6 +1,6 @@
 import Foundation
 
-public struct OfflineAction: Identifiable, Hashable, Sendable {
+public struct OfflineAction: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     public var title: String
     public var payload: String
@@ -12,8 +12,8 @@ public struct OfflineAction: Identifiable, Hashable, Sendable {
     }
 }
 
-/// Slice-1 stub of the PRD offline write queue. Reads stay on last-synced cards.
-public struct OfflineQueue: Hashable, Sendable {
+/// Confirmed writes wait here until a provider succeeds. Reads use last-synced cards.
+public struct OfflineQueue: Hashable, Sendable, Codable {
     public private(set) var pending: [OfflineAction]
 
     public init(pending: [OfflineAction] = []) {

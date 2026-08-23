@@ -49,6 +49,64 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("Jordan Hale"))
         XCTAssertTrue(text.contains("475.278"))
         XCTAssertFalse(text.contains("web_search"))
+        XCTAssertTrue(text.contains("NO Settings screen"))
+        XCTAssertTrue(text.contains("Tap Connect Google on the card below."))
+        XCTAssertTrue(text.contains("NEVER invent Settings, Account, or Integrations"))
+        XCTAssertTrue(text.contains("NEVER say you cannot connect"))
+        XCTAssertTrue(text.contains("NEVER say open it in Gmail"))
+        XCTAssertTrue(text.contains("NEVER say they need Gmail for the rest"))
+        XCTAssertFalse(text.contains("only have the subject"))
+    }
+
+    func testConnectedPresenceDropsSampleDeskLies() {
+        let snapshot = DeskSnapshot(
+            accountEmail: "ada@example.com",
+            emails: [SampleData.syncedEmail()],
+            events: [
+                CalendarItem(title: "Offer review", whenLabel: "Today 3:00 PM", location: "Coastal office")
+            ],
+            tasks: [TaskItem(title: "Call lender", dueLabel: "Tue")]
+        )
+        let text = GrokRealtime.presenceInstructions(for: DeskContext(isConnected: true, snapshot: snapshot))
+        XCTAssertTrue(text.contains("ada@example.com"))
+        XCTAssertTrue(text.contains("Inspection questions"))
+        XCTAssertTrue(text.contains("Offer review"))
+        XCTAssertFalse(text.contains("Jordan Hale"))
+        XCTAssertFalse(text.contains("1842 Beach Drive"))
+        XCTAssertTrue(text.contains("Do not mention any sample listing"))
+        XCTAssertTrue(text.contains("ALREADY connected as ada@example.com"))
+        XCTAssertTrue(text.contains("NO Settings screen"))
+        XCTAssertTrue(text.contains("NEVER tell them to open app settings"))
+        XCTAssertTrue(text.contains("You’re already connected as ada@example.com. Use Disconnect on the card if you need to switch."))
+        XCTAssertTrue(text.contains("NEVER say open it in Gmail"))
+        XCTAssertTrue(text.contains("NEVER mention an Email card"))
+        XCTAssertTrue(text.contains("pull-to-refresh"))
+        XCTAssertTrue(text.contains("NEVER paste a full email body"))
+        XCTAssertTrue(text.contains("not in the last sync"))
+        XCTAssertTrue(text.contains("NEVER say you are searching"))
+        XCTAssertTrue(text.contains("can search Gmail"))
+        XCTAssertFalse(text.contains("The iOS app can search"))
+        XCTAssertFalse(text.contains("I can search Gmail"))
+        XCTAssertFalse(text.contains("waiting on the Email card"))
+        XCTAssertFalse(text.contains("only have the subject"))
+        XCTAssertFalse(text.contains("Snippet only"))
+        XCTAssertFalse(text.contains("Can we walk the punch list"))
+        XCTAssertTrue(text.contains("from / subject / when only"))
+        XCTAssertTrue(text.contains("stay silent"))
+        XCTAssertTrue(text.contains("let the app handle"))
+        XCTAssertTrue(text.contains("NEVER narrate routing"))
+    }
+
+    func testConnectedDeskFactsNeverLabelSnippetOnly() {
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let facts = GrokRealtime.connectedDeskFacts(snapshot)
+        XCTAssertTrue(facts.contains("Ada Cole"))
+        XCTAssertTrue(facts.contains("Inspection questions"))
+        XCTAssertTrue(facts.contains("Today 8:02 AM"))
+        XCTAssertFalse(facts.contains("Snippet only"))
+        XCTAssertFalse(facts.contains("Can we walk the punch list"))
+        XCTAssertFalse(facts.localizedCaseInsensitiveContains("preview"))
+        XCTAssertTrue(facts.contains("stay silent"))
     }
 
     func testAppendAudioJSONIsHotPathSafe() {
@@ -104,6 +162,57 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             .error(code: "timeout", message: "idle")
         )
+        XCTAssertEqual(
+            GrokRealtime.parse(
+                type: "response.done",
+                json: ["response": ["id": "handoff-1"] as [String: Any]]
+            ),
+            .responseDone(id: "handoff-1")
+        )
+        XCTAssertEqual(
+            GrokRealtime.parse(type: "response.done", json: ["response_id": "verbatim-2"]),
+            .responseDone(id: "verbatim-2")
+        )
+    }
+
+    func testLiveSpeakUsesRealtimeWhenConnected() {
+        XCTAssertTrue(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: true,
+                userWantsVoiceOff: false
+            )
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: false,
+                isConnected: true,
+                userWantsVoiceOff: false
+            ),
+            "Mock / ui-testing uses client TTS"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: false,
+                userWantsVoiceOff: false
+            )
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: true,
+                userWantsVoiceOff: true
+            )
+        )
+        let spoken = "Murray wrote: Need you to notarize today."
+        let prompt = GrokRealtime.verbatimSpeakUserText(text: spoken)
+        XCTAssertTrue(GrokRealtime.isVerbatimSpeakPrompt(prompt))
+        XCTAssertTrue(prompt.contains(spoken))
+        XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("word-for-word"))
+        XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("let the app handle"))
+        XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains(spoken))
+        XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
     }
 
     func testCancelAndTextTurnPayloads() {

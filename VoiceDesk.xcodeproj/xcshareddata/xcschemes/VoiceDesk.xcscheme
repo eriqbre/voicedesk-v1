@@ -5,6 +5,24 @@
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Write GoogleSecrets.xcconfig from Secrets.plist"
+               scriptText = "&quot;${SRCROOT}/scripts/inject-google-secrets.sh&quot;&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "A10000000000000000000006"
+                     BuildableName = "VoiceDesk.app"
+                     BlueprintName = "VoiceDesk"
+                     ReferencedContainer = "container:VoiceDesk.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
@@ -77,6 +95,16 @@
          <EnvironmentVariable
             key = "XAI_API_KEY"
             value = "$(XAI_API_KEY)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "GOOGLE_CLIENT_ID"
+            value = "$(GOOGLE_CLIENT_ID)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "GOOGLE_REVERSED_CLIENT_ID"
+            value = "$(GOOGLE_REVERSED_CLIENT_ID)"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

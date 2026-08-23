@@ -1,0 +1,11 @@
+// VoiceDesk target settings. Info.plist is Config/Info.plist.
+// Empty defaults. Do not put a placeholder reversed client ID or team id here.
+// Generated/GoogleSecrets.xcconfig (gitignored) is written by the scheme
+// Pre-action / xcconfig-only Run Script from VoiceDesk/Secrets.plist
+// (GOOGLE_* from Secrets.plist. DEVELOPMENT_TEAM is optional.)
+// The include below must come last so generated values win.
+INFOPLIST_FILE = Config/Info.plist
+GOOGLE_CLIENT_ID =
+GOOGLE_REVERSED_CLIENT_ID =
+DEVELOPMENT_TEAM =
+#include? "Generated/GoogleSecrets.xcconfig"

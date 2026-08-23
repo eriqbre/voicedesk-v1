@@ -7,6 +7,21 @@ final class UserDefaultsPlaybookStore: PlaybookStoring {
         get { UserDefaults.standard.bool(forKey: VoicePlaybook.defaultsKey) }
         set { UserDefaults.standard.set(newValue, forKey: VoicePlaybook.defaultsKey) }
     }
+
+    var hasSeenConnectOffer: Bool {
+        get { UserDefaults.standard.bool(forKey: VoicePlaybook.seenConnectOfferKey) }
+        set { UserDefaults.standard.set(newValue, forKey: VoicePlaybook.seenConnectOfferKey) }
+    }
+
+    var lastConnectSoftPromptAt: Date? {
+        get {
+            let interval = UserDefaults.standard.double(forKey: VoicePlaybook.lastSoftPromptKey)
+            return interval > 0 ? Date(timeIntervalSince1970: interval) : nil
+        }
+        set {
+            UserDefaults.standard.set(newValue?.timeIntervalSince1970 ?? 0, forKey: VoicePlaybook.lastSoftPromptKey)
+        }
+    }
 }
 
 enum VoiceDeskSecrets {
@@ -31,6 +46,49 @@ enum VoiceDeskSecrets {
             ProcessInfo.processInfo.environment["XAI_VOICE_MODEL"],
             plistString("XAI_VOICE_MODEL")
         ]) ?? GrokRealtime.defaultModel
+    }
+
+    /// Non-live chat completions model for email summaries. Default grok-3-mini.
+    static var textModel: String {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["XAI_TEXT_MODEL"],
+            plistString("XAI_TEXT_MODEL")
+        ]) ?? EmailSummary.defaultTextModel
+    }
+
+    /// Scheme env `GOOGLE_CLIENT_ID`, then gitignored `Secrets.plist`.
+    static var googleClientID: String? {
+        let raw = firstNonEmpty([
+            ProcessInfo.processInfo.environment["GOOGLE_CLIENT_ID"],
+            plistString("GOOGLE_CLIENT_ID")
+        ])
+        return GoogleSignInSetup.isPlaceholder(raw) ? nil : raw
+    }
+
+    static var googleReversedClientID: String? {
+        GoogleSignInSetup.resolvedReversedClientID(
+            clientID: googleClientID,
+            reversedOverride: firstNonEmpty([
+                ProcessInfo.processInfo.environment["GOOGLE_REVERSED_CLIENT_ID"],
+                plistString("GOOGLE_REVERSED_CLIENT_ID")
+            ])
+        )
+    }
+
+    static var registeredURLSchemes: [String] {
+        let types = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]] ?? []
+        return types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+    }
+
+    static var signInDiagnosis: GoogleSignInSetup.Diagnosis {
+        GoogleSignInSetup.diagnose(
+            clientID: googleClientID,
+            reversedOverride: firstNonEmpty([
+                ProcessInfo.processInfo.environment["GOOGLE_REVERSED_CLIENT_ID"],
+                plistString("GOOGLE_REVERSED_CLIENT_ID")
+            ]),
+            registeredSchemes: registeredURLSchemes
+        )
     }
 
     private static func firstNonEmpty(_ values: [String?]) -> String? {
@@ -87,9 +145,12 @@ protocol LiveGrokVoiceClientDelegate: AnyObject {
 }
 
 /// Real URLSession WebSocket to `wss://api.x.ai/v1/realtime?model=grok-voice-latest`.
-/// Audio-thread `sendRaw` is lock-protected because URLSessionWebSocketTask is the cookbook path.
+/// `@unchecked Sendable` is required: the audio render thread calls `sendRaw` while
+/// URLSession callbacks arrive on a session queue. Mutable socket state is lock-protected.
+/// The MainActor delegate is only written from the voice service and only read after a hop.
 final class LiveGrokVoiceClient: @unchecked Sendable {
-    weak var delegate: LiveGrokVoiceClientDelegate?
+    /// Written from `@MainActor` (`GrokVoiceService`); read after hopping to the main actor.
+    nonisolated(unsafe) weak var delegate: LiveGrokVoiceClientDelegate?
 
     private let lock = NSLock()
     private var task: URLSessionWebSocketTask?
@@ -111,33 +172,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         disconnect()
 
         let url = GrokVoiceAPI.realtimeURL(model: model)
-        let bridge = WebSocketBridge(
-            onOpen: { [weak self] in
-                Task { @MainActor in
-                    self?.markOpen()
-                    self?.delegate?.grokWebSocketDidOpen()
-                }
-            },
-            onClose: { [weak self] code, reason in
-                let reasonText = reason.flatMap { String(data: $0, encoding: .utf8) }
-                Task { @MainActor in
-                    self?.markClosed()
-                    self?.delegate?.grokWebSocketDidClose(code: code.rawValue, reason: reasonText)
-                }
-            },
-            onComplete: { [weak self] task, error in
-                let status = (task.response as? HTTPURLResponse)?.statusCode
-                if let error {
-                    Task { @MainActor in
-                        self?.markClosed()
-                        self?.delegate?.grokWebSocketDidFail(
-                            error: error.localizedDescription,
-                            httpStatus: status
-                        )
-                    }
-                }
-            }
-        )
+        let bridge = WebSocketBridge(client: self)
 
         lock.lock()
         sessionDelegate = bridge
@@ -151,24 +186,24 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         )
         task = wsTask
         opened = false
+        timeoutTask?.cancel()
+        timeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard let self, !self.isConnected else { return }
+            Task { @MainActor in
+                self.delegate?.grokWebSocketDidFail(error: "WebSocket timeout", httpStatus: nil)
+            }
+        }
         lock.unlock()
 
         wsTask.resume()
         receiveLoop()
-
-        timeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(10))
-            guard let self, !self.isConnected else { return }
-            await MainActor.run {
-                self.delegate?.grokWebSocketDidFail(error: "WebSocket timeout", httpStatus: nil)
-            }
-        }
     }
 
     func disconnect() {
+        lock.lock()
         timeoutTask?.cancel()
         timeoutTask = nil
-        lock.lock()
         task?.cancel(with: .normalClosure, reason: nil)
         task = nil
         session?.invalidateAndCancel()
@@ -233,17 +268,41 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         return nil
     }
 
-    private func markOpen() {
-        timeoutTask?.cancel()
-        timeoutTask = nil
+    /// URLSession delivers these on a background queue. Hop Sendable values only.
+    nonisolated func notifyOpen() {
         lock.lock()
         opened = true
+        let timeout = timeoutTask
+        timeoutTask = nil
         lock.unlock()
+        timeout?.cancel()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.delegate?.grokWebSocketDidOpen()
+        }
     }
 
-    private func markClosed() {
+    nonisolated func notifyClose(code: Int, reason: Data?) {
+        let reasonText = reason.flatMap { String(data: $0, encoding: .utf8) }
+        setOpened(false)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.delegate?.grokWebSocketDidClose(code: code, reason: reasonText)
+        }
+    }
+
+    nonisolated func notifyComplete(status: Int?, error: String?) {
+        guard let error else { return }
+        setOpened(false)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.delegate?.grokWebSocketDidFail(error: error, httpStatus: status)
+        }
+    }
+
+    private func setOpened(_ value: Bool) {
         lock.lock()
-        opened = false
+        opened = value
         lock.unlock()
     }
 
@@ -257,13 +316,10 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
             case .success(let message):
                 switch message {
                 case .string(let text):
-                    self.dispatchJSON(text.data(using: .utf8))
+                    self.forwardJSON(text.data(using: .utf8))
                 case .data(let data):
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let type = json["type"] as? String {
-                        Task { @MainActor in
-                            self.delegate?.grokWebSocketDidReceive(json: json, type: type)
-                        }
+                    if Self.looksLikeJSONObject(data) {
+                        self.forwardJSON(data)
                     } else {
                         Task { @MainActor in
                             self.delegate?.grokWebSocketDidReceiveBinary(data)
@@ -274,38 +330,43 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
                 }
                 self.receiveLoop()
             case .failure(let error):
+                let message = error.localizedDescription
+                self.setOpened(false)
                 Task { @MainActor in
-                    self.markClosed()
-                    self.delegate?.grokWebSocketDidFail(error: error.localizedDescription, httpStatus: nil)
+                    self.delegate?.grokWebSocketDidFail(error: message, httpStatus: nil)
                 }
             }
         }
     }
 
-    private func dispatchJSON(_ data: Data?) {
-        guard let data,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String
-        else { return }
-        Task { @MainActor in
+    /// Parse on the main actor so `[String: Any]` never crosses isolation.
+    private func forwardJSON(_ data: Data?) {
+        guard let data else { return }
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = json["type"] as? String
+            else { return }
             self.delegate?.grokWebSocketDidReceive(json: json, type: type)
         }
     }
+
+    private static func looksLikeJSONObject(_ data: Data) -> Bool {
+        guard let first = data.first(where: { $0 != UInt8(ascii: " ") && $0 != UInt8(ascii: "\n") && $0 != UInt8(ascii: "\r") && $0 != UInt8(ascii: "\t") }) else {
+            return false
+        }
+        return first == UInt8(ascii: "{") || first == UInt8(ascii: "[")
+    }
 }
 
+/// URLSession owns this object on its delegate queue. It is not Sendable: it only
+/// extracts Int / String / Data and hops those onto the client.
 private final class WebSocketBridge: NSObject, URLSessionWebSocketDelegate, URLSessionTaskDelegate {
-    let onOpen: () -> Void
-    let onClose: (URLSessionWebSocketTask.CloseCode, Data?) -> Void
-    let onComplete: (URLSessionTask, Error?) -> Void
+    /// Set once in `init`, then only read from session callbacks.
+    nonisolated(unsafe) private weak var client: LiveGrokVoiceClient?
 
-    init(
-        onOpen: @escaping () -> Void,
-        onClose: @escaping (URLSessionWebSocketTask.CloseCode, Data?) -> Void,
-        onComplete: @escaping (URLSessionTask, Error?) -> Void
-    ) {
-        self.onOpen = onOpen
-        self.onClose = onClose
-        self.onComplete = onComplete
+    init(client: LiveGrokVoiceClient) {
+        self.client = client
     }
 
     func urlSession(
@@ -314,7 +375,7 @@ private final class WebSocketBridge: NSObject, URLSessionWebSocketDelegate, URLS
         didOpenWithProtocol proto: String?
     ) {
         _ = proto
-        onOpen()
+        client?.notifyOpen()
     }
 
     func urlSession(
@@ -323,15 +384,17 @@ private final class WebSocketBridge: NSObject, URLSessionWebSocketDelegate, URLS
         didCloseWith code: URLSessionWebSocketTask.CloseCode,
         reason: Data?
     ) {
-        onClose(code, reason)
+        client?.notifyClose(code: code.rawValue, reason: reason)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        onComplete(task, error)
+        let status = (task.response as? HTTPURLResponse)?.statusCode
+        client?.notifyComplete(status: status, error: error?.localizedDescription)
     }
 }
 
 /// On-device wake phrase while the app is open. Phrase is an open PRD decision.
+@MainActor
 protocol WakeWordListening: AnyObject {
     var isArmed: Bool { get }
     func arm()

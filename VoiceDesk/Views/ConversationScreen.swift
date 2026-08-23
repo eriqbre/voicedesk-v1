@@ -23,12 +23,12 @@ struct ConversationScreen: View {
                             .padding(.bottom, 8)
                         }
                         .scrollDismissesKeyboard(.interactively)
-                        .onChange(of: model.lastTurnID) { _, _ in
-                            if let id = model.lastTurnID {
-                                withAnimation(.easeOut(duration: 0.28)) {
-                                    proxy.scrollTo(id, anchor: .bottom)
-                                }
-                            }
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 8)
+                                .onChanged { _ in model.noteUserScrolling() }
+                        )
+                        .onChange(of: model.conversationScrollEpoch) { _, _ in
+                            scrollForCurrentIntent(proxy)
                         }
                     }
                     if model.voice.needsCredentials || model.showVoiceSetup {
@@ -40,6 +40,14 @@ struct ConversationScreen: View {
             .navigationTitle("VoiceDesk")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if model.google.isConnected {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Disconnect Google") {
+                            model.disconnectGoogle()
+                        }
+                        .accessibilityIdentifier("google.disconnect.toolbar")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         model.showActivity = true
@@ -48,9 +56,41 @@ struct ConversationScreen: View {
                     }
                     .accessibilityLabel("Activity")
                 }
+                #if DEBUG
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        model.showVoiceLog = true
+                    } label: {
+                        Image(systemName: "ladybug")
+                    }
+                    .accessibilityLabel("Voice log")
+                    .accessibilityIdentifier("debug.voice.log")
+                }
+                #endif
+            }
+            .onChange(of: model.voice.state) { _, state in
+                model.voiceBecame(state)
             }
             .sheet(isPresented: $model.showActivity) {
                 ActivitySheet()
+            }
+            #if DEBUG
+            .sheet(isPresented: $model.showVoiceLog) {
+                VoiceInteractionLogSheet()
+            }
+            #endif
+        }
+    }
+
+    private func scrollForCurrentIntent(_ proxy: ScrollViewProxy) {
+        guard !model.userOwnsConversationScroll else { return }
+        let target = model.conversationScrollTarget ?? model.lastTurnID
+        guard let target else { return }
+        let unit: UnitPoint = model.conversationScrollAnchor == .center ? .center : .top
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            withAnimation(.easeOut(duration: 0.28)) {
+                proxy.scrollTo(target, anchor: unit)
             }
         }
     }
@@ -84,6 +124,7 @@ struct TurnView: View {
 
             ForEach(turn.cards) { card in
                 ContentCardView(card: card)
+                    .id(card.id)
             }
 
             if !turn.suggestions.isEmpty {
@@ -151,6 +192,7 @@ private struct FlexibleChipRow: View {
 struct VoiceBar: View {
     @Environment(AppModel.self) private var model
     @FocusState private var composerFocused: Bool
+    @State private var listeningPulse = false
 
     var body: some View {
         @Bindable var model = model
@@ -194,10 +236,17 @@ struct VoiceBar: View {
             Button(action: model.tapTalk) {
                 VStack(spacing: 8) {
                     ZStack {
+                        if model.voice.state == .listening {
+                            Circle()
+                                .stroke(Color.red.opacity(0.35), lineWidth: 4)
+                                .frame(width: 98, height: 98)
+                                .scaleEffect(listeningPulse ? 1.14 : 1)
+                                .opacity(listeningPulse ? 0.35 : 0.9)
+                        }
                         Circle()
                             .fill(Palette.accentSoft)
                             .frame(width: 84, height: 84)
-                            .scaleEffect(model.voice.state == .listening || model.showsTalkCoach ? 1.08 : 1)
+                            .scaleEffect(model.voice.state == .listening || model.showsTalkCoach ? 1.1 : 1)
                         Circle()
                             .fill(micFill)
                             .frame(width: 68, height: 68)
@@ -205,6 +254,15 @@ struct VoiceBar: View {
                             .font(.system(size: 26, weight: .semibold))
                             .foregroundStyle(Color.white)
                     }
+                    .onChange(of: model.voice.state) { _, state in
+                        listeningPulse = state == .listening
+                    }
+                    .animation(
+                        model.voice.state == .listening
+                            ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
+                            : .easeOut(duration: 0.2),
+                        value: listeningPulse
+                    )
                     Text(micLabel)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Palette.ink)

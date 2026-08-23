@@ -10,41 +10,89 @@ final class AppModel {
     var activity: [ActivityEntry] = []
     var composerText = ""
     var showActivity = false
+    var showVoiceLog = false
     var isTourRunning = false
     var showVoiceSetup = false
     var hasCompletedPlaybook = false
+    var deskSnapshot = DeskSnapshot.empty
+    var isOnline = true
+    var isSyncing = false
 
     let voice: VoiceBox
-    let google: StubGoogleAuth
+    let google: GoogleSession
     let wakeWord: WakeWordPlaceholder
     let sendClient: RecordingSendClient
     let playbook: PlaybookStoring
+    let cache: DeskCaching
+    /// Main-actor `GoogleSyncing` — never hop this existential off `@MainActor`.
+    let sync: any GoogleSyncing
+    let emailSummarizer: any EmailSummarizing
 
     private var liveAssistantID: UUID?
     private var pendingDeskTopic: ConversationPresence.Topic?
     private var userDedupe = TranscriptDedupe()
+    private var waitingToOfferConnectAfterTalk = false
+    /// After we script Connect / email-body locally, drop Grok’s spoken contradiction.
+    private var suppressLiveAssistant = false
+    /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
+    private var lastFocusedEmail: EmailItem?
+    private var pendingThreadSummary = false
+    /// Last local reply asked “Who’s it from?” — next utterance is the brand/sender.
+    private var pendingSearchClarify = false
+    /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
+    private var lastSpokenDeskReply: String?
+    private var lastUserUtterance = ""
+    private var lastUserSource = "text"
+    private var hadFocusedEmailAtTurnStart = false
+    private var pendingGeneralVoiceLog = false
+    private var pendingClarifyAtTurnStart = false
+    private var expandEarlierEmailIDs: Set<UUID> = []
+    private var expandEarlierProviderIDs: Set<String> = []
+    var expandEarlierEpoch: Int = 0
+    /// Last known listening visual — used for the off earcon, not Grok.
+    private var voiceListeningVisual = false
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
     }
 
+    var deskContext: DeskContext {
+        DeskContext(
+            isConnected: google.isConnected,
+            clientIDConfigured: !google.setupNeeded,
+            isOnline: isOnline,
+            snapshot: deskSnapshot,
+            auth: google.snapshot
+        )
+    }
+
     init(
         voice: (any VoiceServicing)? = nil,
-        google: StubGoogleAuth? = nil,
+        google: GoogleSession? = nil,
         wakeWord: WakeWordPlaceholder? = nil,
         sendClient: RecordingSendClient? = nil,
-        playbook: PlaybookStoring? = nil
+        playbook: PlaybookStoring? = nil,
+        cache: DeskCaching? = nil,
+        sync: (any GoogleSyncing)? = nil,
+        isOnline: Bool = true,
+        emailSummarizer: (any EmailSummarizing)? = nil
     ) {
         self.voice = VoiceBox(service: voice ?? VoiceRuntime.makeService())
-        self.google = google ?? StubGoogleAuth()
+        self.google = google ?? GoogleSession.mock()
         self.wakeWord = wakeWord ?? WakeWordPlaceholder()
-        self.sendClient = sendClient ?? RecordingSendClient()
+        self.sendClient = sendClient ?? RecordingSendClient(isOnline: isOnline)
         self.playbook = playbook ?? InMemoryPlaybookStore(completed: false)
+        self.cache = cache ?? MemoryDeskCache()
+        self.sync = sync ?? MockGoogleSync()
+        self.emailSummarizer = emailSummarizer ?? HeuristicEmailSummarizer()
+        self.isOnline = isOnline
         self.hasCompletedPlaybook = self.playbook.hasCompleted
+        self.deskSnapshot = self.cache.load()
         self.voice.transcriptHandler = { [weak self] event in
             self?.handleLiveTranscript(event)
         }
         startWelcome()
+        refreshPresence()
     }
 
     private static func makeLaunchPlaybookStore() -> PlaybookStoring {
@@ -55,7 +103,15 @@ final class AppModel {
     }
 
     static func makeForLaunch() -> AppModel {
-        AppModel(voice: VoiceRuntime.makeService(), playbook: makeLaunchPlaybookStore())
+        let uiTesting = ProcessInfo.processInfo.arguments.contains("-ui-testing")
+        return AppModel(
+            voice: VoiceRuntime.makeService(),
+            google: GoogleSession.makeForLaunch(),
+            playbook: makeLaunchPlaybookStore(),
+            cache: uiTesting ? MemoryDeskCache() : FileDeskCache.applicationSupport(),
+            sync: uiTesting ? MockGoogleSync() : LiveGoogleSync(),
+            emailSummarizer: uiTesting ? HeuristicEmailSummarizer() : GrokEmailSummarizer.makeDefault()
+        )
     }
 
     func applyUserTurn(_ text: String) async {
@@ -63,31 +119,65 @@ final class AppModel {
     }
 
     var lastTurnID: UUID? { turns.last?.id }
+    /// Bumps when a turn should be brought on-screen. Never used for compact expand.
+    var conversationScrollEpoch: Int = 0
+    var conversationScrollTarget: UUID?
+    var conversationScrollAnchor: ConversationScrollAnchor = .top
+    var conversationScrollReason: ConversationScrollReason = .none
+    /// User dragged the thread — skip auto-scroll until the next user utterance.
+    var userOwnsConversationScroll = false
 
     func startWelcome() {
         let firstRun = !hasCompletedPlaybook
+        var suggestions = firstRun ? ConversationPresence.starterChips : [String]()
+        if !firstRun,
+           ConnectOfferPolicy.shouldSoftPrompt(
+            isConnected: google.isConnected,
+            lastSoftPromptAt: playbook.lastConnectSoftPromptAt
+           ) {
+            suggestions = [ConversationPresence.connectGoogleChip]
+            playbook.lastConnectSoftPromptAt = Date()
+        }
         turns = [
             ConversationTurn(
                 role: .assistant,
                 text: firstRun ? ConversationPresence.firstRunWelcome : ConversationPresence.returningWelcome,
-                suggestions: firstRun ? ConversationPresence.starterChips : []
+                suggestions: suggestions
             )
         ]
         phase = .welcome
     }
 
+    func voiceBecame(_ state: VoiceState) {
+        voiceListeningVisual = state == .listening
+        guard state == .idle, waitingToOfferConnectAfterTalk else { return }
+        waitingToOfferConnectAfterTalk = false
+        offerConnectIfNeeded()
+    }
+
+    func handleOpenURL(_ url: URL) -> Bool {
+        google.handleURL(url)
+    }
+
     func tapTalk() {
         completePlaybook()
+        if !google.isConnected {
+            waitingToOfferConnectAfterTalk = true
+        }
         if voice.needsCredentials {
             showVoiceSetup = true
             return
         }
         switch voice.state {
         case .listening, .speaking, .thinking:
+            VoiceEarcon.listenEnded()
+            voiceListeningVisual = false
             voice.cancel()
             liveAssistantID = nil
             cancelPendingDraftsFromVoice()
         case .idle:
+            VoiceEarcon.listenStarted()
+            voiceListeningVisual = true
             Task { await listenAndHandle() }
         }
     }
@@ -106,11 +196,14 @@ final class AppModel {
     func confirmDraft(_ id: UUID) {
         updateDraft(id) { $0.status = DraftConfirmMachine.apply($0.status, .confirm) }
         guard let draft = draft(id), DraftConfirmMachine.mayCallSendClient(after: draft.status) else { return }
+        sendClient.isOnline = isOnline
         let attempt = sendClient.send(draft)
         let outcome: String
         switch attempt {
         case .queuedNotDelivered:
-            outcome = "Not sent — Google write is stubbed. Never reported as delivered."
+            outcome = isOnline
+                ? "Not sent — queued, not delivered. Gmail send waits on a write scope in a later slice."
+                : "Queued until you’re back online. Not delivered."
         case .blockedUnconfirmed:
             outcome = "Blocked. Confirm is required before send."
         case .delivered:
@@ -118,23 +211,24 @@ final class AppModel {
         }
         activity.append(
             ActivityEntry(
-                title: "Email send confirmed",
-                detail: "Jordan Hale · Saturday showing",
+                title: "\(draft.actionTitle) confirmed",
+                detail: "\(draft.toLine) · \(draft.subject)",
                 outcome: outcome
             )
         )
         appendAssistant(
-            "Confirmed. It’s on Activity as a draft, not sent. Delivery waits for Google write — I won’t say “sent” until the provider succeeds."
+            "Confirmed. It’s on Activity as queued, not sent. I won’t say “sent” until Google accepts the write."
         )
         Task { await voice.speak("Confirmed. Nothing was sent yet.") }
     }
 
     func cancelDraft(_ id: UUID) {
         updateDraft(id) { $0.status = DraftConfirmMachine.apply($0.status, .cancel) }
+        let draft = draft(id)
         activity.append(
             ActivityEntry(
-                title: "Email send cancelled",
-                detail: "Jordan Hale · Saturday showing",
+                title: "Write cancelled",
+                detail: draft.map { "\($0.toLine) · \($0.subject)" } ?? "Draft",
                 outcome: "Aborted. Nothing left the device."
             )
         )
@@ -155,19 +249,48 @@ final class AppModel {
     func connectGoogle() {
         Task {
             await google.connect()
-            markGoogleConnected()
+            refreshGoogleCards()
+            if google.setupNeeded || !google.isConnected {
+                let copy = google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy
+                activity.append(
+                    ActivityEntry(
+                        title: "Google connect",
+                        detail: "Gmail, Calendar, Tasks",
+                        outcome: google.setupNeeded ? "Setup required. Not connected." : (google.snapshot.message ?? "Failed. Not connected.")
+                    )
+                )
+                appendAssistant(copy)
+                return
+            }
+            await syncDesk()
             activity.append(
                 ActivityEntry(
                     title: "Google connect",
-                    detail: "Gmail, Calendar, Tasks",
-                    outcome: "Stubbed success. Real OAuth is the next slice."
+                    detail: google.snapshot.email ?? "Gmail, Calendar, Tasks",
+                    outcome: "Connected. Last-synced reads are cached offline."
                 )
             )
             appendAssistant(
-                "Google is connected (stub). Next slice is real OAuth and sync. Try “What’s in my inbox?” or tap the mic."
+                "Google is connected as \(google.snapshot.email ?? "your account"). Ask what’s in your inbox — I’ll only show synced mail."
             )
-            await voice.speak("Google is connected, stub only.")
+            await voice.speak("Google is connected.")
         }
+    }
+
+    func disconnectGoogle() {
+        google.disconnect()
+        cache.clear()
+        deskSnapshot = .empty
+        refreshGoogleCards()
+        refreshPresence()
+        activity.append(
+            ActivityEntry(
+                title: "Google disconnect",
+                detail: "Cached inbox, calendar, and tasks cleared",
+                outcome: "Signed out. No leftover mail bodies."
+            )
+        )
+        appendAssistant("Google is disconnected. Cached mail is gone — I won’t keep showing it.")
     }
 
     func handlePersonCall(_ person: PersonItem) {
@@ -202,7 +325,10 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            guard event.isFinal else { return }
+            if !event.isFinal {
+                preemptGrokIfDeskTurn(event.text)
+                return
+            }
             handleLiveUser(event.text, itemID: event.itemID)
         case .assistant:
             upsertLiveAssistant(event.text, isFinal: event.isFinal)
@@ -211,6 +337,7 @@ final class AppModel {
 
     private func handleLiveUser(_ raw: String, itemID: String?) {
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
+        rememberUserTurn(text, source: "live voice")
         completePlaybook()
 
         if matchesCancel(text) {
@@ -218,11 +345,11 @@ final class AppModel {
             cancelPendingDraftsFromVoice()
             appendUser(text)
             appendAssistant("Stopped. Nothing was sent.")
+            logVoiceTurn(intentHint: "cancel", reply: "Stopped. Nothing was sent.", notes: ["voice stop"])
             return
         }
 
         appendUser(text)
-        pendingDeskTopic = ConversationPresence.plan(for: text).topic
         if phase == .welcome {
             phase = .ready
         }
@@ -230,16 +357,66 @@ final class AppModel {
             appendDeskPreview()
             return
         }
+        if surfaceConnectGoogleIfAsked(text) {
+            logVoiceTurn(intentHint: "connect", reply: turns.last?.text, cards: turns.last?.cards ?? [])
+            return
+        }
+        if google.isConnected {
+            let awaitingClarify = consumeSearchClarify()
+            if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
+                claimLocalAssistantReply()
+                if let evidence = ConversationPresence.deskEvidence(
+                    for: text,
+                    context: deskContext,
+                    focusedEmail: lastFocusedEmail,
+                    pendingSearchClarify: awaitingClarify
+                ) {
+                    surfaceDeskEvidence(evidence)
+                } else {
+                    pendingSearchClarify = true
+                    appendAssistant(ConversationPresence.emailNeedMoreReply)
+                    speakDeskReplyLater(ConversationPresence.emailNeedMoreReply)
+                    logVoiceTurn(
+                        evidence: nil,
+                        reply: ConversationPresence.emailNeedMoreReply,
+                        notes: ["need-more"]
+                    )
+                }
+                return
+            }
+        }
+        if let evidence = ConversationPresence.deskEvidence(
+            for: text,
+            context: deskContext,
+            focusedEmail: lastFocusedEmail
+        ) {
+            claimLocalAssistantReply()
+            surfaceDeskEvidence(evidence)
+            return
+        }
+        unmuteGrokAssistant()
+        pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
+        pendingGeneralVoiceLog = true
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
+            pendingGeneralVoiceLog = false
+            logVoiceTurn(intentHint: "tour", reply: turns.last?.text, notes: ["tour"])
         }
+        offerConnectIfNeeded()
     }
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
+        if ConversationPresence.isGrokDeskMeta(text) {
+            return
+        }
+        if suppressLiveAssistant {
+            return
+        }
         if text.isEmpty, isFinal {
             if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
                 attachPendingCards(to: index)
                 liveAssistantID = nil
+                finishGeneralVoiceLog(reply: turns[index].text)
             }
             return
         }
@@ -249,6 +426,7 @@ final class AppModel {
             if isFinal {
                 attachPendingCards(to: index)
                 liveAssistantID = nil
+                finishGeneralVoiceLog(reply: turns[index].text)
             }
             return
         }
@@ -257,9 +435,11 @@ final class AppModel {
         let turn = ConversationTurn(role: .assistant, text: text)
         liveAssistantID = turn.id
         turns.append(turn)
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
         if isFinal {
             attachPendingCards(to: turns.count - 1)
             liveAssistantID = nil
+            finishGeneralVoiceLog(reply: turns.last?.text ?? text)
         }
     }
 
@@ -272,12 +452,14 @@ final class AppModel {
             pendingDeskTopic = nil
             return
         }
-        turns[index].cards = ConversationPresence.cards(for: topic, googleConnected: google.isConnected)
+        turns[index].cards = ConversationPresence.cards(for: topic, context: deskContext)
         pendingDeskTopic = nil
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turns[index].id, hasCards: true))
     }
 
     private func handleUserText(_ raw: String) async {
         guard let text = userDedupe.accept(text: raw, itemID: nil) else { return }
+        rememberUserTurn(text, source: "text")
         completePlaybook()
 
         if matchesCancel(text) {
@@ -285,6 +467,7 @@ final class AppModel {
             cancelPendingDraftsFromVoice()
             appendUser(text)
             appendAssistant("Stopped. Nothing was sent.")
+            logVoiceTurn(intentHint: "cancel", reply: "Stopped. Nothing was sent.", notes: ["voice stop"])
             return
         }
 
@@ -292,6 +475,8 @@ final class AppModel {
 
         if ConversationPresence.isJustTalk(text) {
             appendAssistant(ConversationPresence.justTalkReply)
+            offerConnectIfNeeded()
+            logVoiceTurn(intentHint: "general", reply: ConversationPresence.justTalkReply, notes: ["just talk"])
             return
         }
 
@@ -302,14 +487,57 @@ final class AppModel {
 
         if ConversationPresence.wantsTour(text) {
             await runTour()
+            logVoiceTurn(intentHint: "tour", reply: turns.last?.text, notes: ["tour"])
             return
         }
         if phase == .welcome {
             phase = .ready
         }
 
+        if surfaceConnectGoogleIfAsked(text) {
+            logVoiceTurn(intentHint: "connect", reply: turns.last?.text, cards: turns.last?.cards ?? [])
+            return
+        }
+
+        if google.isConnected {
+            let awaitingClarify = consumeSearchClarify()
+            if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
+                claimLocalAssistantReply()
+                if let evidence = ConversationPresence.deskEvidence(
+                    for: text,
+                    context: deskContext,
+                    focusedEmail: lastFocusedEmail,
+                    pendingSearchClarify: awaitingClarify
+                ) {
+                    await applyDeskEvidence(evidence)
+                } else {
+                    pendingSearchClarify = true
+                    appendAssistant(ConversationPresence.emailNeedMoreReply)
+                    await speakDeskReply(ConversationPresence.emailNeedMoreReply)
+                    logVoiceTurn(
+                        evidence: nil,
+                        reply: ConversationPresence.emailNeedMoreReply,
+                        notes: ["need-more"]
+                    )
+                }
+                return
+            }
+        }
+
+        if let evidence = ConversationPresence.deskEvidence(
+            for: text,
+            context: deskContext,
+            focusedEmail: lastFocusedEmail
+        ) {
+            claimLocalAssistantReply()
+            await applyDeskEvidence(evidence)
+            return
+        }
+
         if voice.usesLiveLoop {
-            pendingDeskTopic = ConversationPresence.plan(for: text).topic
+            unmuteGrokAssistant()
+            pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
+            pendingGeneralVoiceLog = true
             await voice.sendTextTurn(text)
             return
         }
@@ -329,6 +557,7 @@ final class AppModel {
             ConversationPresence.deskPreviewReply,
             cards: TourScript.deskPreviewCards()
         )
+        offerConnectIfNeeded()
     }
 
     private func runTour() async {
@@ -359,30 +588,472 @@ final class AppModel {
 
         await pause(400)
         appendAssistant(
-            "When you want me to know your real day, connect Google. Until then I’m still here — ask me anything.",
-            cards: [TourScript.connectGoogleCard(isConnected: google.isConnected)]
+            ConversationPresence.connectCoach,
+            cards: [.connectGoogle(deskContext.connectItem)]
         )
-        await voice.speak("I’m here whenever you’re ready.")
+        playbook.hasSeenConnectOffer = true
+        await voice.speak(ConversationPresence.connectCoach)
 
         phase = .ready
         isTourRunning = false
     }
 
     private func replyReady(to text: String) async {
-        let plan = ConversationPresence.plan(for: text)
-        let cards = ConversationPresence.cards(for: plan.topic, googleConnected: google.isConnected)
+        let plan = ConversationPresence.plan(for: text, context: deskContext)
+        let cards = ConversationPresence.cards(for: plan.topic, context: deskContext)
         appendAssistant(plan.text, cards: cards)
         await voice.speak(plan.text)
+        logVoiceTurn(intentHint: "general", reply: plan.text, cards: cards, notes: ["local plan"])
+    }
+
+    /// Stop Grok from contradicting a local Connect / email-body reply on the thread.
+    private func claimLocalAssistantReply() {
+        suppressLiveAssistant = true
+        voice.interruptResponse()
+        voice.suppressAssistantOutput(true)
+        if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+            turns.remove(at: index)
+        }
+        liveAssistantID = nil
+        pendingDeskTopic = nil
+        scrubGrokDeskRefusals()
+    }
+
+    private func unmuteGrokAssistant() {
+        suppressLiveAssistant = false
+        voice.suppressAssistantOutput(false)
+    }
+
+    /// Interrupt as soon as a partial transcript looks like a connected desk ask.
+    private func preemptGrokIfDeskTurn(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, google.isConnected else { return }
+        if ConversationPresence.ownsConnectedDeskTurn(text) {
+            claimLocalAssistantReply()
+        }
+    }
+
+    private func scrubGrokDeskRefusals() {
+        let cutoff = Date().addingTimeInterval(-60)
+        turns.removeAll { turn in
+            turn.role == .assistant
+                && turn.cards.isEmpty
+                && turn.createdAt >= cutoff
+                && ConversationPresence.isGrokDeskMeta(turn.text)
+        }
+    }
+
+    /// Live voice and typed path: attach the Connect Google card on the user ask.
+    /// Do not wait for Grok — there is no Settings screen to invent.
+    @discardableResult
+    private func surfaceConnectGoogleIfAsked(_ text: String) -> Bool {
+        let plan = ConversationPresence.plan(for: text, context: deskContext)
+        guard plan.topic == .google else { return false }
+        claimLocalAssistantReply()
+        pendingDeskTopic = nil
+        appendAssistant(
+            plan.text,
+            cards: ConversationPresence.cards(for: .google, context: deskContext)
+        )
+        if !google.isConnected {
+            playbook.hasSeenConnectOffer = true
+        }
+        return true
+    }
+
+    func openEmail(_ item: EmailItem) {
+        lastFocusedEmail = item
+        Task { await revealEmailBody(item) }
+    }
+
+    /// Compact inbox row → full Mail reader for that one message. Expand in place.
+    func expandCompactEmail(_ item: EmailItem) {
+        lastFocusedEmail = item
+        for index in turns.indices {
+            for cardIndex in turns[index].cards.indices {
+                if case .email(let existing) = turns[index].cards[cardIndex],
+                   existing.id == item.id || (existing.providerID != nil && existing.providerID == item.providerID) {
+                    turns[index].cards[cardIndex] = .email(existing.presented(as: .full))
+                }
+            }
+        }
+    }
+
+    func noteUserScrolling() {
+        userOwnsConversationScroll = true
+    }
+
+    func expandsEarlierMessages(_ email: EmailItem) -> Bool {
+        if expandEarlierEmailIDs.contains(email.id) { return true }
+        if let providerID = email.providerID, expandEarlierProviderIDs.contains(providerID) {
+            return true
+        }
+        if let threadID = email.threadID, expandEarlierProviderIDs.contains(threadID) {
+            return true
+        }
+        return false
+    }
+
+    private func markExpandEarlier(for email: EmailItem) {
+        expandEarlierEmailIDs.insert(email.id)
+        if let providerID = email.providerID { expandEarlierProviderIDs.insert(providerID) }
+        if let threadID = email.threadID { expandEarlierProviderIDs.insert(threadID) }
+        expandEarlierEpoch += 1
+    }
+
+    private func rememberEvidence(_ evidence: ConversationPresence.DeskEvidence) {
+        if evidence.resetsFocusedEmail {
+            lastFocusedEmail = nil
+        } else if let email = evidence.focusedEmail {
+            lastFocusedEmail = email
+        }
+        pendingThreadSummary = evidence.expandEarlierMessages
+        pendingSearchClarify = evidence.awaitsSearchClarify
+        if evidence.expandEarlierMessages, let email = evidence.focusedEmail {
+            markExpandEarlier(for: email)
+        }
+    }
+
+    private func consumeSearchClarify() -> Bool {
+        if pendingSearchClarify { return true }
+        return turns.last(where: { $0.role == .assistant })?.text == ConversationPresence.emailNeedMoreReply
+    }
+
+    private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
+        Task { await applyDeskEvidence(evidence) }
+    }
+
+    private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
+        rememberEvidence(evidence)
+        if evidence.shouldSearchGmail, let query = evidence.gmailQuery, !query.isEmpty {
+            await searchGmail(query, plan: evidence.gmailPlan, ask: evidence.searchAsk)
+            logVoiceTurn(
+                evidence: evidence,
+                reply: turns.last?.text,
+                cards: turns.last?.cards ?? []
+            )
+            return
+        }
+        if evidence.shouldFetchBody, let email = evidence.focusedEmail {
+            await revealEmailBody(email)
+            logVoiceTurn(
+                evidence: evidence,
+                reply: turns.last?.text,
+                cards: turns.last?.cards ?? []
+            )
+            return
+        }
+        appendAssistant(evidence.text, cards: evidence.cards)
+        await speakDeskReply(evidence.text)
+        logVoiceTurn(evidence: evidence, reply: evidence.text)
+    }
+
+    private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {
+        guard google.isConnected, let token = google.accessToken else {
+            appendAssistant(
+                ConversationPresence.connectHowToReply,
+                cards: [.connectGoogle(deskContext.connectItem)]
+            )
+            await speakDeskReply(ConversationPresence.connectHowToReply)
+            return
+        }
+        let beatID = appendSearchingBeat()
+        let variants = (plan?.variants.isEmpty == false) ? plan!.variants : [query]
+        do {
+            var found: [EmailItem] = []
+            for variant in variants {
+                found = try await sync.searchMessages(token: token, query: variant, now: Date())
+                if !found.isEmpty { break }
+            }
+            let picked: GmailSearchPick
+            if let plan {
+                picked = GmailSearchQuery.pick(found, plan: plan)
+            } else if let ask {
+                picked = GmailSearchQuery.pick(found, ask: ask)
+            } else if found.isEmpty {
+                picked = .none
+            } else if found.count == 1 {
+                picked = .one(found[0])
+            } else {
+                picked = .several(Array(found.prefix(3)))
+            }
+            switch picked {
+            case .none:
+                replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchEmptyReply)
+                await speakDeskReply(ConversationPresence.gmailSearchEmptyReply)
+            case .one(let email):
+                removeTurn(id: beatID)
+                await applyLoadedEmail(email)
+            case .several(let emails):
+                for email in emails {
+                    upsertSnapshotEmail(email)
+                }
+                cache.save(deskSnapshot)
+                refreshPresence()
+                lastFocusedEmail = emails.first
+                scrubGrokDeskRefusals()
+                replaceAssistant(
+                    id: beatID,
+                    text: ConversationPresence.gmailSearchSeveralReply,
+                    cards: EmailItem.listCards(emails)
+                )
+                await speakDeskReply(ConversationPresence.gmailSearchSeveralReply)
+            }
+        } catch {
+            replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchFailedReply)
+            await speakDeskReply(ConversationPresence.gmailSearchFailedReply)
+        }
+    }
+
+    @discardableResult
+    private func appendSearchingBeat() -> UUID {
+        let turn = ConversationTurn(role: .assistant, text: ConversationPresence.gmailSearchingBeat)
+        turns.append(turn)
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
+        return turn.id
+    }
+
+    private func replaceAssistant(id: UUID, text: String, cards: [ContentCard] = []) {
+        if let index = turns.firstIndex(where: { $0.id == id }) {
+            turns[index].text = text
+            turns[index].cards = cards
+            requestScroll(ConversationScrollPolicy.afterAssistant(turnID: id, hasCards: !cards.isEmpty))
+            return
+        }
+        appendAssistant(text, cards: cards)
+    }
+
+    private func removeTurn(id: UUID) {
+        turns.removeAll { $0.id == id }
+    }
+
+    private func revealEmailBody(_ email: EmailItem) async {
+        guard google.isConnected, let token = google.accessToken, let id = email.providerID, !id.isEmpty else {
+            await applyLoadedEmail(email)
+            return
+        }
+        do {
+            let full = try await sync.fetchMessage(token: token, messageID: id, now: Date())
+            await applyLoadedEmail(full)
+        } catch {
+            refreshEmailCards(email)
+            if pendingThreadSummary || email.hasFullBody || email.hasEarlierMessages {
+                await applyLoadedEmail(email)
+            } else {
+                let reply = ConversationPresence.emailBodySyncFailedReply(email)
+                appendAssistant(reply, cards: [.email(email)])
+                await speakDeskReply(reply)
+            }
+        }
+    }
+
+    private func applyLoadedEmail(_ email: EmailItem) async {
+        upsertSnapshotEmail(email)
+        cache.save(deskSnapshot)
+        refreshPresence()
+        refreshEmailCards(email)
+        lastFocusedEmail = email
+        if pendingThreadSummary {
+            markExpandEarlier(for: email)
+        }
+        let includeEarlier = pendingThreadSummary
+        pendingThreadSummary = false
+        let reply = await emailSummarizer.summarize(
+            EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
+        )
+        scrubGrokDeskRefusals()
+        appendAssistant(reply, cards: [.email(email.presented(as: .full))])
+        await speakDeskReply(reply)
+    }
+
+    private func speakDeskReplyLater(_ text: String) {
+        Task { await speakDeskReply(text) }
+    }
+
+    private func speakDeskReply(_ text: String) async {
+        guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {
+            return
+        }
+        lastSpokenDeskReply = spoken
+        await voice.speak(spoken)
+    }
+
+    private func rememberUserTurn(_ text: String, source: String) {
+        lastUserUtterance = text
+        lastUserSource = source
+        hadFocusedEmailAtTurnStart = lastFocusedEmail != nil
+        pendingClarifyAtTurnStart = pendingSearchClarify
+        pendingGeneralVoiceLog = false
+    }
+
+    private func finishGeneralVoiceLog(reply: String) {
+        guard pendingGeneralVoiceLog else { return }
+        pendingGeneralVoiceLog = false
+        logVoiceTurn(
+            intentHint: "general",
+            reply: reply,
+            cards: turns.last?.cards ?? [],
+            notes: ["live Grok"]
+        )
+    }
+
+    private func logVoiceTurn(
+        evidence: ConversationPresence.DeskEvidence? = nil,
+        intentHint: String? = nil,
+        reply: String? = nil,
+        cards: [ContentCard]? = nil,
+        notes extraNotes: [String] = []
+    ) {
+        #if DEBUG
+        let classified = VoiceInteractionLog.classify(
+            utterance: lastUserUtterance,
+            evidence: evidence,
+            pendingSearchClarify: pendingClarifyAtTurnStart,
+            hadFocusedEmail: hadFocusedEmailAtTurnStart
+        )
+        var notes = classified.notes + extraNotes
+        if intentHint == "cancel" { notes.append("user stop") }
+        let voicePath: String
+        if voice.usesLiveLoop {
+            voicePath = "Eve realtime"
+        } else {
+            voicePath = "AVSpeech"
+        }
+        let entry = VoiceInteractionEntry(
+            source: lastUserSource,
+            userTranscript: lastUserUtterance,
+            intent: intentHint ?? classified.intent,
+            routingNotes: notes,
+            cardsAttached: VoiceInteractionLog.cardLabels(cards ?? evidence?.cards ?? []),
+            assistantReply: reply ?? evidence?.text ?? "",
+            voicePath: voicePath
+        )
+        VoiceInteractionLog.record(entry)
+        DebugVoiceLogFile.append(entry)
+        #else
+        _ = evidence
+        _ = intentHint
+        _ = reply
+        _ = cards
+        _ = extraNotes
+        #endif
+    }
+
+    private func upsertSnapshotEmail(_ email: EmailItem) {
+        if let index = deskSnapshot.emails.firstIndex(where: { $0.providerID == email.providerID && $0.providerID != nil }) {
+            deskSnapshot.emails[index] = email
+        } else if let index = deskSnapshot.emails.firstIndex(where: { $0.id == email.id }) {
+            deskSnapshot.emails[index] = email
+        } else {
+            deskSnapshot.emails.insert(email, at: 0)
+        }
+    }
+
+    private func refreshEmailCards(_ email: EmailItem) {
+        var updated = false
+        for index in turns.indices {
+            for cardIndex in turns[index].cards.indices {
+                if case .email(let existing) = turns[index].cards[cardIndex],
+                   existing.providerID == email.providerID || existing.id == email.id {
+                    turns[index].cards[cardIndex] = .email(email.presented(as: existing.cardPresentation))
+                    updated = true
+                }
+            }
+        }
+        _ = updated
+    }
+
+    private func offerConnectIfNeeded() {
+        guard ConnectOfferPolicy.shouldShowFirstConnectOffer(
+            playbookCompleted: hasCompletedPlaybook,
+            hasSeenOffer: playbook.hasSeenConnectOffer,
+            isConnected: google.isConnected
+        ) else { return }
+        playbook.hasSeenConnectOffer = true
+        appendAssistant(
+            ConversationPresence.connectCoach,
+            cards: [.connectGoogle(deskContext.connectItem)],
+            suggestions: [ConversationPresence.connectGoogleChip]
+        )
+    }
+
+    func restoreGoogleIfNeeded() async {
+        await google.restoreSession()
+        if google.isConnected {
+            deskSnapshot = cache.load()
+            if deskSnapshot.accountEmail == nil {
+                await syncDesk()
+            } else {
+                refreshPresence()
+            }
+            refreshGoogleCards()
+        }
+    }
+
+    func syncDesk() async {
+        guard google.isConnected, let token = google.accessToken else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            let next = try await sync.sync(
+                token: token,
+                accountEmail: google.snapshot.email ?? "",
+                now: Date()
+            )
+            deskSnapshot = next
+            cache.save(next)
+            refreshPresence()
+        } catch {
+            var cached = cache.load()
+            cached.lastError = error.localizedDescription
+            deskSnapshot = cached
+            if cached.hasAnyReads {
+                appendAssistant("Couldn’t refresh Google. Showing the last-synced cards. I won’t invent mail.")
+            } else if !isOnline {
+                appendAssistant("You’re offline and I don’t have a cached inbox yet.")
+            }
+        }
+    }
+
+    private func refreshPresence() {
+        voice.updatePresenceInstructions(GrokRealtime.presenceInstructions(for: deskContext))
+    }
+
+    private func refreshGoogleCards() {
+        for index in turns.indices {
+            for cardIndex in turns[index].cards.indices {
+                if case .connectGoogle = turns[index].cards[cardIndex] {
+                    turns[index].cards[cardIndex] = .connectGoogle(deskContext.connectItem)
+                }
+            }
+        }
     }
 
     // MARK: - Mutations
 
     private func appendUser(_ text: String) {
-        turns.append(ConversationTurn(role: .user, text: text))
+        userOwnsConversationScroll = false
+        let turn = ConversationTurn(role: .user, text: text)
+        turns.append(turn)
+        requestScroll(ConversationScrollPolicy.afterUser(turnID: turn.id))
     }
 
     private func appendAssistant(_ text: String, cards: [ContentCard] = [], suggestions: [String] = []) {
-        turns.append(ConversationTurn(role: .assistant, text: text, cards: cards, suggestions: suggestions))
+        let turn = ConversationTurn(role: .assistant, text: text, cards: cards, suggestions: suggestions)
+        turns.append(turn)
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: !cards.isEmpty))
+    }
+
+    func noteVisibleCardGrew() {
+        // Card height growth (compact expand / HTML measure) must not jump the thread.
+    }
+
+    private func requestScroll(_ request: ConversationScrollRequest) {
+        guard !userOwnsConversationScroll else { return }
+        conversationScrollTarget = request.targetID
+        conversationScrollAnchor = request.anchor
+        conversationScrollReason = request.reason
+        conversationScrollEpoch += 1
     }
 
     private func draft(_ id: UUID) -> DraftConfirmItem? {
@@ -405,17 +1076,6 @@ final class AppModel {
                 body(&draft)
                 turns[index].cards[cardIndex] = .draftConfirm(draft)
                 return
-            }
-        }
-    }
-
-    private func markGoogleConnected() {
-        for index in turns.indices {
-            for cardIndex in turns[index].cards.indices {
-                if case .connectGoogle(var item) = turns[index].cards[cardIndex] {
-                    item.isConnected = true
-                    turns[index].cards[cardIndex] = .connectGoogle(item)
-                }
             }
         }
     }

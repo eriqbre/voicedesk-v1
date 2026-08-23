@@ -8,6 +8,7 @@ enum VoiceServiceEvent: Sendable {
     case userTranscript(String, isFinal: Bool, itemID: String?)
     case assistantTranscript(String, isFinal: Bool)
     case failed(String)
+    case recovered
     case setupRequired
 }
 
@@ -35,6 +36,9 @@ protocol VoiceServicing: AnyObject {
     func startListening() async -> String
     func speak(_ text: String) async
     func sendTextTurn(_ text: String) async
+    func updatePresenceInstructions(_ text: String)
+    func interruptResponse()
+    func suppressAssistantOutput(_ suppress: Bool)
     func cancel()
 }
 
@@ -93,6 +97,18 @@ final class VoiceBox {
         await service.sendTextTurn(text)
     }
 
+    func updatePresenceInstructions(_ text: String) {
+        service.updatePresenceInstructions(text)
+    }
+
+    func interruptResponse() {
+        service.interruptResponse()
+    }
+
+    func suppressAssistantOutput(_ suppress: Bool) {
+        service.suppressAssistantOutput(suppress)
+    }
+
     func cancel() {
         service.cancel()
     }
@@ -107,6 +123,8 @@ final class VoiceBox {
             transcriptHandler?(VoiceTranscript(role: .assistant, text: text, isFinal: isFinal))
         case .failed(let message):
             lastError = message
+        case .recovered:
+            lastError = nil
         case .setupRequired:
             break
         }
@@ -160,6 +178,16 @@ final class MockVoiceService: VoiceServicing {
         _ = text
     }
 
+    func updatePresenceInstructions(_ text: String) {
+        _ = text
+    }
+
+    func interruptResponse() {}
+
+    func suppressAssistantOutput(_ suppress: Bool) {
+        _ = suppress
+    }
+
     func cancel() {
         apply(.cancel)
     }
@@ -196,6 +224,16 @@ final class UnconfiguredVoiceService: VoiceServicing {
 
     func sendTextTurn(_ text: String) async {
         _ = text
+    }
+
+    func updatePresenceInstructions(_ text: String) {
+        _ = text
+    }
+
+    func interruptResponse() {}
+
+    func suppressAssistantOutput(_ suppress: Bool) {
+        _ = suppress
     }
 
     func cancel() {

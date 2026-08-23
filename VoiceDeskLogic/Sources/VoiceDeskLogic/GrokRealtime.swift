@@ -13,31 +13,112 @@ public enum GrokRealtime {
         "\(realtimeHost)?model=\(model)"
     }
 
+    /// Disconnected / first-run sample desk. Do not use after Google is connected.
+    public static let presenceInstructions = presenceInstructions(for: .disconnected)
+
     /// Second-person VoiceDesk presence. Cards attach in the iOS app from desk evidence;
     /// this prompt only shapes spoken Grok. No tools are registered this slice.
-    public static let presenceInstructions = """
-    ## Role & Persona
-    You are VoiceDesk — a person who already knows this realtor’s world. You talk like a colleague sitting next to them, not a command menu. You answer anything they ask, desk or not.
+    public static func presenceInstructions(for context: DeskContext) -> String {
+        let deskBlock: String
+        if context.isConnected {
+            deskBlock = connectedDeskFacts(context.snapshot)
+        } else {
+            deskBlock = """
+            You work with Bridget at Coastal Tampa Bay. Sample desk you already know (not live Gmail yet):
+            - Jordan Hale emailed this morning about a Saturday showing at 1842 Beach Drive NE, St. Petersburg.
+            - Fla. Stat. § 475.278 covers brokerage-relationship disclosure. Treat legal answers as guidance, not legal advice. Confidence on that sample is 86 percent, firm.
+            """
+        }
 
-    You work with Bridget at Coastal Tampa Bay. Sample desk you already know (not live Gmail yet):
-    - Jordan Hale emailed this morning about a Saturday showing at 1842 Beach Drive NE, St. Petersburg.
-    - Fla. Stat. § 475.278 covers brokerage-relationship disclosure. Treat legal answers as guidance, not legal advice. Confidence on that sample is 86 percent, firm.
+        let deskObjective = context.isConnected
+            ? "When the topic is their desk, stay silent. The iOS app owns every Gmail, calendar, and task ask, including full email, body, and summary. You will not handle those turns. The client interrupts you."
+            : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
-    ## Objective
-    Be someone they can talk to about anything. When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent.
+        let deskFlow = context.isConnected
+            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, do not answer. Stay silent. The client owns those turns. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER say you are searching, will search, can search Gmail, or are looking anything up. NEVER describe mail as snippet-only. NEVER narrate routing. NEVER say you’ll let the app handle that, you’ll look that up in the app, or that you’re handing the turn off."
+            : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
-    ## Conversation Flow
-    Listen. Answer in a few spoken sentences. If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail.
+        let googleConnectGuard: String
+        if context.isConnected {
+            let email = context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"
+            googleConnectGuard = """
+            Google is ALREADY connected as \(email). There is NO Settings screen, no Account menu, and no Integrations page. If they say “connect Google” or ask how to connect, say exactly: You’re already connected as \(email). Use Disconnect on the card if you need to switch. NEVER say you cannot connect it. NEVER invent Settings, Account, or Integrations menus. NEVER tell them to open app settings or Google sign-in settings. NEVER tell them to do it themselves in Integrations.
+            """
+        } else {
+            googleConnectGuard = """
+            There is NO Settings screen for Google. There is no Account menu and no Integrations page. The Connect Google card is how they connect. If they ask to connect Google, or how to connect, say exactly: Tap Connect Google on the card below. NEVER say you cannot connect it. NEVER invent Settings, Account, or Integrations menus. NEVER tell them to open app settings or Google sign-in settings. NEVER tell them to do it themselves in Integrations.
+            """
+        }
 
-    ## Guardrails & Escalation
-    NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You have no tools this slice — do not pretend to call functions. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
+        return """
+        ## Role & Persona
+        You are VoiceDesk — a person who already knows this realtor’s world. You talk like a colleague sitting next to them, not a command menu. You answer anything they ask, desk or not.
 
-    ## Voice & Communication Style
-    Spoken word only: no markdown, no bullets, no emojis. One or two short sentences unless they want more. Warm, direct, English. Vary phrasing.
+        \(deskBlock)
 
-    ## CRITICAL INSTRUCTIONS
-    NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the sample desk. The iOS app attaches evidence cards separately — you just talk.
-    """
+        ## Objective
+        Be someone they can talk to about anything. \(deskObjective)
+
+        ## Conversation Flow
+        Listen. Answer in a few spoken sentences. \(deskFlow)
+
+        ## Guardrails & Escalation
+        NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You have no tools this slice — do not pretend to call functions. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
+        \(googleConnectGuard)
+
+        ## Voice & Communication Style
+        Spoken word only: no markdown, no bullets, no emojis. One or two short sentences unless they want more. Warm, direct, English. Vary phrasing.
+
+        ## CRITICAL INSTRUCTIONS
+        NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above. The iOS app attaches evidence cards separately — you just talk.
+        NEVER tell them to open Settings, Account, or Integrations. Those screens do not exist.
+        NEVER say you cannot connect Google. NEVER bounce them to Gmail for a message body.
+        NEVER mention an Email card or that a full message is waiting on a card. The client attaches cards. NEVER say pull-to-refresh.
+        NEVER paste a full email body or quoted thread into the conversation.
+        NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, or that all you have is a snippet. The client fetches full bodies.
+        NEVER say you are searching, will search, can search Gmail, or are looking anything up. The client handles all Gmail reads.
+        NEVER narrate routing. NEVER say you’ll let the app handle that or that you’ll look that up in the app. Stay silent on desk turns.
+        If they ask for a full email, summary, or body, stay silent. Body pulls are client-owned.
+        \(context.isConnected
+            ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
+            : "How to connect Google — say exactly: Tap Connect Google on the card below.")
+        """
+    }
+
+    public static func connectedDeskFacts(_ snapshot: DeskSnapshot) -> String {
+        var lines: [String] = [
+            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts: from, subject, and when only. The client handles all Gmail reads, including full body and summary. You do not search. You do not look anything up. Do not invent mail. Do not say a message is not synced or that you only have a snippet. If they ask for a full email, summary, or body, stay silent — the client interrupts you."
+        ]
+        if let synced = snapshot.lastSyncedAt {
+            lines.append("Last synced: \(DeskSnapshot.timeLabel(synced)).")
+        }
+        if snapshot.emails.isEmpty {
+            lines.append("Inbox list is empty. If they ask about mail, stay silent; the client owns the turn.")
+        } else {
+            lines.append("Inbox (from / subject / when only — no bodies, no snippets):")
+            for email in snapshot.emails.prefix(8) {
+                lines.append("- \(email.fromName): \(email.subject) (\(email.sentAtLabel)).")
+            }
+        }
+        if snapshot.events.isEmpty {
+            lines.append("Calendar: nothing upcoming in the last sync.")
+        } else {
+            lines.append("Calendar (only these):")
+            for event in snapshot.events.prefix(8) {
+                lines.append("- \(event.title) — \(event.whenLabel)")
+            }
+        }
+        if snapshot.tasks.isEmpty {
+            lines.append("Tasks: no open tasks in the last sync.")
+        } else {
+            lines.append("Open tasks (only these):")
+            for task in snapshot.tasks.prefix(8) {
+                lines.append("- \(task.title)")
+            }
+        }
+        lines.append("Fla. Stat. § 475.278 still covers brokerage-relationship disclosure. Treat legal answers as guidance, not legal advice.")
+        return lines.joined(separator: "\n")
+    }
 
     public static func sessionUpdateObject(
         voice: String = defaultVoice,
@@ -87,6 +168,36 @@ public enum GrokRealtime {
         ["type": "input_audio_buffer.clear"]
     }
 
+    public static let speakVerbatimMarker = "SPEAK_VERBATIM"
+
+    /// Live Eve should read this block aloud. AVSpeech is only for Mock / no session.
+    public static func shouldSpeakViaRealtime(
+        usesLiveLoop: Bool,
+        isConnected: Bool,
+        userWantsVoiceOff: Bool
+    ) -> Bool {
+        usesLiveLoop && isConnected && !userWantsVoiceOff
+    }
+
+    public static func verbatimSpeakInstructions(text: String) -> String {
+        """
+        Speak the SPEAK_VERBATIM block word-for-word. No other words. No greeting. No paraphrase.
+        Do not say you will let the app handle anything. After you finish, stay silent.
+
+        SPEAK_VERBATIM
+        \(text)
+        SPEAK_VERBATIM
+        """
+    }
+
+    public static func verbatimSpeakUserText(text: String) -> String {
+        "SPEAK_VERBATIM\n\(text)\nSPEAK_VERBATIM"
+    }
+
+    public static func isVerbatimSpeakPrompt(_ raw: String) -> Bool {
+        raw.contains(speakVerbatimMarker)
+    }
+
     public static func textItemObject(_ text: String) -> [String: Any] {
         [
             "type": "conversation.item.create",
@@ -125,7 +236,7 @@ public enum GrokRealtime {
         case assistantTranscriptDone
         case outputAudioDelta(String)
         case outputAudioDone
-        case responseDone
+        case responseDone(id: String?)
         case ping(timestamp: Int64)
         case error(code: String, message: String)
         case ignored
@@ -164,7 +275,7 @@ public enum GrokRealtime {
         case "response.output_audio.done", "response.audio.done":
             return .outputAudioDone
         case "response.done":
-            return .responseDone
+            return .responseDone(id: responseID(in: json))
         case "ping":
             if let timestamp = int64(json["ping_timestamp"]) {
                 return .ping(timestamp: timestamp)
@@ -178,6 +289,15 @@ public enum GrokRealtime {
         default:
             return .ignored
         }
+    }
+
+    public static func responseID(in json: [String: Any]) -> String? {
+        if let id = json["response_id"] as? String, !id.isEmpty { return id }
+        if let response = json["response"] as? [String: Any],
+           let id = response["id"] as? String, !id.isEmpty {
+            return id
+        }
+        return nil
     }
 
     public static func itemID(in json: [String: Any]) -> String? {
