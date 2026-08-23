@@ -98,8 +98,7 @@ final class GrokVoiceAudioEngine {
         if engine.isRunning { engine.stop() }
         self.engine = nil
         self.playerNode = nil
-        // Hold the session long enough for the mic-off earcon (AVAudioPlayer).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }

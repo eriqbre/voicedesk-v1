@@ -117,15 +117,12 @@ final class VoiceBox {
         switch event {
         case .state(let next):
             state = next
-            if next == .speaking {
-                lastError = nil
-            }
         case .userTranscript(let text, let isFinal, let itemID):
             transcriptHandler?(VoiceTranscript(role: .user, text: text, isFinal: isFinal, itemID: itemID))
         case .assistantTranscript(let text, let isFinal):
             transcriptHandler?(VoiceTranscript(role: .assistant, text: text, isFinal: isFinal))
         case .failed(let message):
-            lastError = GrokRealtime.formatError(code: nil, message: message)
+            lastError = message
         case .recovered:
             lastError = nil
         case .setupRequired:

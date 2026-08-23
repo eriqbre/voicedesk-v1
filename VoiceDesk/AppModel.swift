@@ -51,8 +51,6 @@ final class AppModel {
     var expandEarlierEpoch: Int = 0
     /// Last known listening visual — used for the off earcon, not Grok.
     private var voiceListeningVisual = false
-    /// Drop echo / barge-in while Eve is speaking (half-duplex).
-    private var echoGate = EchoBargeInGate()
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -151,15 +149,6 @@ final class AppModel {
     }
 
     func voiceBecame(_ state: VoiceState) {
-        if state == .speaking {
-            echoGate.assistantStarted()
-        } else if echoGate.assistantSpeaking {
-            if voice.lastError != nil {
-                echoGate.assistantAborted()
-            } else {
-                echoGate.assistantFinished()
-            }
-        }
         voiceListeningVisual = state == .listening
         guard state == .idle, waitingToOfferConnectAfterTalk else { return }
         waitingToOfferConnectAfterTalk = false
@@ -187,7 +176,6 @@ final class AppModel {
             liveAssistantID = nil
             cancelPendingDraftsFromVoice()
         case .idle:
-            echoGate.reset()
             VoiceEarcon.listenStarted()
             voiceListeningVisual = true
             Task { await listenAndHandle() }
@@ -337,7 +325,6 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            guard voice.state != .speaking, echoGate.shouldAcceptUserInput() else { return }
             if !event.isFinal {
                 preemptGrokIfDeskTurn(event.text)
                 return
@@ -889,9 +876,6 @@ final class AppModel {
         }
         lastSpokenDeskReply = spoken
         await voice.speak(spoken)
-        // Card + digest are already on screen. Allow the next Grok general
-        // transcript. Leave Grok audio suppressed until verbatim created / speech_started.
-        suppressLiveAssistant = false
     }
 
     private func rememberUserTurn(_ text: String, source: String) {

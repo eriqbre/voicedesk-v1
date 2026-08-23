@@ -824,47 +824,6 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
-    func testDeskTurnThenGeneralTurnUnmutesGrok() async {
-        var murray = SampleData.syncedEmail()
-        murray.fromName = "Murray Mitchell"
-        murray.providerID = "msg-murray-wx"
-        murray.subject = "Closing / notarization"
-        murray.body = "Need you to notarize the closing package today."
-        let snapshot = DeskSnapshot(emails: [murray])
-        let fake = FakeLiveVoiceService()
-        let model = AppModel(
-            voice: fake,
-            google: .mock(connected: true),
-            cache: MemoryDeskCache(snapshot: snapshot),
-            sync: MockGoogleSync(result: snapshot)
-        )
-
-        await model.applyUserTurn("see my latest emails")
-        XCTAssertFalse(fake.spoken.isEmpty, "inbox digest must Eve-speak")
-        XCTAssertTrue(fake.assistantOutputSuppressed, "desk claim mutes Grok handoff")
-        XCTAssertTrue(fake.sentTurns.isEmpty)
-
-        await model.applyUserTurn("What's the weather like in Tarpon Springs?")
-        XCTAssertFalse(
-            fake.assistantOutputSuppressed,
-            "general turn after desk must clear suppress so Eve can speak"
-        )
-        XCTAssertEqual(fake.sentTurns, ["What's the weather like in Tarpon Springs?"])
-        XCTAssertTrue(model.turns.contains { $0.role == .user && $0.text.contains("Tarpon Springs") })
-
-        fake.emitAssistant("Tampa Bay this time of year I’d plan on warm.", isFinal: true)
-        XCTAssertTrue(
-            model.turns.contains { $0.role == .assistant && $0.text.contains("Tampa Bay") },
-            "desk claim must not swallow the next general Eve transcript"
-        )
-
-        model.tapTalk()
-        await waitUntil { fake.started }
-        fake.emitUser("How's the weather today in Tarpon Springs?", itemID: "wx-live")
-        XCTAssertFalse(fake.assistantOutputSuppressed)
-        XCTAssertTrue(model.turns.contains { $0.role == .user && $0.text.contains("weather today") })
-    }
-
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)
@@ -908,88 +867,12 @@ final class AppModelTests: XCTestCase {
     func testLiveCancelStopsSessionWithoutFakeUtterance() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)
-        VoiceEarcon.resetPlayLog()
         model.tapTalk()
         await waitUntil { fake.started }
-        XCTAssertEqual(VoiceEarcon.playLog, [true], "mic ON must play listen earcon")
         model.tapTalk()
         XCTAssertTrue(fake.cancelled)
         XCTAssertEqual(model.turns.count, 1)
         XCTAssertEqual(model.voice.state, .idle)
-        XCTAssertEqual(VoiceEarcon.playLog, [true, false], "mic OFF must play the disarm earcon")
-    }
-
-    func testEchoWhileEveSpeaksDoesNotCreateUserTurnOrDeskAction() async {
-        let event = CalendarItem(
-            title: "Dinner reservation",
-            whenLabel: "Tonight 7:00 PM",
-            location: "Oak & Stone",
-            relatedPeople: ["Massimo Ricci"],
-            notes: "Window table, party of 4."
-        )
-        let fake = FakeLiveVoiceService()
-        let model = AppModel(
-            voice: fake,
-            google: .mock(connected: true),
-            cache: MemoryDeskCache(snapshot: DeskSnapshot(events: [event]))
-        )
-        model.tapTalk()
-        await waitUntil { fake.started }
-        fake.emitUser("What's on my calendar?", itemID: "cal-week")
-        let userTurns = model.turns.filter { $0.role == .user }.count
-        let calendarCards = model.turns.flatMap(\.cards).filter { $0.kind == .calendar }.count
-        XCTAssertEqual(userTurns, 1)
-        XCTAssertGreaterThanOrEqual(calendarCards, 1)
-
-        fake.beginAssistantPlayback()
-        fake.emitUser("reservation", itemID: "echo-eve")
-        fake.emitUser("Dinner reservation", itemID: "echo-eve-2")
-        XCTAssertEqual(
-            model.turns.filter { $0.role == .user }.count,
-            userTurns,
-            "Eve’s own TTS must not become a user bubble"
-        )
-        XCTAssertEqual(
-            model.turns.flatMap(\.cards).filter { $0.kind == .calendar }.count,
-            calendarCards,
-            "echo must not attach a second calendar card"
-        )
-        XCTAssertFalse(model.turns.contains { $0.role == .user && $0.text == "reservation" })
-    }
-
-    func testUnknownErrorIsFormattedAndClearsWhenEveSpeaks() {
-        let fake = FakeLiveVoiceService()
-        let model = AppModel(voice: fake)
-        fake.emitFailed("Unknown")
-        XCTAssertEqual(model.voice.lastError, "Grok session error")
-        XCTAssertNotEqual(model.voice.lastError, "Unknown")
-
-        fake.emitFailed("session_expired: session is no longer active")
-        XCTAssertEqual(model.voice.lastError, "session_expired: session is no longer active")
-
-        fake.beginAssistantPlayback()
-        XCTAssertNil(model.voice.lastError, "successful speak clears lastError")
-    }
-
-    func testDeskDigestThenLiveAssistantTranscriptIsNotSwallowed() async {
-        var murray = SampleData.syncedEmail()
-        murray.fromName = "Murray Mitchell"
-        murray.providerID = "msg-murray-live-wx"
-        murray.body = "Need you to notarize the closing package today."
-        let snapshot = DeskSnapshot(emails: [murray])
-        let fake = FakeLiveVoiceService()
-        let model = AppModel(
-            voice: fake,
-            google: .mock(connected: true),
-            cache: MemoryDeskCache(snapshot: snapshot),
-            sync: MockGoogleSync(result: snapshot)
-        )
-        await model.applyUserTurn("see my latest emails")
-        XCTAssertFalse(fake.spoken.isEmpty)
-        fake.emitAssistant("I’ll let the app handle that.", isFinal: true)
-        XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("let the app handle") })
-        fake.emitAssistant("Warm in Tarpon Springs, late storm possible.", isFinal: true)
-        XCTAssertTrue(model.turns.contains { $0.text.contains("Tarpon Springs") })
     }
 
     func testClientSecretExtraction() {
@@ -1055,26 +938,12 @@ final class FakeLiveVoiceService: VoiceServicing {
         eventHandler?(.state(session.state))
     }
 
-    func beginAssistantPlayback() {
-        session.apply(.speakStarted)
-        eventHandler?(.state(session.state))
-    }
-
-    func endAssistantPlayback() {
-        session.apply(.turnFinished)
-        eventHandler?(.state(session.state))
-    }
-
     func emitUser(_ text: String, itemID: String? = nil) {
         eventHandler?(.userTranscript(text, isFinal: true, itemID: itemID))
     }
 
     func emitAssistant(_ text: String, isFinal: Bool) {
         eventHandler?(.assistantTranscript(text, isFinal: isFinal))
-    }
-
-    func emitFailed(_ message: String) {
-        eventHandler?(.failed(message))
     }
 
     func updatePresenceInstructions(_ text: String) {

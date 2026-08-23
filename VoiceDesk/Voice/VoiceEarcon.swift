@@ -8,23 +8,12 @@ import VoiceDeskLogic
 /// Generated two-tone WAV through AVAudioPlayer (or the live Grok player node).
 @MainActor
 enum VoiceEarcon {
-    /// Optional extra path through the live player node. Never replaces AVAudioPlayer —
-    /// teardown swallows engine-scheduled PCM on mic-off.
+    /// Returns true when the live engine consumed the PCM (skip local player).
     static var playThroughLiveEngine: ((Data) -> Bool)?
-    /// Test hook: `true` = listen started, `false` = listen ended.
-    static var playLog: [Bool] = []
 
     #if canImport(AVFAudio)
     private static var player: AVAudioPlayer?
     #endif
-    private static var lastPlayAt: Date?
-    private static var lastStarted: Bool?
-
-    static func resetPlayLog() {
-        playLog = []
-        lastPlayAt = nil
-        lastStarted = nil
-    }
 
     static func listenStarted() {
         play(started: true)
@@ -35,14 +24,10 @@ enum VoiceEarcon {
     }
 
     private static func play(started: Bool) {
-        if lastStarted == started, let lastPlayAt, Date().timeIntervalSince(lastPlayAt) < 0.25 {
+        let pcm = started ? VoiceEarconClick.startPCM16() : VoiceEarconClick.endPCM16()
+        if playThroughLiveEngine?(pcm) == true {
             return
         }
-        lastStarted = started
-        lastPlayAt = Date()
-        playLog.append(started)
-        let pcm = started ? VoiceEarconClick.startPCM16() : VoiceEarconClick.endPCM16()
-        _ = playThroughLiveEngine?(pcm)
         playLocally(wav: started ? VoiceEarconClick.startWAV() : VoiceEarconClick.endWAV())
     }
 

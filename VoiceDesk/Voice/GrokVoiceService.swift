@@ -35,11 +35,6 @@ final class GrokVoiceService: VoiceServicing {
     private var verbatim = VerbatimSpeakGate()
     private var restoreAudioSuppressAfterVerbatim = false
     private var instructions = GrokRealtime.presenceInstructions
-    private var echo = EchoBargeInGate()
-    private let captureGate = MicrophoneCaptureGate()
-    private var unmuteTask: Task<Void, Never>?
-    private var speakingWatchdog: Task<Void, Never>?
-    private var speakingStartedAt: Date?
 
     var state: VoiceState { session.state }
 
@@ -58,9 +53,6 @@ final class GrokVoiceService: VoiceServicing {
 
     func startListening() async -> String {
         userWantsVoiceOff = false
-        if (session.state == .speaking || session.state == .thinking), !verbatim.isSpeaking {
-            recoverToListening(playedAudio: audioDeltaCount > 0, cancelVerbatim: false)
-        }
         if session.state != .idle {
             if !client.isConnected, !isRecovering {
                 await recoverAfterDrop(reason: "tap talk")
@@ -69,8 +61,6 @@ final class GrokVoiceService: VoiceServicing {
         }
         isTearingDown = false
         reconnectsUsed = 0
-        echo.reset()
-        captureGate.setMuted(false)
         apply(.tapTalk)
         let granted = await AVAudioApplication.requestRecordPermission()
         guard granted else {
@@ -93,7 +83,6 @@ final class GrokVoiceService: VoiceServicing {
     func speak(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard !userWantsVoiceOff else { return }
         if GrokRealtime.shouldSpeakViaRealtime(
             usesLiveLoop: usesLiveLoop,
             isConnected: client.isConnected,
@@ -110,13 +99,10 @@ final class GrokVoiceService: VoiceServicing {
     private func speakVerbatimViaGrok(_ text: String) {
         ClientVoiceSpeech.shared.stop()
         verbatim.begin()
-        beginHalfDuplex()
+        restoreAudioSuppressAfterVerbatim = dropAssistantAudio || dropAssistantTranscript
         // Keep leftover Grok handoff muted until THIS verbatim response.created.
-        // Do not restore desk-claim mute after Eve finishes — weather / trivia
-        // must play on the next turn.
         dropAssistantAudio = true
         dropAssistantTranscript = true
-        restoreAudioSuppressAfterVerbatim = AssistantPlaybackPolicy.restoreSuppressAfterVerbatim
         interruptAssistant(sendCancel: true)
         client.sendJSON(
             GrokRealtime.sessionUpdateObject(
@@ -138,10 +124,6 @@ final class GrokVoiceService: VoiceServicing {
             await recoverAfterDrop(reason: "text turn")
         }
         guard client.isConnected else { return }
-        if !verbatim.isSpeaking {
-            dropAssistantAudio = false
-            dropAssistantTranscript = false
-        }
         interruptAssistant(sendCancel: true)
         client.sendJSON(GrokRealtime.textItemObject(trimmed))
         client.sendJSON(GrokRealtime.responseCreateObject())
@@ -181,7 +163,6 @@ final class GrokVoiceService: VoiceServicing {
 
     func cancel() {
         userWantsVoiceOff = true
-        VoiceEarcon.listenEnded()
         teardown(sendCancel: true)
     }
 
@@ -203,85 +184,8 @@ final class GrokVoiceService: VoiceServicing {
     private func startAudioIfNeeded() {
         guard !userWantsVoiceOff, !audio.isRunning else { return }
         let socket = client
-        let gate = captureGate
         _ = audio.start(echoCancellation: true) { base64 in
-            guard !gate.isMuted() else { return }
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
-        }
-    }
-
-    private func beginHalfDuplex() {
-        echo.assistantStarted()
-        captureGate.setMuted(true)
-        unmuteTask?.cancel()
-        if client.isConnected {
-            client.sendJSON(GrokRealtime.clearBufferObject())
-        }
-    }
-
-    private func endHalfDuplex(playedAudio: Bool) {
-        speakingWatchdog?.cancel()
-        speakingWatchdog = nil
-        speakingStartedAt = nil
-        if playedAudio {
-            echo.assistantFinished()
-        } else {
-            echo.assistantAborted()
-        }
-        unmuteTask?.cancel()
-        unmuteTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(320))
-            guard let self, !Task.isCancelled else { return }
-            guard !self.echo.assistantSpeaking, !self.verbatim.isSpeaking else { return }
-            self.captureGate.setMuted(false)
-            if self.client.isConnected, !self.userWantsVoiceOff {
-                self.client.sendJSON(GrokRealtime.clearBufferObject())
-            }
-        }
-    }
-
-    /// Never leave `.speaking` / `.thinking` after error, leftover, or a silent response.
-    private func recoverToListening(playedAudio: Bool, cancelVerbatim: Bool = true) {
-        if cancelVerbatim, verbatim.isSpeaking {
-            verbatim.cancel()
-        }
-        endHalfDuplex(playedAudio: playedAudio)
-        currentResponseID = nil
-        audioDeltaCount = 0
-        if session.state == .speaking || session.state == .thinking {
-            apply(.turnFinished)
-        }
-        eventHandler?(.recovered)
-    }
-
-    private func scheduleSpeakingWatchdog() {
-        speakingWatchdog?.cancel()
-        let expectedID = currentResponseID
-        speakingStartedAt = Date()
-        speakingWatchdog = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(AssistantPlaybackPolicy.silentSpeakingTimeout))
-            guard let self, !Task.isCancelled else { return }
-            guard self.session.state == .speaking else { return }
-            guard self.currentResponseID == expectedID else { return }
-            let elapsed = self.speakingStartedAt.map { Date().timeIntervalSince($0) } ?? AssistantPlaybackPolicy.silentSpeakingTimeout
-            guard AssistantPlaybackPolicy.shouldForceEndSpeaking(
-                audioDeltaCount: self.audioDeltaCount,
-                elapsed: elapsed
-            ) else { return }
-            self.recoverToListening(playedAudio: false, cancelVerbatim: true)
-        }
-    }
-
-    private func scheduleThinkingWatchdog() {
-        speakingWatchdog?.cancel()
-        speakingWatchdog = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(AssistantPlaybackPolicy.silentSpeakingTimeout))
-            guard let self, !Task.isCancelled else { return }
-            guard self.session.state == .thinking, !self.verbatim.isSpeaking else { return }
-            guard AssistantPlaybackPolicy.shouldForceEndThinking(
-                elapsed: AssistantPlaybackPolicy.silentSpeakingTimeout
-            ) else { return }
-            self.recoverToListening(playedAudio: false, cancelVerbatim: false)
         }
     }
 
@@ -291,15 +195,10 @@ final class GrokVoiceService: VoiceServicing {
         }
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
-        let wasLive = session.state == .speaking || session.state == .thinking
-        let played = audioDeltaCount > 0
         currentResponseID = nil
         audioDeltaCount = 0
-        if wasLive {
+        if session.state == .speaking || session.state == .thinking {
             apply(.turnFinished)
-            if !verbatim.isSpeaking {
-                endHalfDuplex(playedAudio: played)
-            }
         }
     }
 
@@ -311,15 +210,6 @@ final class GrokVoiceService: VoiceServicing {
             client.sendJSON(GrokRealtime.clearBufferObject())
         }
         failReady(GrokVoiceError.connectFailed("Cancelled"))
-        speakingWatchdog?.cancel()
-        speakingWatchdog = nil
-        speakingStartedAt = nil
-        unmuteTask?.cancel()
-        if verbatim.isSpeaking {
-            verbatim.cancel()
-        }
-        captureGate.setMuted(true)
-        echo.reset()
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
         audio.stop()
@@ -352,9 +242,6 @@ final class GrokVoiceService: VoiceServicing {
     private func recoverAfterDrop(reason: String) async {
         _ = reason
         guard !userWantsVoiceOff, !isTearingDown, !isRecovering else { return }
-        if session.state == .speaking || session.state == .thinking {
-            recoverToListening(playedAudio: audioDeltaCount > 0, cancelVerbatim: !verbatim.isSpeaking)
-        }
         isRecovering = true
         client.disconnect()
         audio.interruptPlayback()
@@ -442,24 +329,14 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             startAudioIfNeeded()
             finishReady()
         case .speechStarted:
-            guard echo.shouldAcceptUserInput() else { break }
-            // New user utterance: clear leftover desk-claim mute so weather
-            // after inbox can create a playable Grok response (VAD races transcript).
-            if !verbatim.isSpeaking {
-                dropAssistantAudio = false
-                dropAssistantTranscript = false
-                restoreAudioSuppressAfterVerbatim = false
-            }
             interruptAssistant(sendCancel: true)
         case .speechStopped:
             if session.state == .listening {
                 apply(.listenFinished)
-                scheduleThinkingWatchdog()
             }
         case .audioCommitted:
             break
         case .userTranscript(let text, let itemID):
-            guard echo.shouldAcceptUserInput() else { break }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             if !trimmed.isEmpty {
@@ -470,18 +347,8 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             assistantGate.reset()
             if verbatim.created(id) {
                 dropAssistantAudio = false
-                dropAssistantTranscript = false
             }
-            if AssistantPlaybackPolicy.shouldEnterHalfDuplex(
-                dropAssistantAudio: dropAssistantAudio,
-                verbatimSpeaking: verbatim.isSpeaking
-            ) {
-                beginHalfDuplex()
-                apply(.speakStarted)
-                scheduleSpeakingWatchdog()
-            } else if session.state == .thinking || session.state == .speaking {
-                recoverToListening(playedAudio: false, cancelVerbatim: false)
-            }
+            apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
             guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
             eventHandler?(.assistantTranscript(delta, isFinal: false))
@@ -499,17 +366,14 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             if verbatim.shouldIgnoreDone(eventID: doneID, currentID: currentResponseID) {
                 break
             }
-            let playedAudio = audioDeltaCount > 0
             apply(.turnFinished)
             let finishedID = currentResponseID
             currentResponseID = nil
             audioDeltaCount = 0
             assistantGate.reset()
-            endHalfDuplex(playedAudio: playedAudio)
             if verbatim.finishDone(eventID: doneID, currentID: finishedID) {
-                dropAssistantAudio = AssistantPlaybackPolicy.restoreSuppressAfterVerbatim
-                dropAssistantTranscript = AssistantPlaybackPolicy.restoreSuppressAfterVerbatim
-                restoreAudioSuppressAfterVerbatim = false
+                dropAssistantAudio = restoreAudioSuppressAfterVerbatim
+                dropAssistantTranscript = restoreAudioSuppressAfterVerbatim
                 sendSessionUpdate()
                 break
             }
@@ -517,9 +381,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .ping(let timestamp):
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))
         case .error(let code, let message):
-            let detail = GrokRealtime.formatError(code: code, message: message)
-            eventHandler?(.failed(detail))
-            recoverToListening(playedAudio: audioDeltaCount > 0, cancelVerbatim: true)
+            eventHandler?(.failed("\(code) \(message)".trimmingCharacters(in: .whitespaces)))
             if code == "timeout" || code == "max_duration" {
                 teardown(sendCancel: false)
             }
