@@ -193,6 +193,7 @@ private struct FlexibleChipRow: View {
 struct VoiceBar: View {
     @Environment(AppModel.self) private var model
     @FocusState private var composerFocused: Bool
+    @State private var listeningPulse = false
 
     var body: some View {
         @Bindable var model = model
@@ -236,10 +237,17 @@ struct VoiceBar: View {
             Button(action: model.tapTalk) {
                 VStack(spacing: 8) {
                     ZStack {
+                        if model.voice.state == .listening {
+                            Circle()
+                                .stroke(Color.red.opacity(0.35), lineWidth: 4)
+                                .frame(width: 98, height: 98)
+                                .scaleEffect(listeningPulse ? 1.14 : 1)
+                                .opacity(listeningPulse ? 0.35 : 0.9)
+                        }
                         Circle()
                             .fill(Palette.accentSoft)
                             .frame(width: 84, height: 84)
-                            .scaleEffect(model.voice.state == .listening || model.showsTalkCoach ? 1.08 : 1)
+                            .scaleEffect(model.voice.state == .listening || model.showsTalkCoach ? 1.1 : 1)
                         Circle()
                             .fill(micFill)
                             .frame(width: 68, height: 68)
@@ -247,6 +255,15 @@ struct VoiceBar: View {
                             .font(.system(size: 26, weight: .semibold))
                             .foregroundStyle(Color.white)
                     }
+                    .onChange(of: model.voice.state) { _, state in
+                        listeningPulse = state == .listening
+                    }
+                    .animation(
+                        model.voice.state == .listening
+                            ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
+                            : .easeOut(duration: 0.2),
+                        value: listeningPulse
+                    )
                     Text(micLabel)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Palette.ink)

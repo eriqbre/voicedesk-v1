@@ -567,6 +567,13 @@ final class ConversationPresenceTests: XCTestCase {
             XCTAssertNotEqual(evidence?.expandEarlierMessages, true, ask)
             XCTAssertEqual(evidence?.cards.count, 2, ask)
             XCTAssertTrue(evidence?.cards.allSatisfy { $0.kind == .email } == true, ask)
+            XCTAssertTrue(
+                evidence?.cards.allSatisfy({
+                    if case .email(let item) = $0 { return item.isCompactListRow }
+                    return false
+                }) == true,
+                "inbox-overview must attach compact rows, not full readers: \(ask)"
+            )
             let reply = evidence?.text ?? ""
             XCTAssertTrue(reply.contains("Murray Mitchell") || reply.contains("Steve Brown"), ask)
             XCTAssertTrue(reply.contains("Closing") || reply.contains("Inspection") || reply.lowercased().contains("recent inbox"), ask)
@@ -587,6 +594,19 @@ final class ConversationPresenceTests: XCTestCase {
             XCTFail("expected Murray card for person-specific summary")
         }
         XCTAssertNotEqual(murrayEvidence?.resetsFocusedEmail, true)
+        if case .email(let item) = murrayEvidence?.cards.first {
+            XCTAssertFalse(item.isCompactListRow, "single Murray thread stays the full reader")
+        }
+    }
+
+    func testGrokDeskHandoffIsMetaNotASpokenDeskSummary() {
+        XCTAssertTrue(ConversationPresence.isGrokDeskHandoff("I’ll let the app handle that."))
+        XCTAssertTrue(ConversationPresence.isGrokDeskHandoff("I'll have the app look that up."))
+        XCTAssertTrue(ConversationPresence.isGrokDeskMeta("I’ll let the app handle that."))
+        XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("I’ll let the app handle that."))
+        XCTAssertFalse(ConversationPresence.isGrokDeskHandoff("Murray wrote: Need you to notarize today."))
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta("Here’s the recent inbox. Murray Mitchell: Closing / notarization."))
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(ConversationPresence.gmailSearchingBeat))
     }
 
     func testJohnWickTriviaIsNotADeskTurn() {

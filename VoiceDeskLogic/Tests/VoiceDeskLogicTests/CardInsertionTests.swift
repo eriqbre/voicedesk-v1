@@ -47,4 +47,19 @@ final class CardInsertionTests: XCTestCase {
         document.appendUser("What's in my inbox?")
         XCTAssertTrue(document.insertedCards.isEmpty)
     }
+
+    func testMultiEmailListCardsAreCompactSingleIsFull() {
+        let one = EmailItem.listCards([SampleData.email()])
+        if case .email(let item) = one.first {
+            XCTAssertFalse(item.isCompactListRow)
+        } else {
+            XCTFail("expected one full email card")
+        }
+        let many = EmailItem.listCards([SampleData.email(), SampleData.syncedEmail()])
+        XCTAssertEqual(many.count, 2)
+        XCTAssertTrue(many.allSatisfy { card in
+            if case .email(let item) = card { return item.isCompactListRow }
+            return false
+        })
+    }
 }

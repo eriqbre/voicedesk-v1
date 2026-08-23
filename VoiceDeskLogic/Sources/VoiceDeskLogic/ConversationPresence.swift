@@ -296,9 +296,41 @@ public enum ConversationPresence {
         looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw)
     }
 
-    /// Grok refusal that must never stay on the transcript after a local desk fetch.
+    /// Grok refusal or routing meta. Must never stay on the transcript after a local desk fetch.
     public static func isGrokDeskRefusal(_ raw: String) -> Bool {
+        isGrokDeskMeta(raw)
+    }
+
+    /// Handoff / capability narration. Client owns desk turns — Grok must stay silent.
+    public static func isGrokDeskHandoff(_ raw: String) -> Bool {
         contains(raw.lowercased(), [
+            "let the app handle",
+            "leave that to the app",
+            "leave it to the app",
+            "hand that off",
+            "handing that off",
+            "hand this off",
+            "look that up in the app",
+            "look it up in the app",
+            "have the app look",
+            "have voicedesk look",
+            "look it up in voicedesk",
+            "let voicedesk handle",
+            "the app will handle",
+            "the app can handle",
+            "i'll let the app",
+            "i’ll let the app",
+            "i will let the app",
+            "checking the app",
+            "pulling that up in the app",
+            "i'll pull that up in the app",
+            "i’ll pull that up in the app"
+        ])
+    }
+
+    public static func isGrokDeskMeta(_ raw: String) -> Bool {
+        if isGrokDeskHandoff(raw) { return true }
+        return contains(raw.lowercased(), [
             "can't pull",
             "cannot pull",
             "can’t pull",
@@ -816,7 +848,12 @@ public enum ConversationPresence {
         return DeskEvidence(
             topic: .inbox,
             text: text,
-            cards: cards,
+            cards: EmailItem.listCards(
+                cards.compactMap { card in
+                    if case .email(let item) = card { return item }
+                    return nil
+                }
+            ) + cards.filter { $0.kind != .email },
             focusedEmail: resetsFocus ? nil : context.snapshot.emails.first,
             shouldFetchBody: false,
             resetsFocusedEmail: resetsFocus

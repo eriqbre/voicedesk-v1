@@ -42,8 +42,62 @@ struct EmailCardView: View {
     @Environment(AppModel.self) private var model
     let item: EmailItem
     @State private var showingEarlier = false
+    @State private var expandedFromCompact = false
+
+    private var showsFullReader: Bool {
+        item.cardPresentation == .full || expandedFromCompact
+    }
 
     var body: some View {
+        if showsFullReader {
+            fullReader
+        } else {
+            compactRow
+        }
+    }
+
+    private var compactRow: some View {
+        Button {
+            expandedFromCompact = true
+            model.expandCompactEmail(item)
+        } label: {
+            CardChrome {
+                HStack(alignment: .top, spacing: 12) {
+                    InitialsMark(initials: item.initials, hue: 0.72)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(item.fromName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Palette.ink)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(item.sentAtLabel)
+                                .font(.caption)
+                                .foregroundStyle(Palette.muted)
+                        }
+                        Text(item.subject)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Palette.ink)
+                            .lineLimit(1)
+                        Text(item.compactSnippet)
+                            .font(.caption)
+                            .foregroundStyle(Palette.ink.opacity(0.75))
+                            .lineLimit(1)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.muted)
+                        .padding(.top, 4)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("card.email.compact")
+        .accessibilityLabel("Email from \(item.fromName). \(item.subject). \(item.compactSnippet)")
+        .accessibilityHint("Opens the full email")
+    }
+
+    private var fullReader: some View {
         CardChrome {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {

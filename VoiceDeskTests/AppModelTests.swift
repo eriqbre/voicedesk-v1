@@ -663,6 +663,67 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
         XCTAssertTrue((model.turns.last?.text ?? "").contains("Need you to notarize"))
+        XCTAssertTrue(fake.spoken.contains { $0.contains("Need you to notarize") })
+    }
+
+    func testHandoffMetaIsDroppedAndEveStillSpeaksDeskSummary() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-handoff"
+        murray.body = "Need you to notarize the closing package today."
+        let snapshot = DeskSnapshot(emails: [murray])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        fake.emitAssistant("I’ll let the app handle that.", isFinal: true)
+        XCTAssertTrue(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
+        await model.applyUserTurn("summarize the Murray email")
+        XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
+        XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("let the app handle") })
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(reply.contains("Murray Mitchell") || reply.contains("Need you to notarize"), reply)
+        XCTAssertEqual(fake.spoken.last, reply)
+        XCTAssertFalse(fake.spoken.contains { $0.localizedCaseInsensitiveContains("let the app handle") })
+        fake.emitAssistant("I'll have the app look that up.", isFinal: true)
+        XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("look that up") })
+    }
+
+    func testInboxOverviewAttachesCompactRowsAndSpeaksDigest() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-list"
+        murray.subject = "Closing / notarization"
+        murray.body = "Need you to notarize the closing package today."
+        var steve = SampleData.syncedEmail()
+        steve.fromName = "Steve Brown"
+        steve.fromEmail = "steve@example.com"
+        steve.providerID = "msg-steve-list"
+        steve.subject = "Inspection note"
+        steve.body = "Punch list is attached."
+        let snapshot = DeskSnapshot(emails: [murray, steve])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        await model.applyUserTurn("summary of my latest emails")
+        let cards = model.turns.last?.cards ?? []
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertTrue(cards.allSatisfy { card in
+            if case .email(let item) = card { return item.isCompactListRow }
+            return false
+        })
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(reply.contains("Murray Mitchell"))
+        XCTAssertTrue(reply.contains("Steve Brown"))
+        XCTAssertEqual(fake.spoken.last, reply)
+        XCTAssertFalse(reply.contains("<html"))
     }
 
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {

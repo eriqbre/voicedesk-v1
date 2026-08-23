@@ -134,6 +134,11 @@ public struct EmailThreadMessage: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+public enum EmailCardPresentation: String, Hashable, Sendable, Codable {
+    case full
+    case compact
+}
+
 public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     public var providerID: String?
@@ -149,6 +154,8 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
     public var filterTag: String
     public var relatedListing: String?
     public var relatedPeople: [String]
+    /// Inbox-overview / multi-hit lists use compact rows. Single-thread stays full.
+    public var cardPresentation: EmailCardPresentation
 
     public var hasFullBody: Bool {
         let plain = (body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -172,7 +179,8 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
         earlierMessages: [EmailThreadMessage] = [],
         filterTag: String,
         relatedListing: String? = nil,
-        relatedPeople: [String] = []
+        relatedPeople: [String] = [],
+        cardPresentation: EmailCardPresentation = .full
     ) {
         self.id = id
         self.providerID = providerID
@@ -188,6 +196,28 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
         self.filterTag = filterTag
         self.relatedListing = relatedListing
         self.relatedPeople = relatedPeople
+        self.cardPresentation = cardPresentation
+    }
+
+    public var isCompactListRow: Bool { cardPresentation == .compact }
+
+    public var compactSnippet: String {
+        let gist = EmailBodyFormatting.spokenSummary(from: body, fallback: preview, style: .brief)
+        if gist.isEmpty {
+            return preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return gist
+    }
+
+    public func presented(as presentation: EmailCardPresentation) -> EmailItem {
+        var copy = self
+        copy.cardPresentation = presentation
+        return copy
+    }
+
+    public static func listCards(_ emails: [EmailItem]) -> [ContentCard] {
+        let presentation: EmailCardPresentation = emails.count > 1 ? .compact : .full
+        return emails.map { .email($0.presented(as: presentation)) }
     }
 
     public var initials: String {
@@ -197,7 +227,7 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, providerID, threadID, fromName, fromEmail, sentAtLabel
         case subject, preview, body, htmlBody, earlierMessages
-        case filterTag, relatedListing, relatedPeople
+        case filterTag, relatedListing, relatedPeople, cardPresentation
     }
 
     public init(from decoder: Decoder) throws {
@@ -216,6 +246,7 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
         filterTag = try container.decode(String.self, forKey: .filterTag)
         relatedListing = try container.decodeIfPresent(String.self, forKey: .relatedListing)
         relatedPeople = try container.decodeIfPresent([String].self, forKey: .relatedPeople) ?? []
+        cardPresentation = try container.decodeIfPresent(EmailCardPresentation.self, forKey: .cardPresentation) ?? .full
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -234,6 +265,9 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
         try container.encode(filterTag, forKey: .filterTag)
         try container.encodeIfPresent(relatedListing, forKey: .relatedListing)
         try container.encode(relatedPeople, forKey: .relatedPeople)
+        if cardPresentation != .full {
+            try container.encode(cardPresentation, forKey: .cardPresentation)
+        }
     }
 }
 

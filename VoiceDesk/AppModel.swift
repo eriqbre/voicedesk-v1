@@ -48,6 +48,8 @@ final class AppModel {
     private var expandEarlierEmailIDs: Set<UUID> = []
     private var expandEarlierProviderIDs: Set<String> = []
     var expandEarlierEpoch: Int = 0
+    /// Last known listening visual — used for the off earcon, not Grok.
+    private var voiceListeningVisual = false
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -139,6 +141,10 @@ final class AppModel {
     }
 
     func voiceBecame(_ state: VoiceState) {
+        if voiceListeningVisual, state != .listening {
+            VoiceEarcon.listenEnded()
+        }
+        voiceListeningVisual = state == .listening
         guard state == .idle, waitingToOfferConnectAfterTalk else { return }
         waitingToOfferConnectAfterTalk = false
         offerConnectIfNeeded()
@@ -159,10 +165,14 @@ final class AppModel {
         }
         switch voice.state {
         case .listening, .speaking, .thinking:
+            VoiceEarcon.listenEnded()
+            voiceListeningVisual = false
             voice.cancel()
             liveAssistantID = nil
             cancelPendingDraftsFromVoice()
         case .idle:
+            VoiceEarcon.listenStarted()
+            voiceListeningVisual = true
             Task { await listenAndHandle() }
         }
     }
@@ -391,6 +401,9 @@ final class AppModel {
     }
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
+        if ConversationPresence.isGrokDeskMeta(text) {
+            return
+        }
         if suppressLiveAssistant {
             return
         }
@@ -620,7 +633,7 @@ final class AppModel {
             turn.role == .assistant
                 && turn.cards.isEmpty
                 && turn.createdAt >= cutoff
-                && ConversationPresence.isGrokDeskRefusal(turn.text)
+                && ConversationPresence.isGrokDeskMeta(turn.text)
         }
     }
 
@@ -645,6 +658,19 @@ final class AppModel {
     func openEmail(_ item: EmailItem) {
         lastFocusedEmail = item
         Task { await revealEmailBody(item) }
+    }
+
+    /// Compact inbox row → full Mail reader for that one message. No Grok handoff.
+    func expandCompactEmail(_ item: EmailItem) {
+        lastFocusedEmail = item
+        for index in turns.indices {
+            for cardIndex in turns[index].cards.indices {
+                if case .email(let existing) = turns[index].cards[cardIndex],
+                   existing.id == item.id || (existing.providerID != nil && existing.providerID == item.providerID) {
+                    turns[index].cards[cardIndex] = .email(existing.presented(as: .full))
+                }
+            }
+        }
     }
 
     func expandsEarlierMessages(_ email: EmailItem) -> Bool {
@@ -767,7 +793,7 @@ final class AppModel {
                 replaceAssistant(
                     id: beatID,
                     text: ConversationPresence.gmailSearchSeveralReply,
-                    cards: emails.map { .email($0) }
+                    cards: EmailItem.listCards(emails)
                 )
                 await speakDeskReply(ConversationPresence.gmailSearchSeveralReply)
             }
@@ -926,7 +952,7 @@ final class AppModel {
             for cardIndex in turns[index].cards.indices {
                 if case .email(let existing) = turns[index].cards[cardIndex],
                    existing.providerID == email.providerID || existing.id == email.id {
-                    turns[index].cards[cardIndex] = .email(email)
+                    turns[index].cards[cardIndex] = .email(email.presented(as: existing.cardPresentation))
                     updated = true
                 }
             }

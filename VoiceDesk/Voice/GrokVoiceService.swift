@@ -33,6 +33,7 @@ final class GrokVoiceService: VoiceServicing {
     private var dropAssistantTranscript = false
     private var dropAssistantAudio = false
     private var speakingVerbatim = false
+    private var verbatimAwaitingResponse = false
     private var restoreAudioSuppressAfterVerbatim = false
     private var instructions = GrokRealtime.presenceInstructions
 
@@ -89,12 +90,16 @@ final class GrokVoiceService: VoiceServicing {
         ClientVoiceSpeech.shared.speak(trimmed)
     }
 
-    /// Eve reads the already-written local reply. Do not emit a user bubble.
+    /// Eve reads the already-written local desk reply. Never mute this path —
+    /// only leftover Grok handoff audio stays dropped until this response starts.
     private func speakVerbatimViaGrok(_ text: String) {
         ClientVoiceSpeech.shared.stop()
         speakingVerbatim = true
-        restoreAudioSuppressAfterVerbatim = dropAssistantAudio
-        dropAssistantAudio = false
+        verbatimAwaitingResponse = true
+        restoreAudioSuppressAfterVerbatim = dropAssistantAudio || dropAssistantTranscript
+        // Keep leftover Grok audio muted until this verbatim response starts.
+        dropAssistantAudio = true
+        dropAssistantTranscript = true
         interruptAssistant(sendCancel: true)
         client.sendJSON(
             GrokRealtime.sessionUpdateObject(
@@ -137,6 +142,7 @@ final class GrokVoiceService: VoiceServicing {
         dropAssistantAudio = suppress
         if suppress {
             speakingVerbatim = false
+            verbatimAwaitingResponse = false
             interruptAssistant(sendCancel: true)
         }
     }
@@ -325,6 +331,10 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .responseCreated(let id):
             currentResponseID = id
             assistantGate.reset()
+            if speakingVerbatim, verbatimAwaitingResponse {
+                dropAssistantAudio = false
+                verbatimAwaitingResponse = false
+            }
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
             guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
@@ -346,7 +356,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             assistantGate.reset()
             if speakingVerbatim {
                 speakingVerbatim = false
+                verbatimAwaitingResponse = false
                 dropAssistantAudio = restoreAudioSuppressAfterVerbatim
+                dropAssistantTranscript = restoreAudioSuppressAfterVerbatim
                 sendSessionUpdate()
                 break
             }
