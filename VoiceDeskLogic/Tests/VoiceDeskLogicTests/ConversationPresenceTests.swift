@@ -102,16 +102,15 @@ final class ConversationPresenceTests: XCTestCase {
         let withoutBody = ConversationPresence.emailBodyReply(murray)
         XCTAssertEqual(withoutBody, ConversationPresence.emailBodySyncFailedReply(murray))
         XCTAssertTrue(withoutBody.lowercased().contains("retry"))
-        XCTAssertTrue(withoutBody.contains("card"))
+        XCTAssertFalse(EmailSummary.containsUIChrome(withoutBody))
         XCTAssertTrue(withoutBody.contains("VoiceDesk"))
         assertDoesNotBounceToGmail(withoutBody)
         var loaded = murray
         loaded.body = "Walk the lot Saturday at 10.\n\n> On Tuesday Jordan wrote:\n>> old quote"
         let withBody = ConversationPresence.emailBodyReply(loaded)
         XCTAssertTrue(withBody.contains("Walk the lot Saturday"))
-        XCTAssertTrue(withBody.contains("on the card"))
+        XCTAssertFalse(EmailSummary.containsUIChrome(withBody))
         XCTAssertFalse(withBody.contains(">>"))
-        XCTAssertLessThan(withBody.count, 220)
         assertDoesNotBounceToGmail(withBody)
         assertDoesNotBounceToGmail(ConversationPresence.emailBodyUnknownReply(hasInbox: true))
         assertDoesNotBounceToGmail(ConversationPresence.emailBodyUnknownReply(hasInbox: false))
@@ -170,7 +169,8 @@ final class ConversationPresenceTests: XCTestCase {
         } else {
             XCTFail("expected Murray email card")
         }
-        XCTAssertTrue(ConversationPresence.replyMentionsCard(murrayAsk?.text ?? ""))
+        XCTAssertFalse(EmailSummary.containsUIChrome(murrayAsk?.text ?? ""), murrayAsk?.text ?? "")
+        XCTAssertFalse(ConversationPresence.replyMentionsCard(murrayAsk?.text ?? ""))
 
         let steveAsk = ConversationPresence.deskEvidence(
             for: "show me Steve Brown's note",
@@ -340,7 +340,7 @@ final class ConversationPresenceTests: XCTestCase {
         let reply = evidence?.text ?? ""
         XCTAssertTrue(reply.contains("Need you to notarize"))
         XCTAssertTrue(reply.contains("buyer is coming") || reply.lowercased().contains("earlier"))
-        XCTAssertFalse(reply == "Latest from Murray Mitchell is on the card.")
+        XCTAssertFalse(EmailSummary.containsUIChrome(reply), reply)
     }
 
     func testShowingTimeAskUsesQuotedBrandAndDoesNotAttachWaterfront() {

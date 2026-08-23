@@ -23,11 +23,12 @@ struct ConversationScreen: View {
                             .padding(.bottom, 8)
                         }
                         .scrollDismissesKeyboard(.interactively)
-                        .onChange(of: model.lastTurnID) { _, _ in
-                            scrollToLatestCards(proxy)
-                        }
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 8)
+                                .onChanged { _ in model.noteUserScrolling() }
+                        )
                         .onChange(of: model.conversationScrollEpoch) { _, _ in
-                            scrollToLatestCards(proxy)
+                            scrollForCurrentIntent(proxy)
                         }
                     }
                     if model.voice.needsCredentials || model.showVoiceSetup {
@@ -81,17 +82,15 @@ struct ConversationScreen: View {
         }
     }
 
-    private func scrollToLatestCards(_ proxy: ScrollViewProxy) {
+    private func scrollForCurrentIntent(_ proxy: ScrollViewProxy) {
+        guard !model.userOwnsConversationScroll else { return }
         let target = model.conversationScrollTarget ?? model.lastTurnID
         guard let target else { return }
+        let unit: UnitPoint = model.conversationScrollAnchor == .center ? .center : .top
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(40))
             withAnimation(.easeOut(duration: 0.28)) {
-                proxy.scrollTo(target, anchor: .bottom)
-            }
-            try? await Task.sleep(for: .milliseconds(240))
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(target, anchor: .bottom)
+                proxy.scrollTo(target, anchor: unit)
             }
         }
     }

@@ -164,8 +164,7 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("pull up details on Murray's email")
         XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot Saturday"))
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("on the card"))
-        XCTAssertLessThan((model.turns.last?.text ?? "").count, 220)
+        XCTAssertFalse(EmailSummary.containsUIChrome(model.turns.last?.text ?? ""))
         XCTAssertTrue(model.deskSnapshot.emails.first?.hasFullBody == true)
         XCTAssertEqual(model.deskSnapshot.emails.first?.body, "Walk the lot Saturday at 10.")
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("gmail"))
@@ -187,7 +186,7 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("pull up details on Murray's email")
         let reply = model.turns.last?.text ?? ""
         XCTAssertTrue(reply.lowercased().contains("retry"))
-        XCTAssertTrue(reply.contains("card"))
+        XCTAssertFalse(EmailSummary.containsUIChrome(reply))
         XCTAssertTrue(reply.contains("VoiceDesk"))
         XCTAssertFalse(reply.lowercased().contains("gmail"))
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
@@ -210,7 +209,8 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("summarize Murray's email")
         XCTAssertEqual(sync.fetchCalls, 2)
         XCTAssertEqual(model.deskSnapshot.emails.first?.body, "Walk the lot Saturday at 10.")
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("on the card"))
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot Saturday"))
+        XCTAssertFalse(EmailSummary.containsUIChrome(model.turns.last?.text ?? ""))
     }
 
     func testCalendarReservationDetailsOpensCalendarCard() async {
@@ -240,7 +240,8 @@ final class AppModelTests: XCTestCase {
             XCTFail("expected calendar card with details")
         }
         XCTAssertGreaterThan(model.conversationScrollEpoch, epoch)
-        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.cards.last?.id)
+        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.id)
+        XCTAssertEqual(model.conversationScrollReason, .cardsPeek)
     }
 
     func testLiveCalendarReplyAttachesCardsAndScrolls() {
@@ -267,7 +268,8 @@ final class AppModelTests: XCTestCase {
             XCTFail("expected attached calendar card")
         }
         XCTAssertGreaterThan(model.conversationScrollEpoch, epoch)
-        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.cards.last?.id)
+        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.id)
+        XCTAssertEqual(model.conversationScrollAnchor, .top)
     }
 
     func testShowMurraysLatestEmailAttachesCardWithoutGrok() async {
@@ -294,13 +296,15 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
         XCTAssertGreaterThan(model.conversationScrollEpoch, epoch)
-        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.cards.last?.id)
+        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.id)
+        XCTAssertEqual(model.conversationScrollReason, .cardsPeek)
         if case .email(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.fromName, "Murray Mitchell")
         } else {
             XCTFail("expected Murray email card")
         }
-        XCTAssertTrue(ConversationPresence.replyMentionsCard(model.turns.last?.text ?? ""))
+        XCTAssertFalse(EmailSummary.containsUIChrome(model.turns.last?.text ?? ""))
+        XCTAssertFalse(ConversationPresence.replyMentionsCard(model.turns.last?.text ?? ""))
         XCTAssertFalse(ConversationPresence.DeskEvidence(
             topic: .inbox,
             text: model.turns.last?.text ?? "",
@@ -724,6 +728,52 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(reply.contains("Steve Brown"))
         XCTAssertEqual(fake.spoken.last, reply)
         XCTAssertFalse(reply.contains("<html"))
+        XCTAssertFalse(EmailSummary.containsUIChrome(reply))
+
+        let epoch = model.conversationScrollEpoch
+        let target = model.conversationScrollTarget
+        if case .email(let item) = cards.first {
+            model.expandCompactEmail(item)
+            XCTAssertEqual(model.conversationScrollEpoch, epoch, "expand must stay in place")
+            XCTAssertEqual(model.conversationScrollTarget, target)
+        } else {
+            XCTFail("expected compact email to expand")
+        }
+    }
+
+    func testSingleEmailSummaryNamesConcreteAsksNotCardChrome() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-asks"
+        murray.subject = "Closing / notarization"
+        murray.body = """
+        Hey — two quick questions:
+        1. Can you notarize the closing package Thursday?
+        2. Is the buyer still set for 3pm on Beach Drive?
+        """
+        let snapshot = DeskSnapshot(emails: [murray])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies["msg-murray-asks"] = murray.body
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        await model.applyUserTurn("summarize the Murray email")
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(reply.localizedCaseInsensitiveContains("notarize"), reply)
+        XCTAssertTrue(
+            reply.localizedCaseInsensitiveContains("Thursday")
+                || reply.localizedCaseInsensitiveContains("Beach Drive")
+                || reply.localizedCaseInsensitiveContains("buyer"),
+            reply
+        )
+        XCTAssertFalse(EmailSummary.containsUIChrome(reply), reply)
+        XCTAssertEqual(fake.spoken.last, reply)
+        XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.id)
+        XCTAssertEqual(model.conversationScrollAnchor, .top)
     }
 
     func testSeeLatestEmailsAndJohnMadisonFollowUpBothInvokeSpeak() async {

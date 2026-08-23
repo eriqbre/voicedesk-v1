@@ -94,7 +94,7 @@ public enum ConversationPresence {
             || (contains(lower, ["listing", "showing"]) && !contains(lower, ["list the"])) {
             return Plan(
                 topic: .listing,
-                text: "1842 Beach Drive — I have it as inferred yours from that thread. People on it are on the card."
+                text: "1842 Beach Drive — I have it as inferred yours from that thread."
             )
         }
 
@@ -107,7 +107,7 @@ public enum ConversationPresence {
             || (contains(lower, ["legal", "compliance"]) && contains(lower, ["florida", "law", "disclosure"])) {
             return Plan(
                 topic: .statute,
-                text: "Florida wants the brokerage relationship on the table before you show as a single agent. Confidence is on the card — I’m not your lawyer."
+                text: "Florida wants the brokerage relationship on the table before you show as a single agent. I’m not your lawyer."
             )
         }
 
@@ -749,7 +749,7 @@ public enum ConversationPresence {
 
     public static func notSeeingCardsReply(hasInbox: Bool) -> String {
         if hasInbox {
-            return "Here they are — the synced emails are on the cards below."
+            return "Here they are — the synced emails."
         }
         return "I don’t have a synced thread yet. I’m not inventing cards."
     }
@@ -815,7 +815,7 @@ public enum ConversationPresence {
         "I searched Gmail and didn’t find that. I’m not inventing it."
 
     public static let gmailSearchSeveralReply =
-        "I found a few matches. They’re on the cards — which one?"
+        "I found a few matches. Which one?"
 
     public static let gmailSearchFailedReply =
         "I couldn’t reach Gmail just now. I’m not inventing that message."
@@ -862,57 +862,21 @@ public enum ConversationPresence {
 
     public static func emailBodyReply(_ email: EmailItem) -> String {
         if email.hasFullBody {
-            let beat = EmailBodyFormatting.spokenSummary(from: email.body, fallback: email.preview)
-            if beat.isEmpty {
-                return "Latest from \(email.fromName) is on the card."
-            }
-            return "Latest from \(email.fromName) is on the card. \(beat)"
-        }
-        if !email.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return emailBodySyncFailedReply(email)
+            return EmailSummary.heuristic(EmailSummaryRequest.from(email, includeEarlier: false))
         }
         return emailBodySyncFailedReply(email)
     }
 
     /// Multi-sentence summary of the latest body, plus a brief earlier beat if present.
     public static func emailThreadReply(_ email: EmailItem) -> String {
-        let latest = EmailBodyFormatting.spokenSummary(
-            from: email.body,
-            fallback: email.preview,
-            style: .full
-        )
-        if email.hasEarlierMessages {
-            let earlierBeats = email.earlierMessages.compactMap { message -> String? in
-                let beat = EmailBodyFormatting.spokenSummary(from: message.plainBody, fallback: "", style: .brief)
-                return beat.isEmpty ? nil : beat
-            }
-            var parts: [String] = []
-            if latest.isEmpty {
-                parts.append("Latest from \(email.fromName) is on the card.")
-            } else {
-                parts.append("\(email.fromName) wrote: \(latest)")
-            }
-            if let first = earlierBeats.first {
-                let who = email.earlierMessages.first?.fromName
-                if let who, !who.isEmpty {
-                    parts.append("Earlier from \(who): \(first)")
-                } else {
-                    parts.append("Earlier: \(first)")
-                }
-            }
-            return parts.joined(separator: " ")
+        if email.hasFullBody || email.hasEarlierMessages {
+            return EmailSummary.heuristic(EmailSummaryRequest.from(email, includeEarlier: true))
         }
-        if email.hasFullBody {
-            if latest.isEmpty {
-                return "This thread is only the latest from \(email.fromName) — no earlier messages in the sync."
-            }
-            return "\(email.fromName) wrote: \(latest)"
-        }
-        return "The thread is on the card. I’ll load earlier messages here in VoiceDesk."
+        return "I’ll load \(email.fromName)’s earlier messages here in VoiceDesk."
     }
 
     public static func emailBodySyncFailedReply(_ email: EmailItem) -> String {
-        "I still have \(email.fromName)’s email on the card. Tap Read email to retry — I’ll show the full message here in VoiceDesk."
+        "I still have \(email.fromName)’s email. I couldn’t load the full message — I’ll retry here in VoiceDesk."
     }
 
     public static func wantsCalendarDetails(_ raw: String) -> Bool {

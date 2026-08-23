@@ -10,8 +10,17 @@ final class VoiceEarconClickTests: XCTestCase {
         XCTAssertNotEqual(start, end)
 
         let startPeak = maxAbsSample(start)
-        XCTAssertGreaterThan(startPeak, 8_000, "start click must be loud enough for a phone speaker")
-        XCTAssertGreaterThan(maxAbsSample(end), 4_000)
+        XCTAssertGreaterThan(startPeak, 4_000, "start chirp must be audible")
+        XCTAssertLessThan(startPeak, 18_000, "start chirp must stay polite")
+        XCTAssertGreaterThan(maxAbsSample(end), 2_500)
+        XCTAssertLessThan(maxAbsSample(end), startPeak)
+
+        let startMs = Double(start.count / 2) / 24.0
+        let endMs = Double(end.count / 2) / 24.0
+        XCTAssertGreaterThan(startMs, 50)
+        XCTAssertLessThan(startMs, 130)
+        XCTAssertGreaterThan(endMs, 50)
+        XCTAssertLessThan(endMs, 140)
     }
 
     func testWAVHeaderIsPCM16MonoAtEngineRate() {
@@ -33,6 +42,7 @@ final class VoiceEarconClickTests: XCTestCase {
             return samples.reduce(0) { max($0, Int(abs(Int32($1)))) }
         }
     }
+
 }
 
 private extension Data {

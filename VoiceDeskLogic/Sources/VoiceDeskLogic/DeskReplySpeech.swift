@@ -8,6 +8,8 @@ public enum DeskReplySpeech: Sendable {
         guard !trimmed.isEmpty else { return nil }
         if trimmed == ConversationPresence.gmailSearchingBeat { return nil }
         if let lastSpoken, trimmed == lastSpoken { return nil }
-        return trimmed
+        if EmailSummary.isConnectInstruction(trimmed) { return trimmed }
+        let cleaned = EmailSummary.scrubUIChrome(trimmed)
+        return cleaned.isEmpty ? nil : cleaned
     }
 }

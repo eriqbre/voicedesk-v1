@@ -48,6 +48,14 @@ enum VoiceDeskSecrets {
         ]) ?? GrokRealtime.defaultModel
     }
 
+    /// Non-live chat completions model for email summaries. Default grok-3-mini.
+    static var textModel: String {
+        firstNonEmpty([
+            ProcessInfo.processInfo.environment["XAI_TEXT_MODEL"],
+            plistString("XAI_TEXT_MODEL")
+        ]) ?? EmailSummary.defaultTextModel
+    }
+
     /// Scheme env `GOOGLE_CLIENT_ID`, then gitignored `Secrets.plist`.
     static var googleClientID: String? {
         let raw = firstNonEmpty([

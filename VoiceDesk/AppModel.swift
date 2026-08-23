@@ -26,6 +26,7 @@ final class AppModel {
     let cache: DeskCaching
     /// Main-actor `GoogleSyncing` — never hop this existential off `@MainActor`.
     let sync: any GoogleSyncing
+    let emailSummarizer: any EmailSummarizing
 
     private var liveAssistantID: UUID?
     private var pendingDeskTopic: ConversationPresence.Topic?
@@ -73,7 +74,8 @@ final class AppModel {
         playbook: PlaybookStoring? = nil,
         cache: DeskCaching? = nil,
         sync: (any GoogleSyncing)? = nil,
-        isOnline: Bool = true
+        isOnline: Bool = true,
+        emailSummarizer: (any EmailSummarizing)? = nil
     ) {
         self.voice = VoiceBox(service: voice ?? VoiceRuntime.makeService())
         self.google = google ?? GoogleSession.mock()
@@ -82,6 +84,7 @@ final class AppModel {
         self.playbook = playbook ?? InMemoryPlaybookStore(completed: false)
         self.cache = cache ?? MemoryDeskCache()
         self.sync = sync ?? MockGoogleSync()
+        self.emailSummarizer = emailSummarizer ?? HeuristicEmailSummarizer()
         self.isOnline = isOnline
         self.hasCompletedPlaybook = self.playbook.hasCompleted
         self.deskSnapshot = self.cache.load()
@@ -106,7 +109,8 @@ final class AppModel {
             google: GoogleSession.makeForLaunch(),
             playbook: makeLaunchPlaybookStore(),
             cache: uiTesting ? MemoryDeskCache() : FileDeskCache.applicationSupport(),
-            sync: uiTesting ? MockGoogleSync() : LiveGoogleSync()
+            sync: uiTesting ? MockGoogleSync() : LiveGoogleSync(),
+            emailSummarizer: uiTesting ? HeuristicEmailSummarizer() : GrokEmailSummarizer.makeDefault()
         )
     }
 
@@ -115,9 +119,13 @@ final class AppModel {
     }
 
     var lastTurnID: UUID? { turns.last?.id }
-    /// Bumps when cards are appended or refreshed so ConversationScreen can scroll them on-screen.
+    /// Bumps when a turn should be brought on-screen. Never used for compact expand.
     var conversationScrollEpoch: Int = 0
     var conversationScrollTarget: UUID?
+    var conversationScrollAnchor: ConversationScrollAnchor = .top
+    var conversationScrollReason: ConversationScrollReason = .none
+    /// User dragged the thread — skip auto-scroll until the next user utterance.
+    var userOwnsConversationScroll = false
 
     func startWelcome() {
         let firstRun = !hasCompletedPlaybook
@@ -141,9 +149,6 @@ final class AppModel {
     }
 
     func voiceBecame(_ state: VoiceState) {
-        if voiceListeningVisual, state != .listening {
-            VoiceEarcon.listenEnded()
-        }
         voiceListeningVisual = state == .listening
         guard state == .idle, waitingToOfferConnectAfterTalk else { return }
         waitingToOfferConnectAfterTalk = false
@@ -430,6 +435,7 @@ final class AppModel {
         let turn = ConversationTurn(role: .assistant, text: text)
         liveAssistantID = turn.id
         turns.append(turn)
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
         if isFinal {
             attachPendingCards(to: turns.count - 1)
             liveAssistantID = nil
@@ -448,7 +454,7 @@ final class AppModel {
         }
         turns[index].cards = ConversationPresence.cards(for: topic, context: deskContext)
         pendingDeskTopic = nil
-        requestScrollToLatestCards(preferring: turns[index].cards.last?.id ?? turns[index].id)
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turns[index].id, hasCards: true))
     }
 
     private func handleUserText(_ raw: String) async {
@@ -660,7 +666,7 @@ final class AppModel {
         Task { await revealEmailBody(item) }
     }
 
-    /// Compact inbox row → full Mail reader for that one message. No Grok handoff.
+    /// Compact inbox row → full Mail reader for that one message. Expand in place.
     func expandCompactEmail(_ item: EmailItem) {
         lastFocusedEmail = item
         for index in turns.indices {
@@ -671,6 +677,10 @@ final class AppModel {
                 }
             }
         }
+    }
+
+    func noteUserScrolling() {
+        userOwnsConversationScroll = true
     }
 
     func expandsEarlierMessages(_ email: EmailItem) -> Bool {
@@ -799,7 +809,7 @@ final class AppModel {
     private func appendSearchingBeat() -> UUID {
         let turn = ConversationTurn(role: .assistant, text: ConversationPresence.gmailSearchingBeat)
         turns.append(turn)
-        requestScrollToLatestCards(preferring: turn.id)
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
         return turn.id
     }
 
@@ -807,7 +817,7 @@ final class AppModel {
         if let index = turns.firstIndex(where: { $0.id == id }) {
             turns[index].text = text
             turns[index].cards = cards
-            requestScrollToLatestCards(preferring: cards.last?.id ?? id)
+            requestScroll(ConversationScrollPolicy.afterAssistant(turnID: id, hasCards: !cards.isEmpty))
             return
         }
         appendAssistant(text, cards: cards)
@@ -846,12 +856,13 @@ final class AppModel {
         if pendingThreadSummary {
             markExpandEarlier(for: email)
         }
-        let reply = pendingThreadSummary
-            ? ConversationPresence.emailThreadReply(email)
-            : ConversationPresence.emailBodyReply(email)
+        let includeEarlier = pendingThreadSummary
         pendingThreadSummary = false
+        let reply = await emailSummarizer.summarize(
+            EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
+        )
         scrubGrokDeskRefusals()
-        appendAssistant(reply, cards: [.email(email)])
+        appendAssistant(reply, cards: [.email(email.presented(as: .full))])
         await speakDeskReply(reply)
     }
 
@@ -949,9 +960,7 @@ final class AppModel {
                 }
             }
         }
-        if updated {
-            requestScrollToLatestCards(preferring: email.id)
-        }
+        _ = updated
     }
 
     private func offerConnectIfNeeded() {
@@ -1023,20 +1032,27 @@ final class AppModel {
     // MARK: - Mutations
 
     private func appendUser(_ text: String) {
-        turns.append(ConversationTurn(role: .user, text: text))
+        userOwnsConversationScroll = false
+        let turn = ConversationTurn(role: .user, text: text)
+        turns.append(turn)
+        requestScroll(ConversationScrollPolicy.afterUser(turnID: turn.id))
     }
 
     private func appendAssistant(_ text: String, cards: [ContentCard] = [], suggestions: [String] = []) {
-        turns.append(ConversationTurn(role: .assistant, text: text, cards: cards, suggestions: suggestions))
-        requestScrollToLatestCards(preferring: cards.last?.id)
+        let turn = ConversationTurn(role: .assistant, text: text, cards: cards, suggestions: suggestions)
+        turns.append(turn)
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: !cards.isEmpty))
     }
 
     func noteVisibleCardGrew() {
-        requestScrollToLatestCards()
+        // Card height growth (compact expand / HTML measure) must not jump the thread.
     }
 
-    private func requestScrollToLatestCards(preferring id: UUID? = nil) {
-        conversationScrollTarget = id ?? turns.last?.cards.last?.id ?? turns.last?.id
+    private func requestScroll(_ request: ConversationScrollRequest) {
+        guard !userOwnsConversationScroll else { return }
+        conversationScrollTarget = request.targetID
+        conversationScrollAnchor = request.anchor
+        conversationScrollReason = request.reason
         conversationScrollEpoch += 1
     }
 
