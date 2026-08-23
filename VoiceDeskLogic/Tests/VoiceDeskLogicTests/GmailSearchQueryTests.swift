@@ -52,6 +52,21 @@ final class GmailSearchQueryTests: XCTestCase {
         XCTAssertTrue(query?.contains("from:murray") == true)
     }
 
+    func testJohnWickTriviaDoesNotInventFromJohn() {
+        let ask = "What year did John Wick get released"
+        XCTAssertFalse(GmailSearchQuery.hasSenderPattern(ask))
+        let plan = GmailSearchQuery.plan(from: ask)
+        XCTAssertNil(plan)
+        XCTAssertFalse(plan?.variants.contains(where: { $0.contains("from:john") }) == true)
+        XCTAssertFalse(plan?.senders.contains("john") == true)
+
+        XCTAssertTrue(GmailSearchQuery.hasSenderPattern("show me John's latest email"))
+        XCTAssertTrue(GmailSearchQuery.query(from: "did Murray email me?")?.contains("from:murray") == true)
+        XCTAssertTrue(GmailSearchQuery.hasSenderPattern("find Murray's closing note"))
+        XCTAssertTrue(GmailSearchQuery.hasSenderPattern("email from John Madison"))
+        XCTAssertTrue(GmailSearchQuery.query(from: "email from John Madison")?.contains("john") == true)
+    }
+
     func testMarieLastEmailIsSenderFocusedWithoutBareLast() {
         let plan = GmailSearchQuery.plan(from: marieAsk)
         XCTAssertNotNil(plan)

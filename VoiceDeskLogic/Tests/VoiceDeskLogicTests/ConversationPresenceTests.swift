@@ -519,6 +519,34 @@ final class ConversationPresenceTests: XCTestCase {
         assertDoesNotContradictConnectCard(plan.text)
     }
 
+    func testJohnWickTriviaIsNotADeskTurn() {
+        let ask = "What year did John Wick get released"
+        XCTAssertFalse(ConversationPresence.ownsConnectedDeskTurn(ask))
+        XCTAssertFalse(ConversationPresence.looksLikeMailAsk(ask))
+        XCTAssertFalse(ConversationPresence.hasDeskMailIntent(ask))
+        XCTAssertNil(
+            ConversationPresence.deskEvidence(
+                for: ask,
+                context: DeskContext(isConnected: true, snapshot: .empty)
+            )
+        )
+        for trivia in [
+            "Who directed John Wick",
+            "How tall is John Wick",
+            "When was John Wick released"
+        ] {
+            XCTAssertFalse(ConversationPresence.ownsConnectedDeskTurn(trivia), trivia)
+        }
+
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("show me John's latest email"))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("did Murray email me?"))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("find Murray's closing note"))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("email from John Madison"))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("Did Murray send me something?"))
+        XCTAssertTrue(ConversationPresence.hasDeskMailIntent("Did Murray send me something?"))
+        XCTAssertTrue(ConversationPresence.looksLikeMailAsk("Did Murray send me something?"))
+    }
+
     func testOwnsConnectedDeskTurnForFullEmailPhrases() {
         for ask in [
             "pull the full email",

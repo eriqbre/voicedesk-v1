@@ -113,10 +113,14 @@ public enum GmailSearchQuery: Sendable {
             rememberPhrase(brand)
         }
 
-        if let regex = try? NSRegularExpression(pattern: #"\b(?:did|has|have|find|get)\s+([A-Za-z]{3,})\b"#) {
-            for match in regex.matches(in: raw.lowercased(), range: NSRange(raw.startIndex..., in: raw.lowercased())) {
-                if let range = Range(match.range(at: 1), in: raw.lowercased()) {
-                    rememberSender(String(raw.lowercased()[range]))
+        // Name + mail verb (“Murray send/email me”). Never bare did|has|have|find|get + Name.
+        if let regex = try? NSRegularExpression(
+            pattern: #"\b([A-Za-z]{3,})\s+(?:send|sent|sends|wrote|write|email|emailed|mails|mailed)\b"#
+        ) {
+            let lower = raw.lowercased()
+            for match in regex.matches(in: lower, range: NSRange(lower.startIndex..., in: lower)) {
+                if let range = Range(match.range(at: 1), in: lower) {
+                    rememberSender(String(lower[range]))
                 }
             }
         }

@@ -303,16 +303,33 @@ public enum ConversationPresence {
         if wantsTaskAsk(raw), !contains(raw.lowercased(), ["email", "mail", "note", "message", "thread"]) {
             return false
         }
-        if wantsFullThread(raw) || wantsEmailFollowUp(raw) || wantsSpecificEmail(raw)
-            || wantsShowEmail(raw) || wantsEmailBody(raw) || wantsInbox(raw) {
+        if wantsFullThread(raw) || wantsEmailFollowUp(raw) || wantsShowEmail(raw) || wantsInbox(raw) {
             return true
         }
-        if GmailSearchQuery.hasSenderPattern(raw) { return true }
-        if GmailSearchQuery.query(from: raw) != nil,
-           contains(raw.lowercased(), ["find", "look", "search", "get", "pull", "show", "email", "mail", "note", "message", "thread"]) {
+        // A bare person name is not desk intent. Trivia (“what year did John Wick…”) stays with Grok.
+        if wantsEmailBody(raw), hasDeskMailIntent(raw) {
+            return true
+        }
+        if hasDeskMailIntent(raw),
+           (GmailSearchQuery.hasSenderPattern(raw) || GmailSearchQuery.query(from: raw) != nil) {
             return true
         }
         return false
+    }
+
+    /// Email / inbox / send-me phrasing. Not a celebrity name inside a general question.
+    public static func hasDeskMailIntent(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        if contains(lower, [
+            "email", "emails", "mail", "inbox", "message", "messages",
+            "thread", "note", "notes"
+        ]) {
+            return true
+        }
+        return contains(lower, [
+            "send me", "sent me", "sends me", "emailed", "mailed me",
+            "wrote me", "written me", "from:"
+        ])
     }
 
     public static func wantsCalendarAsk(_ raw: String) -> Bool {
