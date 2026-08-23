@@ -1,4 +1,8 @@
 .DS_Store
+.debug/
+**/.debug/
+voice-log.jsonl
+**/voice-log.jsonl
 xcuserdata/
 DerivedData/
 Secrets.plist

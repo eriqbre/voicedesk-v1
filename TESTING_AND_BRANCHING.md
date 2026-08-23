@@ -74,11 +74,42 @@ After checkout, keep the committed `VoiceDesk.xcodeproj/project.xcworkspace/xcsh
 
 ### DEBUG voice interaction log (dogfood only)
 
-Debug / Testing builds only. **Release and App Store builds compile this out** — no utterance storage, no JSONL, no ladybug UI.
+Debug / Testing builds only. **Release and App Store builds compile this out** — no utterance storage, no JSONL, no ladybug UI, no upload.
 
-1. Run a **Debug** scheme (⌘R default). Toolbar ladybug → Voice log.
-2. Each turn records: exact transcript, intent (general / inbox-overview / desk-person / …), sticky cleared vs reused, Gmail `q=`, cards, assistant reply, Eve vs AVSpeech.
-3. **Copy all** or **Share** the JSON. Also written locally to `Documents/VoiceDesk-debug/voice-log.jsonl` (Files app / share sheet). Never uploaded.
+Agents (Elon / Cursor / Grok Bot) read the file on disk. **Do not ask Eriq or Bridget to Copy / Share / paste.**
+
+**Mac / Simulator (primary — zero paste)**
+
+Each Debug Simulator turn appends JSONL here (survives rebuilds; gitignored):
+
+```
+~/Desktop/projects/voicedesk-v1/.debug/voice-log.jsonl
+```
+
+```bash
+tail -n 40 ~/Desktop/projects/voicedesk-v1/.debug/voice-log.jsonl
+# or
+cat ~/Desktop/projects/voicedesk-v1/.debug/voice-log.jsonl
+```
+
+The Simulator uses `SIMULATOR_HOST_HOME` (fallback: CoreSimulator sandbox prefix) so it writes the **host** Mac path, not the app container. Eriq/Bridget just run the Debug scheme.
+
+**Physical iPhone**
+
+- On-device: `Documents/VoiceDesk-debug/voice-log.jsonl` (Files → On My iPhone → VoiceDesk → VoiceDesk-debug). Ladybug → **Open log folder**.
+- Mac mirror without chat paste: ladybug → **Save to Files** → iCloud Drive → folder `VoiceDesk-debug`. After iCloud sync, agents read:
+
+```
+~/Library/Mobile Documents/com~apple~CloudDocs/VoiceDesk-debug/voice-log.jsonl
+```
+
+If Desktop is in iCloud, they can Save to Files into `Desktop/projects/voicedesk-v1/.debug/` instead (same primary path).
+
+If an iCloud Documents container is later entitled, Debug also appends to that container’s `Documents/VoiceDesk-debug/` (nil-safe today — no entitlement shipped).
+
+**What each line contains:** exact transcript, intent (general / inbox-overview / desk-person / …), sticky cleared vs reused, Gmail `q=`, cards, assistant reply, Eve vs AVSpeech.
+
+Never commit `.debug/` or `voice-log.jsonl`.
 
 ### Slice order
 1. `slice/1-ios-shell-voice-ui`
