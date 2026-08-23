@@ -60,4 +60,19 @@ final class VerbatimSpeakGateTests: XCTestCase {
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta(digest))
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta(madison))
     }
+
+    func testVerbatimAudioWaitsForNonRefusalTranscript() {
+        var gate = VerbatimSpeakGate()
+        gate.begin()
+        XCTAssertTrue(gate.created("verbatim-2"))
+        XCTAssertFalse(gate.allowsAudio(deskClaimed: true))
+
+        gate.hear("I can’t help with that.")
+        XCTAssertFalse(gate.allowsAudio(deskClaimed: true))
+        XCTAssertTrue(DeskSpokenPath.shouldDiscardHeldAudio(assistantText: gate.heard))
+
+        gate.hear(" Murray Mitchell emailed about closing.")
+        XCTAssertTrue(gate.allowsAudio(deskClaimed: true))
+        XCTAssertFalse(DeskSpokenPath.isForbiddenLiveSpeech(DeskSpokenPath.strippingLeadingRefusal(gate.heard)))
+    }
 }

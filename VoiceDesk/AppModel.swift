@@ -408,6 +408,10 @@ final class AppModel {
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
         if ConversationPresence.isGrokDeskMeta(text) {
+            // Cut in-progress refusal audio. Do not sticky-mute the mic.
+            if google.isConnected {
+                voice.interruptResponse()
+            }
             return
         }
         if suppressLiveAssistant {

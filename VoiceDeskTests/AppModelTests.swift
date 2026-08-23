@@ -694,6 +694,48 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(fake.spoken.contains { $0.localizedCaseInsensitiveContains("let the app handle") })
         fake.emitAssistant("I'll have the app look that up.", isFinal: true)
         XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("look that up") })
+        XCTAssertFalse(fake.grokSpoken.contains { $0.localizedCaseInsensitiveContains("look that up") })
+    }
+
+    func testMurrayQuickSummaryDropsRefusalFromSpokenPathAndStillSpeaksVerbatim() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-quick-summary"
+        murray.body = "Need you to notarize the closing package today."
+        let snapshot = DeskSnapshot(emails: [murray])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies["msg-murray-quick-summary"] = murray.body
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        fake.emitAssistant("I can’t help with that.", isFinal: true)
+        fake.emitAssistant("I’m not able to do that.", isFinal: true)
+        await model.applyUserTurn("Give me a quick summary of Murray's latest email.")
+        // Claim already owns the spoken path. Further Grok must not speak.
+        fake.grokSpoken.removeAll()
+        fake.emitAssistant("I’ll let the app handle that.", isFinal: true)
+        fake.emitAssistant("I can't help with that.", isFinal: true)
+        fake.emitAssistant("I'm not able to.", isFinal: true)
+
+        func threadOrEveHas(_ needle: String) -> Bool {
+            let haystacks = model.turns.map(\.text) + fake.spoken
+            return haystacks.contains { $0.localizedCaseInsensitiveContains(needle) }
+        }
+        XCTAssertFalse(threadOrEveHas("can't help") || threadOrEveHas("can’t help"))
+        XCTAssertFalse(threadOrEveHas("not able to"))
+        XCTAssertFalse(threadOrEveHas("let the app handle"))
+        XCTAssertTrue(fake.grokSpoken.isEmpty, "claimed desk turn must drop Grok refusal/meta audio")
+        XCTAssertTrue(fake.speakInvoked, "SPEAK_VERBATIM / voice.speak must still run")
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(reply.contains("Murray") || reply.contains("notarize"), reply)
+        XCTAssertEqual(fake.spoken.last, reply)
+        XCTAssertTrue(fake.spoken.contains { $0.contains("Murray") || $0.contains("notarize") })
+        XCTAssertFalse(fake.spoken.contains { DeskSpokenPath.isForbiddenLiveSpeech($0) })
     }
 
     func testInboxOverviewAttachesCompactRowsAndSpeaksDigest() async {
@@ -912,7 +954,10 @@ final class FakeLiveVoiceService: VoiceServicing {
     var cancelled = false
     var sentTurns: [String] = []
     var spoken: [String] = []
+    /// Live Grok assistant text that would have been spoken (not Eve `speak`).
+    var grokSpoken: [String] = []
     var assistantOutputSuppressed = false
+    var speakInvoked = false
 
     var state: VoiceState { session.state }
 
@@ -925,6 +970,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     }
 
     func speak(_ text: String) async {
+        speakInvoked = true
         spoken.append(text)
     }
 
@@ -943,6 +989,9 @@ final class FakeLiveVoiceService: VoiceServicing {
     }
 
     func emitAssistant(_ text: String, isFinal: Bool) {
+        if !assistantOutputSuppressed {
+            grokSpoken.append(text)
+        }
         eventHandler?(.assistantTranscript(text, isFinal: isFinal))
     }
 

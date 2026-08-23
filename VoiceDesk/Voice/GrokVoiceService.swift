@@ -34,6 +34,7 @@ final class GrokVoiceService: VoiceServicing {
     private var dropAssistantAudio = false
     private var verbatim = VerbatimSpeakGate()
     private var restoreAudioSuppressAfterVerbatim = false
+    private var heldVerbatimAudio: [Data] = []
     private var instructions = GrokRealtime.presenceInstructions
 
     var state: VoiceState { session.state }
@@ -95,12 +96,14 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     /// Eve reads the already-written local desk reply. Never mute this path —
-    /// only leftover Grok handoff audio stays dropped until this response starts.
+    /// leftover Grok handoff stays dropped until the verbatim digest is playable
+    /// (non-refusal transcript), not merely `response.created`.
     private func speakVerbatimViaGrok(_ text: String) {
         ClientVoiceSpeech.shared.stop()
         verbatim.begin()
+        heldVerbatimAudio.removeAll()
         restoreAudioSuppressAfterVerbatim = dropAssistantAudio || dropAssistantTranscript
-        // Keep leftover Grok handoff muted until THIS verbatim response.created.
+        // Keep leftover Grok handoff muted. Unmute only when heard text is the digest.
         dropAssistantAudio = true
         dropAssistantTranscript = true
         interruptAssistant(sendCancel: true)
@@ -159,6 +162,31 @@ final class GrokVoiceService: VoiceServicing {
         }
         dropAssistantTranscript = false
         dropAssistantAudio = false
+        heldVerbatimAudio.removeAll()
+    }
+
+    private func flushHeldVerbatimAudio() {
+        for chunk in heldVerbatimAudio {
+            audio.playPCM16(chunk)
+        }
+        heldVerbatimAudio.removeAll()
+    }
+
+    private func playOrHoldAssistantAudio(_ data: Data) {
+        if verbatim.isSpeaking {
+            if verbatim.allowsAudio(deskClaimed: dropAssistantTranscript) {
+                dropAssistantAudio = false
+                flushHeldVerbatimAudio()
+                audio.playPCM16(data)
+                return
+            }
+            if !verbatim.awaitingCreated {
+                heldVerbatimAudio.append(data)
+            }
+            return
+        }
+        guard !dropAssistantAudio else { return }
+        audio.playPCM16(data)
     }
 
     func cancel() {
@@ -216,6 +244,8 @@ final class GrokVoiceService: VoiceServicing {
         client.disconnect()
         currentResponseID = nil
         audioDeltaCount = 0
+        heldVerbatimAudio.removeAll()
+        verbatim.cancel()
         apply(.cancel)
         isTearingDown = false
     }
@@ -315,8 +345,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
-        guard !dropAssistantAudio else { return }
-        audio.playPCM16(data)
+        playOrHoldAssistantAudio(data)
     }
 
     func grokWebSocketDidReceive(json: [String: Any], type: String) {
@@ -346,19 +375,35 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             currentResponseID = id
             assistantGate.reset()
             if verbatim.created(id) {
-                dropAssistantAudio = false
+                // Do not unmute here. Grok may still prepend “I can’t help”.
+                heldVerbatimAudio.removeAll()
             }
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
+            if verbatim.isSpeaking {
+                verbatim.hear(delta)
+                if verbatim.allowsAudio(deskClaimed: true) {
+                    dropAssistantAudio = false
+                    flushHeldVerbatimAudio()
+                } else if DeskSpokenPath.shouldDiscardHeldAudio(assistantText: verbatim.heard) {
+                    heldVerbatimAudio.removeAll()
+                }
+                break
+            }
+            if DeskSpokenPath.isForbiddenLiveSpeech(delta) {
+                audio.interruptPlayback()
+                break
+            }
             guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
             eventHandler?(.assistantTranscript(delta, isFinal: false))
         case .assistantTranscriptDone:
             break
         case .outputAudioDelta(let delta):
-            guard !dropAssistantAudio else { break }
             if json["response_id"] as? String == currentResponseID || currentResponseID == nil {
-                audio.playAudioDelta(base64: delta)
-                audioDeltaCount += 1
+                if let data = Data(base64Encoded: delta) {
+                    playOrHoldAssistantAudio(data)
+                    audioDeltaCount += 1
+                }
             }
         case .outputAudioDone:
             break
@@ -371,7 +416,17 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             currentResponseID = nil
             audioDeltaCount = 0
             assistantGate.reset()
+            let heard = verbatim.heard
             if verbatim.finishDone(eventID: doneID, currentID: finishedID) {
+                if DeskSpokenPath.allowsLiveGrokAudio(
+                    deskClaimed: true,
+                    verbatimSpeaking: true,
+                    assistantText: heard
+                ) || heard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    flushHeldVerbatimAudio()
+                } else {
+                    heldVerbatimAudio.removeAll()
+                }
                 dropAssistantAudio = restoreAudioSuppressAfterVerbatim
                 dropAssistantTranscript = restoreAudioSuppressAfterVerbatim
                 sendSessionUpdate()

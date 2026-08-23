@@ -35,7 +35,7 @@ public enum GrokRealtime {
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, do not answer. Stay silent. The client owns those turns. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER say you are searching, will search, can search Gmail, or are looking anything up. NEVER describe mail as snippet-only. NEVER narrate routing. NEVER say you’ll let the app handle that, you’ll look that up in the app, or that you’re handing the turn off."
+            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, do not answer. Stay silent. The client owns those turns. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER say you are searching, will search, can search Gmail, or are looking anything up. NEVER describe mail as snippet-only. NEVER narrate routing. NEVER say you’ll let the app handle that, you’ll look that up in the app, or that you’re handing the turn off. NEVER say you can’t help, you cannot help, or you’re not able to."
             : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
         let googleConnectGuard: String
@@ -78,6 +78,7 @@ public enum GrokRealtime {
         NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, or that all you have is a snippet. The client fetches full bodies.
         NEVER say you are searching, will search, can search Gmail, or are looking anything up. The client handles all Gmail reads.
         NEVER narrate routing. NEVER say you’ll let the app handle that or that you’ll look that up in the app. Stay silent on desk turns.
+        NEVER say you can’t help, you cannot help, or you’re not able to. Stay silent — do not refuse out loud.
         If they ask for a full email, summary, or body, stay silent. Body pulls are client-owned.
         \(context.isConnected
             ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
@@ -182,7 +183,7 @@ public enum GrokRealtime {
     public static func verbatimSpeakInstructions(text: String) -> String {
         """
         Speak the SPEAK_VERBATIM block word-for-word. No other words. No greeting. No paraphrase.
-        Do not say you will let the app handle anything. After you finish, stay silent.
+        Do not say you cannot help, you are not able to, or you will let the app handle anything. After you finish, stay silent.
 
         SPEAK_VERBATIM
         \(text)
