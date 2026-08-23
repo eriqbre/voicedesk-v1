@@ -18,7 +18,7 @@ final class EchoTranscriptGateTests: XCTestCase {
     }
 
     func testVoiceStateSpeakingDropsEvenIfFlagCleared() {
-        var gate = EchoTranscriptGate()
+        let gate = EchoTranscriptGate()
         let t0 = Date(timeIntervalSince1970: 6_000)
         XCTAssertFalse(gate.assistantSpeaking)
         XCTAssertNil(gate.acceptUserTranscript("reservation", voiceState: .speaking, at: t0))
