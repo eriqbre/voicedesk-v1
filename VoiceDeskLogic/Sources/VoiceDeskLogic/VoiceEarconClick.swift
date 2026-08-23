@@ -1,18 +1,30 @@
 import Foundation
 
-/// Mic on/off earcons only. Soft sine chirps with ADSR — not a square blip,
-/// not a system sound ID. Audible under `.playAndRecord` via AVAudioPlayer.
+/// Mic on/off earcons only. Siri-style two-tone pair:
+/// listen = short bright ascending arm; stop = softer descending disarm.
+///
+/// Research notes applied:
+/// - 100–200ms total so they stay easy to hear on every tap (Horizon).
+/// - Fundamentals stay under 1 kHz — never the 2–4 kHz band that fights speech.
+/// - Warm sine + light odd harmonic (triangle), gentle attack/decay. Not square.
+/// - Kenney-style: on = soft rollover; off = softer switch.
+/// Generated PCM so Linux can test it and the live `.playAndRecord` path can play it.
 public enum VoiceEarconClick: Sendable {
     public static let sampleRate: Double = 24_000
 
-    /// Soft ascending arm (~95ms). Play only when tap-to-talk turns the mic on.
+    /// D5 → G5. Bright enough to notice, well below the 2 kHz speech-fight band.
+    public static let listenNotesHz: [Double] = [587, 784]
+    /// F5 → A4. Distinct falling pair, quieter than listen.
+    public static let stopNotesHz: [Double] = [698, 440]
+
+    /// Soft two-tone arm. Play only when tap-to-talk turns the mic on.
     public static func startPCM16() -> Data {
-        chirp(startHz: 680, endHz: 920, milliseconds: 95, peak: 0.30)
+        twoTone(notesHz: listenNotesHz, noteMs: 52, gapMs: 10, peak: 0.26)
     }
 
-    /// Softer descending disarm (~110ms). Play only when tap-to-talk turns the mic off.
+    /// Softer descending disarm. Play only when tap-to-talk turns the mic off.
     public static func endPCM16() -> Data {
-        chirp(startHz: 780, endHz: 520, milliseconds: 110, peak: 0.20)
+        twoTone(notesHz: stopNotesHz, noteMs: 48, gapMs: 8, peak: 0.16)
     }
 
     public static func startWAV() -> Data {
@@ -21,6 +33,10 @@ public enum VoiceEarconClick: Sendable {
 
     public static func endWAV() -> Data {
         wav(fromPCM16: endPCM16())
+    }
+
+    public static func durationMilliseconds(_ pcm: Data) -> Double {
+        Double(pcm.count / 2) / (sampleRate / 1_000)
     }
 
     public static func wav(fromPCM16 pcm: Data, sampleRate: Double = sampleRate) -> Data {
@@ -45,23 +61,37 @@ public enum VoiceEarconClick: Sendable {
         return header
     }
 
-    /// Two-tone-ish sine glide with a tiny 2nd harmonic (warm, not square).
-    private static func chirp(startHz: Double, endHz: Double, milliseconds: Int, peak: Float) -> Data {
+    private static func twoTone(notesHz: [Double], noteMs: Int, gapMs: Int, peak: Float) -> Data {
+        var pcm = Data()
+        for (index, hz) in notesHz.enumerated() {
+            if index > 0, gapMs > 0 {
+                pcm.append(silence(milliseconds: gapMs))
+            }
+            pcm.append(tone(hz: hz, milliseconds: noteMs, peak: peak))
+        }
+        return pcm
+    }
+
+    private static func silence(milliseconds: Int) -> Data {
+        let count = max(0, Int(sampleRate * Double(milliseconds) / 1_000))
+        return Data(count: count * MemoryLayout<Int16>.size)
+    }
+
+    /// Sine + light 3rd harmonic (triangle warmth). Attack/release avoid a square click.
+    private static func tone(hz: Double, milliseconds: Int, peak: Float) -> Data {
         let count = max(1, Int(sampleRate * Double(milliseconds) / 1_000))
         var samples = [Int16](repeating: 0, count: count)
         let duration = Double(count) / sampleRate
-        let attack = min(0.014, duration * 0.16)
-        let release = min(0.032, duration * 0.34)
-        var phase = 0.0
+        let attack = min(0.010, duration * 0.22)
+        let release = min(0.022, duration * 0.42)
+        let twoPi = 2 * Double.pi
         for index in 0..<count {
             let time = Double(index) / sampleRate
-            let progress = duration > 0 ? time / duration : 0
-            let hz = startHz + (endHz - startHz) * progress
-            phase += (2 * Double.pi * hz) / sampleRate
+            let phase = twoPi * hz * time
             let envelope = adsr(time: time, duration: duration, attack: attack, release: release)
-            let fundamental = sin(phase)
-            let warmth = 0.12 * sin(2 * phase)
-            let sample = (fundamental + warmth) * Double(peak) * envelope
+            let sine = sin(phase)
+            let triangleWarmth = (1.0 / 9.0) * sin(3 * phase)
+            let sample = (sine + triangleWarmth) * Double(peak) * envelope
             let clipped = max(-1, min(1, sample))
             samples[index] = Int16((clipped * Double(Int16.max)).rounded())
         }

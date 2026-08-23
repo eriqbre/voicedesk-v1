@@ -2,25 +2,35 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class VoiceEarconClickTests: XCTestCase {
-    func testStartAndEndClicksAreAudiblePCMNotEmpty() {
+    func testListenAndStopAreADistinctShortPair() {
         let start = VoiceEarconClick.startPCM16()
         let end = VoiceEarconClick.endPCM16()
-        XCTAssertGreaterThan(start.count, 24_000 * 2 / 40, "start click must be more than a few ms")
-        XCTAssertGreaterThan(end.count, 24_000 * 2 / 50)
         XCTAssertNotEqual(start, end)
 
-        let startPeak = maxAbsSample(start)
-        XCTAssertGreaterThan(startPeak, 4_000, "start chirp must be audible")
-        XCTAssertLessThan(startPeak, 18_000, "start chirp must stay polite")
-        XCTAssertGreaterThan(maxAbsSample(end), 2_500)
-        XCTAssertLessThan(maxAbsSample(end), startPeak)
+        let startMs = VoiceEarconClick.durationMilliseconds(start)
+        let endMs = VoiceEarconClick.durationMilliseconds(end)
+        XCTAssertGreaterThan(startMs, 80)
+        XCTAssertLessThan(startMs, 200)
+        XCTAssertGreaterThan(endMs, 80)
+        XCTAssertLessThan(endMs, 200)
 
-        let startMs = Double(start.count / 2) / 24.0
-        let endMs = Double(end.count / 2) / 24.0
-        XCTAssertGreaterThan(startMs, 50)
-        XCTAssertLessThan(startMs, 130)
-        XCTAssertGreaterThan(endMs, 50)
-        XCTAssertLessThan(endMs, 140)
+        let startPeak = maxAbsSample(start)
+        XCTAssertGreaterThan(startPeak, 3_500, "listen arm must be audible on repeat taps")
+        XCTAssertLessThan(startPeak, 16_000, "must stay polite — Horizon-style repeatable")
+        XCTAssertGreaterThan(maxAbsSample(end), 2_000)
+        XCTAssertLessThan(maxAbsSample(end), startPeak, "stop is the softer disarm")
+    }
+
+    func testNotesStayBelowSpeechFightBand() {
+        let all = VoiceEarconClick.listenNotesHz + VoiceEarconClick.stopNotesHz
+        XCTAssertEqual(VoiceEarconClick.listenNotesHz.count, 2)
+        XCTAssertEqual(VoiceEarconClick.stopNotesHz.count, 2)
+        XCTAssertLessThan(VoiceEarconClick.listenNotesHz[0], VoiceEarconClick.listenNotesHz[1], "listen ascends")
+        XCTAssertGreaterThan(VoiceEarconClick.stopNotesHz[0], VoiceEarconClick.stopNotesHz[1], "stop descends")
+        for hz in all {
+            XCTAssertGreaterThan(hz, 400, "too low gets lost on phone speakers")
+            XCTAssertLessThan(hz, 1_200, "stay out of the 2–4 kHz harsh / speech band")
+        }
     }
 
     func testWAVHeaderIsPCM16MonoAtEngineRate() {
@@ -42,7 +52,6 @@ final class VoiceEarconClickTests: XCTestCase {
             return samples.reduce(0) { max($0, Int(abs(Int32($1)))) }
         }
     }
-
 }
 
 private extension Data {

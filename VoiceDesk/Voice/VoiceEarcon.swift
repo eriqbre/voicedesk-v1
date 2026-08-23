@@ -4,9 +4,8 @@ import VoiceDeskLogic
 @preconcurrency import AVFAudio
 #endif
 
-/// Local tap-to-talk click. Plays a generated WAV through AVAudioPlayer
-/// (and the live Grok player node when that engine is running).
-/// System sound IDs are silent under `.playAndRecord` / `.voiceChat`.
+/// Mic on/off only. Never call from transcripts, Eve speak, or card attach.
+/// Generated two-tone WAV through AVAudioPlayer (or the live Grok player node).
 @MainActor
 enum VoiceEarcon {
     /// Returns true when the live engine consumed the PCM (skip local player).
@@ -37,7 +36,7 @@ enum VoiceEarcon {
         prepareSessionForClick()
         do {
             let next = try AVAudioPlayer(data: wav)
-            next.volume = 1
+            next.volume = 0.82
             next.prepareToPlay()
             player = next
             next.play()
