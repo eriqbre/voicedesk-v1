@@ -366,23 +366,7 @@ final class AppModel {
             let awaitingClarify = consumeSearchClarify()
             if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
                 claimLocalAssistantReply()
-                if let evidence = ConversationPresence.deskEvidence(
-                    for: text,
-                    context: deskContext,
-                    focusedEmail: lastFocusedEmail,
-                    pendingSearchClarify: awaitingClarify
-                ) {
-                    surfaceDeskEvidence(evidence)
-                } else {
-                    pendingSearchClarify = true
-                    appendAssistant(ConversationPresence.emailNeedMoreReply)
-                    speakDeskReplyLater(ConversationPresence.emailNeedMoreReply)
-                    logVoiceTurn(
-                        evidence: nil,
-                        reply: ConversationPresence.emailNeedMoreReply,
-                        notes: ["need-more"]
-                    )
-                }
+                Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
                 return
             }
         }
@@ -504,23 +488,7 @@ final class AppModel {
             let awaitingClarify = consumeSearchClarify()
             if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
                 claimLocalAssistantReply()
-                if let evidence = ConversationPresence.deskEvidence(
-                    for: text,
-                    context: deskContext,
-                    focusedEmail: lastFocusedEmail,
-                    pendingSearchClarify: awaitingClarify
-                ) {
-                    await applyDeskEvidence(evidence)
-                } else {
-                    pendingSearchClarify = true
-                    appendAssistant(ConversationPresence.emailNeedMoreReply)
-                    await speakDeskReply(ConversationPresence.emailNeedMoreReply)
-                    logVoiceTurn(
-                        evidence: nil,
-                        reply: ConversationPresence.emailNeedMoreReply,
-                        notes: ["need-more"]
-                    )
-                }
+                await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
                 return
             }
         }
@@ -718,6 +686,34 @@ final class AppModel {
     private func consumeSearchClarify() -> Bool {
         if pendingSearchClarify { return true }
         return turns.last(where: { $0.role == .assistant })?.text == ConversationPresence.emailNeedMoreReply
+    }
+
+    /// Inbox-overview / “pull my latest emails” must hit Gmail before cards are built.
+    private func fulfillConnectedDeskTurn(_ text: String, awaitingClarify: Bool) async {
+        if shouldRefreshInbox(for: text) {
+            await syncDesk()
+        }
+        if let evidence = ConversationPresence.deskEvidence(
+            for: text,
+            context: deskContext,
+            focusedEmail: lastFocusedEmail,
+            pendingSearchClarify: awaitingClarify
+        ) {
+            await applyDeskEvidence(evidence)
+        } else {
+            pendingSearchClarify = true
+            appendAssistant(ConversationPresence.emailNeedMoreReply)
+            await speakDeskReply(ConversationPresence.emailNeedMoreReply)
+            logVoiceTurn(
+                evidence: nil,
+                reply: ConversationPresence.emailNeedMoreReply,
+                notes: ["need-more"]
+            )
+        }
+    }
+
+    private func shouldRefreshInbox(for text: String) -> Bool {
+        google.isConnected && isOnline && ConversationPresence.wantsInboxOverview(text)
     }
 
     private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
@@ -922,6 +918,10 @@ final class AppModel {
         )
         var notes = classified.notes + extraNotes
         if intentHint == "cancel" { notes.append("user stop") }
+        if classified.intent == "inbox-overview",
+           let age = GoogleSyncPolicy.cacheAgeNote(lastSyncedAt: deskSnapshot.lastSyncedAt) {
+            notes.append(age)
+        }
         var errors: [String] = []
         if let error = voice.lastError, !error.isEmpty {
             errors.append(error)
@@ -997,11 +997,14 @@ final class AppModel {
         await google.restoreSession()
         if google.isConnected {
             deskSnapshot = cache.load()
-            if deskSnapshot.accountEmail == nil {
+            if GoogleSyncPolicy.shouldRefreshOnRestore(
+                isConnected: true,
+                isOnline: isOnline,
+                lastSyncedAt: deskSnapshot.lastSyncedAt
+            ) {
                 await syncDesk()
-            } else {
-                refreshPresence()
             }
+            refreshPresence()
             refreshGoogleCards()
         }
     }
