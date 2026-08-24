@@ -138,6 +138,31 @@ final class TopicConstrainTests: XCTestCase {
         )
     }
 
+    func testDogfoodOnPhraseAndOneFinalStillPicksFleeman() {
+        let spoken = "give me a summary on the email from lauren about fleeman rd"
+        let golden = "Hey, give me a summary of the email from Lauren about Fleeman Road."
+        XCTAssertFalse(EarlyFinalHold.shouldHold(spoken))
+        XCTAssertFalse(EarlyFinalHold.shouldHold(golden))
+
+        for ask in [spoken, golden] {
+            XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask), ask)
+            XCTAssertTrue(ConversationPresence.looksLikeMailAsk(ask), ask)
+            let evidence = ConversationPresence.deskEvidence(
+                for: ask,
+                context: VoiceRegressionDesk.laurenSeveral
+            )
+            XCTAssertEqual(evidence?.focusedEmail?.fromName, "Laren Jansen", ask)
+            XCTAssertEqual(evidence?.focusedEmail?.subject, "Fleeman Road disclosures", ask)
+            XCTAssertEqual(
+                VoiceInteractionLog.cardLabels(evidence?.cards ?? []),
+                ["email:Laren Jansen:Fleeman Road disclosures"],
+                ask
+            )
+            XCTAssertFalse((evidence?.text ?? "").localizedCaseInsensitiveContains("Family Fun Day"), ask)
+            XCTAssertFalse((evidence?.text ?? "").localizedCaseInsensitiveContains("which one"), ask)
+        }
+    }
+
     func testClientWillHandleIsGrokDeskMeta() {
         XCTAssertTrue(ConversationPresence.isGrokDeskMeta("I'll get that for you. The client will handle the summary."))
         XCTAssertTrue(ConversationPresence.isGrokDeskHandoff("The client will handle the summary."))

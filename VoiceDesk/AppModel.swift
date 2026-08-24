@@ -356,7 +356,7 @@ final class AppModel {
                 return
             }
             if !event.isFinal {
-                if EarlyFinalHold.isIncompletePrefix(event.text) {
+                if EarlyFinalHold.shouldHold(event.text) {
                     claimLocalAssistantReply()
                     return
                 }

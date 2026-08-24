@@ -421,6 +421,36 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
+    func testLiveHmThenGiveMeASummaryHoldsUntilLaurenFleemanArrives() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: VoiceRegressionDesk.laurenSeveralSnapshot),
+            buildIdentity: .fixture
+        )
+        let afterWelcome = model.turns.count
+
+        fake.emitUser("hm")
+        fake.emitUser("give me a summary")
+        XCTAssertEqual(model.turns.count, afterWelcome, "incomplete desk stem must not become a user turn")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+
+        fake.emitUser("on the email from lauren about fleeman rd")
+        XCTAssertTrue(
+            model.turns.last?.cards.contains(where: { card in
+                if case .email(let item) = card {
+                    return item.fromName == "Laren Jansen" && item.subject.contains("Fleeman")
+                }
+                return false
+            }) == true,
+            "\(model.turns.last?.cards.map(\.kind) ?? [])"
+        )
+        XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("Family Fun Day"))
+        XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("starting a thought"))
+    }
+
     func testSHAAskSpeaksFixtureSHAWithoutInventing() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(
