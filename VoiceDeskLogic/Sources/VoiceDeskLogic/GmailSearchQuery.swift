@@ -46,7 +46,9 @@ public enum GmailSearchQuery: Sendable {
         "of", "in", "on", "up", "out", "into", "over", "than", "then",
         "most", "recent", "by", "who", "whom",
         // Question / auxiliary words. Never a first name before “X’s last email”.
-        "when", "was", "were", "how", "why"
+        "when", "was", "were", "how", "why",
+        // Conversational filler before “how about X’s latest email”.
+        "okay", "ok", "perfect", "alright"
     ]
 
     /// Sender-name match required before we attach a card for a named ask.
@@ -105,6 +107,10 @@ public enum GmailSearchQuery: Sendable {
 
         if let phrase = fromSpokenPhrase(in: raw) {
             rememberPhrase(phrase)
+        }
+
+        if let aboutName = nameAfterHowOrWhatAbout(in: raw) {
+            rememberPhrase(aboutName)
         }
 
         if compactLetters(raw).contains("showingtime") {
@@ -338,10 +344,31 @@ public enum GmailSearchQuery: Sendable {
         return word.isEmpty ? nil : word
     }
 
-    /// True when the token before “X’s” is a real given name, not “was” / “of”.
+    /// True when the token before “X’s” is a real given name, not “was” / “of” / “about”.
     private static func isPossessiveNamePrefix(_ raw: String) -> Bool {
         let token = sanitize(raw)
         return token.count >= 3 && !stop.contains(token)
+    }
+
+    /// “How about Murray’s…” / “what about Steve” — skip filler, take the name.
+    private static func nameAfterHowOrWhatAbout(in raw: String) -> String? {
+        let lower = raw.lowercased()
+        guard let regex = try? NSRegularExpression(pattern: #"\b(?:how|what)\s+about\s+(.+)$"#),
+              let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+              let range = Range(match.range(at: 1), in: lower)
+        else { return nil }
+        var words: [String] = []
+        for piece in lower[range].split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
+            let token = sanitize(String(piece))
+            guard token.count >= 2 else { continue }
+            if stop.contains(token) {
+                if !words.isEmpty { break }
+                continue
+            }
+            words.append(token)
+            if words.count >= 2 { break }
+        }
+        return words.isEmpty ? nil : words.joined(separator: " ")
     }
 
     private static func sanitize(_ raw: String) -> String {

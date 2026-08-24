@@ -287,6 +287,40 @@ final class ConversationPresenceTests: XCTestCase {
         }
     }
 
+    func testHowAboutMurraysLatestEmailMatchesMurrayNotHowMurrayQuery() {
+        let ask = "Okay, perfect. How about Murray's latest email?"
+        XCTAssertTrue(ConversationPresence.hasDeskMailIntent(ask))
+        XCTAssertTrue(ConversationPresence.looksLikeMailAsk(ask))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask))
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:murray")
+        XCTAssertFalse((GmailSearchQuery.query(from: ask) ?? "").lowercased().contains("how murray"))
+
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [VoiceRegressionDesk.murray, VoiceRegressionDesk.steve])
+        )
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card for how-about latest email")
+        }
+        XCTAssertFalse((evidence?.gmailQuery ?? "").lowercased().contains("how murray"))
+        XCTAssertFalse((evidence?.gmailQuery ?? "").contains("from:(\"how murray\")"))
+
+        let empty = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: .empty)
+        )
+        XCTAssertEqual(empty?.shouldSearchGmail, true)
+        XCTAssertEqual(empty?.gmailQuery, "from:murray")
+        XCTAssertFalse((empty?.gmailQuery ?? "").lowercased().contains("how murray"))
+        XCTAssertEqual(empty?.text, ConversationPresence.gmailSearchingBeat)
+        XCTAssertTrue(ConversationPresence.isGmailSearchingBeat(empty?.text ?? ""))
+        XCTAssertFalse(ConversationPresence.isGmailSearchingBeat(ConversationPresence.gmailSearchEmptyReply))
+    }
+
     func testCacheMissSpecificEmailRequestsGmailSearch() {
         let context = DeskContext(isConnected: true, snapshot: .empty)
         let evidence = ConversationPresence.deskEvidence(

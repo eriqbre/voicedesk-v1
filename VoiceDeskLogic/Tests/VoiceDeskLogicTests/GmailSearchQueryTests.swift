@@ -37,6 +37,38 @@ final class GmailSearchQueryTests: XCTestCase {
         XCTAssertFalse((working ?? "").lowercased().contains("was murray"))
     }
 
+    func testHowAboutMurraysLatestEmailIsFromMurrayNotHowMurray() {
+        for ask in [
+            "How about Murray's latest email?",
+            "Okay, perfect. How about Murray's latest email?",
+            "okay how about Murray's latest email",
+            "what about Murray's latest email",
+            "Okay, perfect. What about Murray"
+        ] {
+            let plan = GmailSearchQuery.plan(from: ask)
+            XCTAssertNotNil(plan, ask)
+            XCTAssertTrue(
+                plan?.senders.contains("murray") == true
+                    || (plan?.primary ?? "").contains("from:murray"),
+                "\(ask) \(plan?.primary ?? "nil")"
+            )
+            XCTAssertTrue((plan?.primary ?? "").contains("murray"), "\(ask) \(plan?.primary ?? "nil")")
+            XCTAssertFalse(plan?.senders.contains("how") == true, ask)
+            XCTAssertFalse(plan?.senders.contains("okay") == true, ask)
+            XCTAssertFalse(plan?.senders.contains("perfect") == true, ask)
+            XCTAssertFalse(plan?.phrases.contains(where: { $0.contains("how") }) == true, ask)
+            for variant in plan?.variants ?? [] {
+                XCTAssertFalse(variant.lowercased().contains("how murray"), variant)
+                XCTAssertFalse(variant.contains("from:(\"how murray\")"), variant)
+                XCTAssertFalse(GmailSearchQuery.bareLetterTokens(in: variant).contains("how"), variant)
+                XCTAssertFalse(GmailSearchQuery.bareLetterTokens(in: variant).contains("okay"), variant)
+                XCTAssertFalse(GmailSearchQuery.bareLetterTokens(in: variant).contains("perfect"), variant)
+            }
+        }
+        let primary = GmailSearchQuery.query(from: "Okay, perfect. How about Murray's latest email?")
+        XCTAssertEqual(primary, "from:murray", primary ?? "nil")
+    }
+
     func testQuickSummaryOfMurraysEmailIsFromMurrayNotQuickMurray() {
         let ask = "Give me a quick summary of Murray's latest email."
         let plan = GmailSearchQuery.plan(from: ask)
