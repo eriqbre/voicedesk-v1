@@ -972,6 +972,8 @@ final class FakeLiveVoiceService: VoiceServicing {
     func speak(_ text: String) async {
         speakInvoked = true
         spoken.append(text)
+        eventHandler?(.timing(.firstAudio))
+        eventHandler?(.timing(.replyDone))
     }
 
     func sendTextTurn(_ text: String) async {

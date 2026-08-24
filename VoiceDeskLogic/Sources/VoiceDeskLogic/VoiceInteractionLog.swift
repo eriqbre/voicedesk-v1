@@ -32,10 +32,12 @@ public struct VoiceTurnClassification: Equatable, Sendable {
 
 /// Structured voice-turn record. Persistence and UI are dogfood-only.
 ///
-/// Schema v2 adds first-class `sticky`, `focusedPerson`, `searchQuery`, and `errors`
-/// so a cloud pull shows transcript vs intent vs focused person without parsing notes.
+/// Schema v2 adds first-class `sticky`, `focusedPerson`, `searchQuery`, and `errors`.
+/// Schema v3 adds response timing (`userFinalAt`, `replyReadyAt`, `firstAudioAt`,
+/// `replyDoneAt`, `latencyMs`, `replyReadyMs`, `stages`) so a 30s Eve stall is
+/// visible without guessing.
 public struct VoiceInteractionEntry: Equatable, Sendable, Identifiable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public var id: UUID
     public var timestamp: Date
@@ -51,6 +53,13 @@ public struct VoiceInteractionEntry: Equatable, Sendable, Identifiable {
     public var assistantReply: String
     public var voicePath: String
     public var errors: [String]
+    public var userFinalAt: Date?
+    public var replyReadyAt: Date?
+    public var firstAudioAt: Date?
+    public var replyDoneAt: Date?
+    public var latencyMs: Int?
+    public var replyReadyMs: Int?
+    public var stages: [String]
 
     public init(
         id: UUID = UUID(),
@@ -66,7 +75,8 @@ public struct VoiceInteractionEntry: Equatable, Sendable, Identifiable {
         cardsAttached: [String],
         assistantReply: String,
         voicePath: String,
-        errors: [String] = []
+        errors: [String] = [],
+        timing: VoiceTurnTiming = VoiceTurnTiming()
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -82,6 +92,13 @@ public struct VoiceInteractionEntry: Equatable, Sendable, Identifiable {
         self.assistantReply = assistantReply
         self.voicePath = voicePath
         self.errors = errors
+        self.userFinalAt = timing.userFinalAt
+        self.replyReadyAt = timing.replyReadyAt
+        self.firstAudioAt = timing.firstAudioAt
+        self.replyDoneAt = timing.replyDoneAt
+        self.latencyMs = timing.latencyMs
+        self.replyReadyMs = timing.replyReadyMs
+        self.stages = timing.stages
     }
 }
 
@@ -90,6 +107,8 @@ extension VoiceInteractionEntry: Codable {
         case id, timestamp, schemaVersion, source, userTranscript, intent
         case sticky, focusedPerson, searchQuery
         case routingNotes, cardsAttached, assistantReply, voicePath, errors
+        case userFinalAt, replyReadyAt, firstAudioAt, replyDoneAt
+        case latencyMs, replyReadyMs, stages
     }
 
     public init(from decoder: Decoder) throws {
@@ -108,6 +127,19 @@ extension VoiceInteractionEntry: Codable {
         assistantReply = try c.decodeIfPresent(String.self, forKey: .assistantReply) ?? ""
         voicePath = try c.decodeIfPresent(String.self, forKey: .voicePath) ?? ""
         errors = try c.decodeIfPresent([String].self, forKey: .errors) ?? []
+        userFinalAt = try c.decodeIfPresent(Date.self, forKey: .userFinalAt)
+        replyReadyAt = try c.decodeIfPresent(Date.self, forKey: .replyReadyAt)
+        firstAudioAt = try c.decodeIfPresent(Date.self, forKey: .firstAudioAt)
+        replyDoneAt = try c.decodeIfPresent(Date.self, forKey: .replyDoneAt)
+        let computed = VoiceTurnTiming(
+            userFinalAt: userFinalAt,
+            replyReadyAt: replyReadyAt,
+            firstAudioAt: firstAudioAt,
+            replyDoneAt: replyDoneAt
+        )
+        latencyMs = try c.decodeIfPresent(Int.self, forKey: .latencyMs) ?? computed.latencyMs
+        replyReadyMs = try c.decodeIfPresent(Int.self, forKey: .replyReadyMs) ?? computed.replyReadyMs
+        stages = try c.decodeIfPresent([String].self, forKey: .stages) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -126,6 +158,15 @@ extension VoiceInteractionEntry: Codable {
         try c.encode(assistantReply, forKey: .assistantReply)
         try c.encode(voicePath, forKey: .voicePath)
         try c.encode(errors, forKey: .errors)
+        try c.encodeIfPresent(userFinalAt, forKey: .userFinalAt)
+        try c.encodeIfPresent(replyReadyAt, forKey: .replyReadyAt)
+        try c.encodeIfPresent(firstAudioAt, forKey: .firstAudioAt)
+        try c.encodeIfPresent(replyDoneAt, forKey: .replyDoneAt)
+        try c.encodeIfPresent(latencyMs, forKey: .latencyMs)
+        try c.encodeIfPresent(replyReadyMs, forKey: .replyReadyMs)
+        if !stages.isEmpty {
+            try c.encode(stages, forKey: .stages)
+        }
     }
 }
 

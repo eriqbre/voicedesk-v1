@@ -10,6 +10,7 @@ enum VoiceServiceEvent: Sendable {
     case failed(String)
     case recovered
     case setupRequired
+    case timing(VoiceSpeakTimingMark)
 }
 
 struct VoiceTranscript: Sendable {
@@ -69,6 +70,7 @@ final class VoiceBox {
     let usesLiveLoop: Bool
 
     var transcriptHandler: ((VoiceTranscript) -> Void)?
+    var timingHandler: ((VoiceSpeakTimingMark) -> Void)?
 
     private let service: any VoiceServicing
 
@@ -127,6 +129,8 @@ final class VoiceBox {
             lastError = nil
         case .setupRequired:
             break
+        case .timing(let mark):
+            timingHandler?(mark)
         }
     }
 }
@@ -165,6 +169,7 @@ final class MockVoiceService: VoiceServicing {
 
     func speak(_ text: String) async {
         apply(.speakStarted)
+        eventHandler?(.timing(.firstAudio))
         if !isInstant {
             let milliseconds = min(4200, max(800, text.count * 28))
             try? await Task.sleep(for: .milliseconds(milliseconds))
@@ -172,6 +177,7 @@ final class MockVoiceService: VoiceServicing {
         if session.state == .speaking {
             apply(.speakFinished)
         }
+        eventHandler?(.timing(.replyDone))
     }
 
     func sendTextTurn(_ text: String) async {

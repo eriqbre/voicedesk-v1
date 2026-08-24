@@ -35,6 +35,9 @@ final class GrokVoiceService: VoiceServicing {
     private var verbatim = VerbatimSpeakGate()
     private var restoreAudioSuppressAfterVerbatim = false
     private var heldVerbatimAudio: [Data] = []
+    private var emittedFirstAudio = false
+    private var emittedAwaitingMeta = false
+    private var emittedHeldRefusal = false
     private var instructions = GrokRealtime.presenceInstructions
 
     var state: VoiceState { session.state }
@@ -102,6 +105,7 @@ final class GrokVoiceService: VoiceServicing {
         ClientVoiceSpeech.shared.stop()
         verbatim.begin()
         heldVerbatimAudio.removeAll()
+        resetSpeakTimingFlags()
         restoreAudioSuppressAfterVerbatim = dropAssistantAudio || dropAssistantTranscript
         // Keep leftover Grok handoff muted. Unmute only when heard text is the digest.
         dropAssistantAudio = true
@@ -165,11 +169,43 @@ final class GrokVoiceService: VoiceServicing {
         heldVerbatimAudio.removeAll()
     }
 
+    private func resetSpeakTimingFlags() {
+        emittedFirstAudio = false
+        emittedAwaitingMeta = false
+        emittedHeldRefusal = false
+    }
+
+    private func notePlayedAudio() {
+        guard !emittedFirstAudio else { return }
+        emittedFirstAudio = true
+        eventHandler?(.timing(.firstAudio))
+    }
+
+    private func noteHoldStages() {
+        if DeskSpokenPath.shouldDiscardHeldAudio(assistantText: verbatim.heard) {
+            if !emittedHeldRefusal {
+                emittedHeldRefusal = true
+                eventHandler?(.timing(.stage("heldRefusalAudio")))
+            }
+            return
+        }
+        if verbatim.isSpeaking,
+           !verbatim.heard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !verbatim.allowsAudio(deskClaimed: true) {
+            if !emittedAwaitingMeta {
+                emittedAwaitingMeta = true
+                eventHandler?(.timing(.stage("awaitingNonMetaTranscript")))
+            }
+        }
+    }
+
     private func flushHeldVerbatimAudio() {
+        guard !heldVerbatimAudio.isEmpty else { return }
         for chunk in heldVerbatimAudio {
             audio.playPCM16(chunk)
         }
         heldVerbatimAudio.removeAll()
+        notePlayedAudio()
     }
 
     private func playOrHoldAssistantAudio(_ data: Data) {
@@ -178,8 +214,10 @@ final class GrokVoiceService: VoiceServicing {
                 dropAssistantAudio = false
                 flushHeldVerbatimAudio()
                 audio.playPCM16(data)
+                notePlayedAudio()
                 return
             }
+            noteHoldStages()
             if !verbatim.awaitingCreated {
                 heldVerbatimAudio.append(data)
             }
@@ -187,6 +225,7 @@ final class GrokVoiceService: VoiceServicing {
         }
         guard !dropAssistantAudio else { return }
         audio.playPCM16(data)
+        notePlayedAudio()
     }
 
     func cancel() {
@@ -377,6 +416,8 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             if verbatim.created(id) {
                 // Do not unmute here. Grok may still prepend “I can’t help”.
                 heldVerbatimAudio.removeAll()
+            } else {
+                resetSpeakTimingFlags()
             }
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
@@ -387,6 +428,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                     flushHeldVerbatimAudio()
                 } else if DeskSpokenPath.shouldDiscardHeldAudio(assistantText: verbatim.heard) {
                     heldVerbatimAudio.removeAll()
+                    noteHoldStages()
+                } else {
+                    noteHoldStages()
                 }
                 break
             }
@@ -426,12 +470,15 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                     flushHeldVerbatimAudio()
                 } else {
                     heldVerbatimAudio.removeAll()
+                    noteHoldStages()
                 }
                 dropAssistantAudio = restoreAudioSuppressAfterVerbatim
                 dropAssistantTranscript = restoreAudioSuppressAfterVerbatim
+                eventHandler?(.timing(.replyDone))
                 sendSessionUpdate()
                 break
             }
+            eventHandler?(.timing(.replyDone))
             eventHandler?(.assistantTranscript("", isFinal: true))
         case .ping(let timestamp):
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))
