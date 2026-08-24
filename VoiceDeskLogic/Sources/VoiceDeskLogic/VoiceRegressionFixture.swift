@@ -22,6 +22,9 @@ public struct VoiceRegressionFixture: Codable, Equatable, Sendable {
     public var pendingSearchClarify: Bool?
     public var connected: Bool?
 
+    /// When `pendingSearchClarify` is true, replay uses the desk snapshot emails as
+    /// multi-match cards so “the last one” / “the latest” stay desk-owned.
+
     /// Desk-owned turns: assert reply text when `assistantReply` is non-empty.
     /// General / live Grok: leave false — routing only.
     public var assertReply: Bool?

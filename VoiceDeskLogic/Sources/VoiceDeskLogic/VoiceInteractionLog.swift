@@ -146,7 +146,8 @@ public enum VoiceInteractionLog: Sendable {
         utterance: String,
         evidence: ConversationPresence.DeskEvidence?,
         pendingSearchClarify: Bool = false,
-        hadFocusedEmail: Bool = false
+        hadFocusedEmail: Bool = false,
+        hasClarifyMatches: Bool = false
     ) -> VoiceTurnClassification {
         var notes: [String] = []
         var sticky: VoiceStickyState = .none
@@ -188,6 +189,10 @@ public enum VoiceInteractionLog: Sendable {
             notes.append("sender \(sender)")
         }
 
+        if pendingSearchClarify, ConversationPresence.isClarifyPick(utterance) {
+            notes.append("clarify pick")
+        }
+
         let intent: String
         if ConversationPresence.wantsInboxOverview(utterance) {
             intent = "inbox-overview"
@@ -205,11 +210,14 @@ public enum VoiceInteractionLog: Sendable {
             intent = "desk-thread"
         } else if ConversationPresence.wantsEmailFollowUp(utterance) {
             intent = "desk-follow-up"
+        } else if pendingSearchClarify, ConversationPresence.isClarifyPick(utterance) {
+            intent = "desk-person"
         } else if evidence?.focusedEmail != nil || ConversationPresence.looksLikeMailAsk(utterance) {
             intent = "desk-person"
         } else if ConversationPresence.ownsConnectedDeskTurn(
             utterance,
-            pendingSearchClarify: pendingSearchClarify
+            pendingSearchClarify: pendingSearchClarify,
+            hasClarifyMatches: hasClarifyMatches
         ) {
             intent = "desk-person"
         } else {

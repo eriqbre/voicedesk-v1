@@ -1,10 +1,15 @@
 import Foundation
 
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
+///
+/// Eve **speaks** these lines. Compact email cards are the on-screen list — do not
+/// also print the Name — topic recitation in the chat bubble.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
     public static let snippetLimit = 80
     public static let lineLimit = 90
+    /// Allowed on-screen stand-in when cards already list the inbox. Empty is preferred.
+    public static let onScreenLeadIn = "Here are the latest."
 
     public static let systemPrompt = """
         You write a voice-assistant inbox glance. One short line per email, same order.
@@ -105,6 +110,37 @@ public enum InboxGlance: Sendable {
 
     public static func isMultiline(_ raw: String) -> Bool {
         raw.split(whereSeparator: \.isNewline).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count >= 2
+    }
+
+    /// Chat-bubble copy when compact cards are attached. Cards **are** the list.
+    /// Empty (no bubble) or `onScreenLeadIn` — never the spoken Name — topic lines.
+    public static func onScreenText(compactCardCount: Int) -> String {
+        // Cards already list the inbox. Empty bubble (or `onScreenLeadIn`) — never the glance.
+        _ = compactCardCount
+        return ""
+    }
+
+    /// True for empty / “Here are the latest.” — false if the glance recitation leaked on-screen.
+    public static func isShortOnScreenLeadIn(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        if trimmed.contains("\n") { return false }
+        if trimmed.contains("—") || trimmed.contains("–") { return false }
+        if trimmed.count > 40 { return false }
+        let lower = trimmed.lowercased()
+        return lower == onScreenLeadIn.lowercased()
+            || lower == "here are the latest"
+            || lower.hasPrefix("here are")
+    }
+
+    /// Spoken glance leaked into the bubble (two or more Name — topic lines).
+    public static func repeatsGlanceLines(_ raw: String) -> Bool {
+        let lines = raw
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard lines.count >= 2 else { return false }
+        return lines.contains { $0.contains("—") || $0.contains("–") }
     }
 
     private static func glanceName(_ fromName: String) -> String {
