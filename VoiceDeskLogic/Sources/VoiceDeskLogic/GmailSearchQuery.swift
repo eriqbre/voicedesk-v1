@@ -44,7 +44,13 @@ public enum GmailSearchQuery: Sendable {
         "seeing", "cards", "card", "where", "last", "first", "give",
         "gave", "got", "asked", "ask", "could", "would", "should",
         "of", "in", "on", "up", "out", "into", "over", "than", "then",
-        "most", "recent", "by", "who", "whom"
+        "most", "recent", "by", "who", "whom",
+        // Question / auxiliary words. Never a first name before “X’s last email”.
+        "when", "was", "were", "how", "why",
+        // Conversational filler before “how about X’s latest email”.
+        "okay", "ok", "perfect", "alright",
+        // Calendar overview words. “What’s the latest on my calendar?” is not from:calendar.
+        "calendar", "schedule", "week", "upcoming", "meetings"
     ]
 
     /// Sender-name match required before we attach a card for a named ask.
@@ -105,6 +111,10 @@ public enum GmailSearchQuery: Sendable {
             rememberPhrase(phrase)
         }
 
+        if let aboutName = nameAfterHowOrWhatAbout(in: raw) {
+            rememberPhrase(aboutName)
+        }
+
         if compactLetters(raw).contains("showingtime") {
             rememberPhrase("showing time")
         }
@@ -150,8 +160,11 @@ public enum GmailSearchQuery: Sendable {
             if let match = regex.firstMatch(in: raw, range: ns),
                let possRange = Range(match.range(at: 1), in: raw) {
                 let possessive = String(raw[possRange])
-                let before = letterTokens(in: String(raw[..<possRange.lowerBound])).last
-                if let before, !stop.contains(sanitize(before)) {
+                // Immediate word only — “Steve Brown's” keeps the pair.
+                // letterTokens would skip “of”/“was” and glue “quick”/“when”
+                // into from:("quick murray") / from:("was murray").
+                let before = immediateLetterWord(before: possRange.lowerBound, in: raw)
+                if let before, isPossessiveNamePrefix(before) {
                     rememberPhrase("\(before) \(possessive)")
                 } else {
                     rememberSender(possessive)
@@ -318,6 +331,46 @@ public enum GmailSearchQuery: Sendable {
             add(subjects.joined(separator: " "))
         }
         return variants
+    }
+
+    /// Word immediately before `end` (no skip-over of “of” / “was”).
+    private static func immediateLetterWord(before end: String.Index, in raw: String) -> String? {
+        var word = ""
+        for ch in raw[..<end].reversed() {
+            if ch.isLetter {
+                word.insert(ch, at: word.startIndex)
+            } else if !word.isEmpty {
+                break
+            }
+        }
+        return word.isEmpty ? nil : word
+    }
+
+    /// True when the token before “X’s” is a real given name, not “was” / “of” / “about”.
+    private static func isPossessiveNamePrefix(_ raw: String) -> Bool {
+        let token = sanitize(raw)
+        return token.count >= 3 && !stop.contains(token)
+    }
+
+    /// “How about Murray’s…” / “what about Steve” — skip filler, take the name.
+    private static func nameAfterHowOrWhatAbout(in raw: String) -> String? {
+        let lower = raw.lowercased()
+        guard let regex = try? NSRegularExpression(pattern: #"\b(?:how|what)\s+about\s+(.+)$"#),
+              let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+              let range = Range(match.range(at: 1), in: lower)
+        else { return nil }
+        var words: [String] = []
+        for piece in lower[range].split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
+            let token = sanitize(String(piece))
+            guard token.count >= 2 else { continue }
+            if stop.contains(token) {
+                if !words.isEmpty { break }
+                continue
+            }
+            words.append(token)
+            if words.count >= 2 { break }
+        }
+        return words.isEmpty ? nil : words.joined(separator: " ")
     }
 
     private static func sanitize(_ raw: String) -> String {

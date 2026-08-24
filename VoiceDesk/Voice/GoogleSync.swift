@@ -190,10 +190,12 @@ final class MockGoogleSync: GoogleSyncing {
     var searchable: [EmailItem] = []
     var searchQueries: [String] = []
     var fetchCalls = 0
+    var syncCalls = 0
     var failuresRemaining = 0
 
     func sync(token: String, accountEmail: String, now: Date) async throws -> DeskSnapshot {
         _ = token
+        syncCalls += 1
         if let error { throw GoogleSignInError.failed(error) }
         var next = result
         next.accountEmail = accountEmail

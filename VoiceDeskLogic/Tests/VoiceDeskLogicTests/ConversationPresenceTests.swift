@@ -247,6 +247,80 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertTrue(reply.lowercased().contains("thread") || reply.lowercased().contains("earlier"))
     }
 
+    func testWhenWasMurraysLastEmailSentMatchesMurrayNotWasMurrayQuery() {
+        let ask = "When was Murray's last email sent?"
+        XCTAssertTrue(ConversationPresence.hasDeskMailIntent(ask))
+        XCTAssertTrue(ConversationPresence.looksLikeMailAsk(ask))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask))
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:murray")
+        XCTAssertFalse((GmailSearchQuery.query(from: ask) ?? "").contains("was murray"))
+
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [VoiceRegressionDesk.murray, VoiceRegressionDesk.steve])
+        )
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card for when-was last email")
+        }
+        XCTAssertFalse((evidence?.gmailQuery ?? "").lowercased().contains("was murray"))
+        XCTAssertFalse((evidence?.gmailQuery ?? "").contains("from:(\"was murray\")"))
+
+        let empty = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: .empty)
+        )
+        XCTAssertEqual(empty?.shouldSearchGmail, true)
+        XCTAssertEqual(empty?.gmailQuery, "from:murray")
+        XCTAssertFalse((empty?.gmailQuery ?? "").contains("was murray"))
+
+        let contrast = "When did I last get an email from Murray?"
+        XCTAssertTrue(GmailSearchQuery.query(from: contrast)?.contains("from:murray") == true)
+        let contrastEvidence = ConversationPresence.deskEvidence(for: contrast, context: context)
+        if case .email(let item) = contrastEvidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card for when-did-I-last-get")
+        }
+    }
+
+    func testHowAboutMurraysLatestEmailMatchesMurrayNotHowMurrayQuery() {
+        let ask = "Okay, perfect. How about Murray's latest email?"
+        XCTAssertTrue(ConversationPresence.hasDeskMailIntent(ask))
+        XCTAssertTrue(ConversationPresence.looksLikeMailAsk(ask))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask))
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:murray")
+        XCTAssertFalse((GmailSearchQuery.query(from: ask) ?? "").lowercased().contains("how murray"))
+
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [VoiceRegressionDesk.murray, VoiceRegressionDesk.steve])
+        )
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card for how-about latest email")
+        }
+        XCTAssertFalse((evidence?.gmailQuery ?? "").lowercased().contains("how murray"))
+        XCTAssertFalse((evidence?.gmailQuery ?? "").contains("from:(\"how murray\")"))
+
+        let empty = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: .empty)
+        )
+        XCTAssertEqual(empty?.shouldSearchGmail, true)
+        XCTAssertEqual(empty?.gmailQuery, "from:murray")
+        XCTAssertFalse((empty?.gmailQuery ?? "").lowercased().contains("how murray"))
+        XCTAssertEqual(empty?.text, ConversationPresence.gmailSearchingBeat)
+        XCTAssertTrue(ConversationPresence.isGmailSearchingBeat(empty?.text ?? ""))
+        XCTAssertFalse(ConversationPresence.isGmailSearchingBeat(ConversationPresence.gmailSearchEmptyReply))
+    }
+
     func testCacheMissSpecificEmailRequestsGmailSearch() {
         let context = DeskContext(isConnected: true, snapshot: .empty)
         let evidence = ConversationPresence.deskEvidence(
@@ -406,6 +480,51 @@ final class ConversationPresenceTests: XCTestCase {
         assertNotFakeSearchCapability(evidence?.text ?? "")
     }
 
+    func testLatestOnMyCalendarIsOverviewNotMiss() {
+        let event = CalendarItem(
+            title: "Massimo showing",
+            whenLabel: "Today 3:00 PM",
+            location: "1842 Beach Drive",
+            relatedPeople: ["Massimo Ricci"]
+        )
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(events: [event])
+        )
+        for ask in [
+            "What's the latest on my calendar?",
+            "whats the latest on my calendar",
+            "What's on my calendar this week",
+            "latest on my calendar"
+        ] {
+            XCTAssertTrue(ConversationPresence.wantsCalendarAsk(ask), ask)
+            XCTAssertTrue(ConversationPresence.wantsCalendarOverview(ask), ask)
+            XCTAssertFalse(ConversationPresence.wantsCalendarDetails(ask), ask)
+            XCTAssertFalse(ConversationPresence.wantsInboxOverview(ask), ask)
+            XCTAssertFalse(GmailSearchQuery.hasSenderPattern(ask), ask)
+            let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+            XCTAssertEqual(evidence?.topic, .calendar, ask)
+            XCTAssertNotEqual(evidence?.text, ConversationPresence.calendarMissReply, ask)
+            XCTAssertTrue((evidence?.text ?? "").contains("Massimo showing"), ask)
+            XCTAssertEqual(evidence?.cards.count, 1, ask)
+            if case .calendar(let item) = evidence?.cards.first {
+                XCTAssertEqual(item.title, "Massimo showing")
+            } else {
+                XCTFail("expected calendar card for \(ask)")
+            }
+        }
+    }
+
+    func testLatestOnMyCalendarEmptySnapshotIsHonestOverview() {
+        let context = DeskContext(isConnected: true, snapshot: .empty)
+        let ask = "What's the latest on my calendar?"
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+        XCTAssertEqual(evidence?.topic, .calendar)
+        XCTAssertNotEqual(evidence?.text, ConversationPresence.calendarMissReply)
+        XCTAssertTrue((evidence?.text ?? "").lowercased().contains("not inventing"))
+        XCTAssertTrue(evidence?.cards.isEmpty == true)
+    }
+
     func testConnectedInboxUsesCacheNotSampleDesk() {
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
         let context = DeskContext(isConnected: true, snapshot: snapshot)
@@ -551,7 +670,9 @@ final class ConversationPresenceTests: XCTestCase {
             "what's in my inbox",
             "latest emails",
             "recent emails",
-            "see my latest emails"
+            "see my latest emails",
+            "Can you pull my latest emails?",
+            "pull my latest emails"
         ] {
             XCTAssertTrue(ConversationPresence.wantsInboxOverview(ask), ask)
             XCTAssertFalse(ConversationPresence.wantsFullThread(ask), ask)
