@@ -279,7 +279,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.conversationScrollAnchor, .top)
     }
 
-    func testVersionAskSpeaksFixtureSHAWithoutCardsOrGmail() async {
+    func testVersionAskSpeaksFixtureMarketingWithoutCardsOrGmail() async {
         var murray = SampleData.syncedEmail()
         murray.fromName = "Murray Mitchell"
         murray.providerID = "msg-murray"
@@ -303,14 +303,14 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 0.1, build 1.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
-        XCTAssertTrue(fake.spoken.contains("VoiceDesk 1fa0a0e."))
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk 0.1, build 1."))
         XCTAssertTrue(fake.sentTurns.isEmpty)
         XCTAssertTrue(fake.assistantOutputSuppressed)
 
         await model.applyUserTurn("Can you show it to me?")
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 0.1, build 1.")
         XCTAssertGreaterThanOrEqual(
             model.turns.last?.cards.count ?? 0,
             2,
@@ -334,20 +334,39 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 0.1, build 1.")
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 0.1, build 1.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
     }
 
-    func testUnknownBuildIdentityNeverInventsASHA() async {
+    func testSHAAskSpeaksFixtureSHAWithoutInventing() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            buildIdentity: .fixture
+        )
+        await model.applyUserTurn("what SHA is this")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk 1fa0a0e."))
+        XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+    }
+
+    func testUnknownBuildIdentityNeverInventsAVersionOrSHA() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(
             voice: fake,
             google: .mock(connected: true),
             buildIdentity: .unknown
         )
+        await model.applyUserTurn("what's on the phone")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk, unknown version.")
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk, unknown version."))
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("1fa0a0e"))
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("0.1"))
+
         await model.applyUserTurn("what SHA is this")
         XCTAssertEqual(model.turns.last?.text, "VoiceDesk, unknown SHA.")
         XCTAssertTrue(fake.spoken.contains("VoiceDesk, unknown SHA."))

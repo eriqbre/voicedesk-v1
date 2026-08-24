@@ -1,7 +1,7 @@
 #!/bin/sh
 # Writes Config/Generated/GoogleSecrets.xcconfig from local Secrets.plist / env.
 # Also bakes GIT_SHA / GIT_BRANCH from `git -C "$SRCROOT"` when that tree is a
-# repo — never invents a SHA. Empty values become "unknown SHA" at speak time.
+# repo — never invents a SHA. Empty SHA becomes "unknown SHA" on SHA-asks.
 # Used as a scheme Pre-action and as an Xcode Run Script whose ONLY output
 # is that xcconfig — never the built app Info.plist.
 # Config/VoiceDesk.xcconfig #include?s the file so $(GOOGLE_*) and $(GIT_*) substitute.

@@ -78,7 +78,7 @@ public enum ConversationPresence {
         }
 
         if wantsVersionAsk(text) {
-            return Plan(topic: .version, text: BuildIdentity.unknown.spokenLine)
+            return Plan(topic: .version, text: spokenIdentityLine(for: text, identity: .unknown))
         }
 
         if wantsInbox(text) {
@@ -551,10 +551,41 @@ public enum ConversationPresence {
     }
 
     /// Local build identity — not live Grok, not calendar.
-    /// “What’s on the phone” is version. “What’s on my calendar” stays calendar.
+    /// Default family (version / build / on the phone) speaks marketing + build.
+    /// SHA family speaks the baked short SHA. “What’s on my calendar” stays calendar.
     public static func wantsVersionAsk(_ raw: String) -> Bool {
         if wantsCalendarAsk(raw) || wantsTaskAsk(raw) { return false }
         if hasDeskMailIntent(raw) { return false }
+        return wantsSHAAsk(raw) || wantsMarketingVersionAsk(raw)
+    }
+
+    /// SHA / git-hash family. Synonyms, not one golden phrase.
+    public static func wantsSHAAsk(_ raw: String) -> Bool {
+        if wantsCalendarAsk(raw) || wantsTaskAsk(raw) { return false }
+        if hasDeskMailIntent(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, [
+            "what sha",
+            "which sha",
+            "what's the sha",
+            "whats the sha",
+            "git sha",
+            "git hash",
+            "what git hash",
+            "which git hash",
+            "what's the git hash",
+            "whats the git hash"
+        ]) {
+            return true
+        }
+        return contains(lower, ["sha"]) && contains(lower, ["what", "whats", "which"])
+    }
+
+    public static func spokenIdentityLine(for raw: String, identity: BuildIdentity) -> String {
+        wantsSHAAsk(raw) ? identity.spokenSHALine : identity.spokenLine
+    }
+
+    private static func wantsMarketingVersionAsk(_ raw: String) -> Bool {
         let lower = raw.lowercased()
         if contains(lower, [
             "on the phone",
@@ -571,27 +602,21 @@ public enum ConversationPresence {
             "what build",
             "which build",
             "what's the build",
-            "whats the build",
-            "what sha",
-            "which sha",
-            "what's the sha",
-            "whats the sha",
-            "git sha",
-            "git hash"
+            "whats the build"
         ]) {
             return true
         }
-        if contains(lower, ["version", "sha"]) && contains(lower, ["what", "whats", "which"]) {
+        if contains(lower, ["version"]) && contains(lower, ["what", "whats", "which"]) {
             return true
         }
         return lower.contains("build")
             && contains(lower, ["this", "we on", "am i on", "are we"])
     }
 
-    private static func versionEvidence() -> DeskEvidence {
+    private static func versionEvidence(for raw: String) -> DeskEvidence {
         DeskEvidence(
             topic: .version,
-            text: BuildIdentity.unknown.spokenLine,
+            text: spokenIdentityLine(for: raw, identity: .unknown),
             cards: [],
             resetsFocusedEmail: true
         )
@@ -647,7 +672,7 @@ public enum ConversationPresence {
         }
 
         if wantsVersionAsk(raw) {
-            return versionEvidence()
+            return versionEvidence(for: raw)
         }
 
         if wantsCalendarAsk(raw) {
