@@ -195,6 +195,7 @@ struct VoiceBar: View {
     @Environment(AppModel.self) private var model
     @FocusState private var composerFocused: Bool
     @State private var listeningPulse = false
+    @State private var thinkingPulse = false
 
     var body: some View {
         @Bindable var model = model
@@ -245,10 +246,21 @@ struct VoiceBar: View {
                                 .scaleEffect(listeningPulse ? 1.14 : 1)
                                 .opacity(listeningPulse ? 0.35 : 0.9)
                         }
+                        if model.voice.state == .thinking {
+                            Circle()
+                                .stroke(Palette.ink.opacity(0.28), lineWidth: 3)
+                                .frame(width: 98, height: 98)
+                                .scaleEffect(thinkingPulse ? 1.1 : 1)
+                                .opacity(thinkingPulse ? 0.4 : 0.85)
+                        }
                         Circle()
                             .fill(Palette.accentSoft)
                             .frame(width: 84, height: 84)
-                            .scaleEffect(model.voice.state == .listening || model.showsTalkCoach ? 1.1 : 1)
+                            .scaleEffect(
+                                model.voice.state == .listening
+                                    || model.voice.state == .thinking
+                                    || model.showsTalkCoach ? 1.1 : 1
+                            )
                         Circle()
                             .fill(micFill)
                             .frame(width: 68, height: 68)
@@ -258,12 +270,19 @@ struct VoiceBar: View {
                     }
                     .onChange(of: model.voice.state) { _, state in
                         listeningPulse = state == .listening
+                        thinkingPulse = state == .thinking
                     }
                     .animation(
                         model.voice.state == .listening
                             ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
                             : .easeOut(duration: 0.2),
                         value: listeningPulse
+                    )
+                    .animation(
+                        model.voice.state == .thinking
+                            ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+                            : .easeOut(duration: 0.2),
+                        value: thinkingPulse
                     )
                     Text(micLabel)
                         .font(.subheadline.weight(.semibold))

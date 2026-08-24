@@ -365,7 +365,7 @@ final class AppModel {
         if google.isConnected {
             let awaitingClarify = consumeSearchClarify()
             if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
-                claimLocalAssistantReply()
+                fulfillConnectedDeskTurn()
                 if let evidence = ConversationPresence.deskEvidence(
                     for: text,
                     context: deskContext,
@@ -391,11 +391,12 @@ final class AppModel {
             context: deskContext,
             focusedEmail: lastFocusedEmail
         ) {
-            claimLocalAssistantReply()
+            fulfillConnectedDeskTurn()
             surfaceDeskEvidence(evidence)
             return
         }
         unmuteGrokAssistant()
+        voice.beginThinking()
         pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         pendingGeneralVoiceLog = true
         if ConversationPresence.wantsTour(text) {
@@ -503,7 +504,7 @@ final class AppModel {
         if google.isConnected {
             let awaitingClarify = consumeSearchClarify()
             if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
-                claimLocalAssistantReply()
+                fulfillConnectedDeskTurn()
                 if let evidence = ConversationPresence.deskEvidence(
                     for: text,
                     context: deskContext,
@@ -530,13 +531,14 @@ final class AppModel {
             context: deskContext,
             focusedEmail: lastFocusedEmail
         ) {
-            claimLocalAssistantReply()
+            fulfillConnectedDeskTurn()
             await applyDeskEvidence(evidence)
             return
         }
 
         if voice.usesLiveLoop {
             unmuteGrokAssistant()
+            voice.beginThinking()
             pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
             pendingGeneralVoiceLog = true
             await voice.sendTextTurn(text)
@@ -605,6 +607,13 @@ final class AppModel {
         appendAssistant(plan.text, cards: cards)
         await voice.speak(plan.text)
         logVoiceTurn(intentHint: "general", reply: plan.text, cards: cards, notes: ["local plan"])
+    }
+
+    /// Accepted userFinal (or typed desk claim): show Thinking while we fetch/summarize.
+    /// Preempt on a partial transcript still uses `claimLocalAssistantReply` only.
+    private func fulfillConnectedDeskTurn() {
+        voice.beginThinking()
+        claimLocalAssistantReply()
     }
 
     /// Stop Grok from contradicting a local Connect / email-body reply on the thread.

@@ -92,6 +92,7 @@ final class GrokVoiceService: VoiceServicing {
             return
         }
         ClientVoiceSpeech.shared.speak(trimmed)
+        apply(.speakStarted)
     }
 
     /// Eve reads the already-written local desk reply. Never mute this path —
@@ -142,6 +143,11 @@ final class GrokVoiceService: VoiceServicing {
         // is already muted, and response.cancel here kills the digest.
         if verbatim.isSpeaking { return }
         interruptAssistant(sendCancel: true)
+    }
+
+    func beginThinking() {
+        session.beginThinking(holdUntilAudio: true)
+        eventHandler?(.state(session.state))
     }
 
     func suppressAssistantOutput(_ suppress: Bool) {
@@ -223,6 +229,12 @@ final class GrokVoiceService: VoiceServicing {
     private func apply(_ event: VoiceSessionEvent) {
         session.apply(event)
         eventHandler?(.state(session.state))
+    }
+
+    private func markSpeakStartedIfThinking() {
+        if session.state == .thinking {
+            apply(.speakStarted)
+        }
     }
 
     private func finishReady() {
@@ -316,6 +328,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
         guard !dropAssistantAudio else { return }
+        markSpeakStartedIfThinking()
         audio.playPCM16(data)
     }
 
@@ -329,6 +342,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             startAudioIfNeeded()
             finishReady()
         case .speechStarted:
+            session.holdsThinkingUntilAudio = false
             interruptAssistant(sendCancel: true)
         case .speechStopped:
             if session.state == .listening {
@@ -356,6 +370,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             break
         case .outputAudioDelta(let delta):
             guard !dropAssistantAudio else { break }
+            markSpeakStartedIfThinking()
             if json["response_id"] as? String == currentResponseID || currentResponseID == nil {
                 audio.playAudioDelta(base64: delta)
                 audioDeltaCount += 1
@@ -382,6 +397,10 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))
         case .error(let code, let message):
             eventHandler?(.failed("\(code) \(message)".trimmingCharacters(in: .whitespaces)))
+            if session.holdsThinkingUntilAudio, session.state == .thinking {
+                session.holdsThinkingUntilAudio = false
+                apply(.turnFinished)
+            }
             if code == "timeout" || code == "max_duration" {
                 teardown(sendCancel: false)
             }
