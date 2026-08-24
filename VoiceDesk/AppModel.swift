@@ -1123,26 +1123,16 @@ final class AppModel {
             let next = try await sync.sync(
                 token: token,
                 accountEmail: google.snapshot.email ?? "",
-                now: Date(),
-                onInboxMessageIDs: announceLaunch
-                    ? { [weak self] ids in
-                        guard let self else { return }
-                        switch self.launchSyncPhase {
-                        case .restoringGoogle, .syncingInbox, .downloadingNewEmails:
-                            self.launchSyncPhase = LaunchSyncStatus.phaseAfterInboxIDs(
-                                ids,
-                                cachedProviderIDs: cachedIDs
-                            )
-                        default:
-                            break
-                        }
-                    }
-                    : nil
+                now: Date()
             )
             deskSnapshot = next
             cache.save(next)
             refreshPresence()
             if announceLaunch {
+                launchSyncPhase = LaunchSyncStatus.phaseAfterInboxIDs(
+                    next.emails.compactMap(\.providerID),
+                    cachedProviderIDs: cachedIDs
+                )
                 await finishLaunchStatus(success: true)
             }
         } catch {
