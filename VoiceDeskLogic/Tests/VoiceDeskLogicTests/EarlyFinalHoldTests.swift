@@ -99,7 +99,7 @@ final class EarlyFinalHoldTests: XCTestCase {
         XCTAssertFalse(ConversationPresence.wantsSHAAsk(phone.acceptedText ?? ""))
         XCTAssertEqual(
             ConversationPresence.spokenIdentityLine(for: phone.acceptedText ?? "", identity: .fixture),
-            "VoiceDesk point 1, build 1."
+            BuildIdentity.fixture.spokenLine
         )
 
         XCTAssertEqual(hold.decide("What's.").intent, "held")
