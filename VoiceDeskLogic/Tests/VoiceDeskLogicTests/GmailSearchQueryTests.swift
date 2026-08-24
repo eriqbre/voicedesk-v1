@@ -37,6 +37,17 @@ final class GmailSearchQueryTests: XCTestCase {
         XCTAssertFalse((working ?? "").lowercased().contains("was murray"))
     }
 
+    func testQuickSummaryOfMurraysEmailIsFromMurrayNotQuickMurray() {
+        let ask = "Give me a quick summary of Murray's latest email."
+        let plan = GmailSearchQuery.plan(from: ask)
+        XCTAssertEqual(plan?.primary, "from:murray", plan?.primary ?? "nil")
+        XCTAssertFalse(plan?.phrases.contains(where: { $0.contains("quick") }) == true)
+        for variant in plan?.variants ?? [] {
+            XCTAssertFalse(variant.lowercased().contains("quick murray"), variant)
+            XCTAssertFalse(variant.contains("from:(\"quick murray\")"), variant)
+        }
+    }
+
     func testSteveBrownPossessiveKeepsMultiWordFrom() {
         let plan = GmailSearchQuery.plan(from: "show me Steve Brown's note")
         XCTAssertNotNil(plan)
