@@ -152,28 +152,27 @@ enum EchoNorm {
 
     /// `0.1` / `0.1.0` → zero / point / one family, not one golden spelling.
     private static func expandDottedVersions(in raw: String, into tokens: inout Set<String>) {
-        let detector = try? NSRegularExpression(pattern: #"\d+(?:\.\d+)+"#)
-        let ns = raw as NSString
-        detector?.enumerateMatches(
-            in: raw,
-            options: [],
-            range: NSRange(location: 0, length: ns.length)
-        ) { match, _, _ in
-            guard let match else { return }
-            let dotted = ns.substring(with: match.range)
-            let parts = dotted.split(separator: ".").map(String.init)
+        let dotted = dottedNumberMatches(in: raw)
+        for version in dotted {
+            let parts = version.split(separator: ".").map(String.init)
             tokens.insert("point")
             tokens.insert("dot")
-            for (index, part) in parts.enumerated() {
+            for part in parts {
                 tokens.formUnion(family(for: part))
-                if index == 0, part == "0" {
-                    tokens.formUnion(family(for: "0"))
-                }
             }
             if parts.first == "0", parts.count >= 2 {
                 tokens.formUnion(family(for: "0"))
             }
         }
+    }
+
+    private static func dottedNumberMatches(in raw: String) -> [String] {
+        guard let detector = try? NSRegularExpression(pattern: #"\d+(?:\.\d+)+"#) else {
+            return []
+        }
+        let ns = raw as NSString
+        return detector.matches(in: raw, options: [], range: NSRange(location: 0, length: ns.length))
+            .map { ns.substring(with: $0.range) }
     }
 
     /// Spoken 0.x shape `"point 1"` still owns the leading-zero family.
