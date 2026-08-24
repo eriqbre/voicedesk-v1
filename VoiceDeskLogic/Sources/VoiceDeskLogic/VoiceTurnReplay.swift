@@ -82,7 +82,7 @@ public enum VoiceTurnReplay: Sendable {
         } else if fixture.connected == false {
             context = .disconnected
         } else {
-            context = VoiceRegressionDesk.connected
+            context = VoiceRegressionDesk.desk(preset: fixture.deskPreset)
         }
         let focused: EmailItem?
         if fixture.hadFocusedEmail == true {

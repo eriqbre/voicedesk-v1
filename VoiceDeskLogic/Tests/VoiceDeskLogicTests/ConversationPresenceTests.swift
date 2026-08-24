@@ -468,6 +468,77 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse((evidence?.text ?? "").lowercased().contains("i can search"))
     }
 
+    func testMurraySummaryAfterGreenacreInboxIsMurrayNotInboxZero() {
+        let ask = "Give me a summary of Murray's last email."
+        XCTAssertTrue(ConversationPresence.wantsFullThread(ask))
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:murray")
+        let context = VoiceRegressionDesk.greenacreFirst
+        XCTAssertEqual(context.snapshot.emails.first?.fromName, "Greenacre Properties, Inc.")
+        XCTAssertEqual(
+            ConversationPresence.matchingEmail(for: ask, in: context.snapshot.emails)?.fromName,
+            "Murray Mitchell"
+        )
+        let overview = ConversationPresence.deskEvidence(
+            for: "Just show me my latest emails.",
+            context: context,
+            focusedEmail: VoiceRegressionDesk.greenacre
+        )
+        XCTAssertEqual(overview?.resetsFocusedEmail, true)
+        XCTAssertNil(overview?.focusedEmail)
+
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context, focusedEmail: nil)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertEqual(evidence?.resetsFocusedEmail, false)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertEqual(item.subject, "Closing / notarization")
+        } else {
+            XCTFail("expected Murray card after inbox overview, not inbox[0]")
+        }
+        XCTAssertFalse((evidence?.text ?? "").contains("Greenacre"))
+        XCTAssertEqual(evidence?.focusedEmail?.fromName, "Murray Mitchell")
+    }
+
+    func testLaurenSummaryClearsGreenacreStickyAndMatchesLaren() {
+        let ask = "Give me a summary of Lauren's latest, latest email."
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:lauren")
+        XCTAssertTrue(
+            GmailSearchQuery.namedSenderMismatches(VoiceRegressionDesk.greenacre, ask: ask)
+        )
+        XCTAssertFalse(
+            GmailSearchQuery.namedSenderMismatches(VoiceRegressionDesk.laren, ask: ask)
+        )
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: VoiceRegressionDesk.greenacreFirst,
+            focusedEmail: VoiceRegressionDesk.greenacre
+        )
+        XCTAssertEqual(evidence?.resetsFocusedEmail, true)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Laren Cole")
+        } else {
+            XCTFail("expected Laren card, not sticky Greenacre")
+        }
+        XCTAssertEqual(evidence?.focusedEmail?.fromName, "Laren Cole")
+        XCTAssertFalse((evidence?.text ?? "").contains("Greenacre"))
+    }
+
+    func testNamedMurrayMissDoesNotSubstituteGreenacre() {
+        let ask = "Give me a summary of Murray's last email."
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: VoiceRegressionDesk.greenacreOnly,
+            focusedEmail: VoiceRegressionDesk.greenacre
+        )
+        XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertEqual(evidence?.gmailQuery, "from:murray")
+        XCTAssertEqual(evidence?.resetsFocusedEmail, true)
+        XCTAssertTrue(evidence?.cards.isEmpty == true)
+        XCTAssertNil(evidence?.focusedEmail)
+        XCTAssertEqual(evidence?.text, ConversationPresence.gmailSearchingBeat)
+    }
+
     func testCalendarReservationDoesNotSearchGmail() {
         let context = DeskContext(isConnected: true, snapshot: .empty)
         let evidence = ConversationPresence.deskEvidence(
@@ -715,7 +786,7 @@ final class ConversationPresenceTests: XCTestCase {
         } else {
             XCTFail("expected Murray card for person-specific summary")
         }
-        XCTAssertNotEqual(murrayEvidence?.resetsFocusedEmail, true)
+        XCTAssertEqual(murrayEvidence?.resetsFocusedEmail, true, "named Murray must yield Steve sticky")
         if case .email(let item) = murrayEvidence?.cards.first {
             XCTAssertFalse(item.isCompactListRow, "single Murray thread stays the full reader")
         }

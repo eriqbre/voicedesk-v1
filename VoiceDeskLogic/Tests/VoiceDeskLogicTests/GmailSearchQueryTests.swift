@@ -257,6 +257,33 @@ final class GmailSearchQueryTests: XCTestCase {
         XCTAssertFalse(GmailSearchQuery.matches(Self.waterfrontEmail, gmailQuery: query))
     }
 
+    func testLaurenFuzzyMatchesLarenAndNotGreenacre() {
+        let ask = "Give me a summary of Lauren's latest, latest email."
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:lauren")
+        XCTAssertGreaterThan(
+            GmailSearchQuery.score(VoiceRegressionDesk.laren, ask: ask),
+            GmailSearchQuery.senderAttachThreshold - 1
+        )
+        XCTAssertEqual(
+            GmailSearchQuery.pick(
+                [VoiceRegressionDesk.greenacre, VoiceRegressionDesk.laren],
+                ask: ask
+            ),
+            .one(VoiceRegressionDesk.laren)
+        )
+        XCTAssertEqual(
+            GmailSearchQuery.pick([VoiceRegressionDesk.greenacre], ask: ask),
+            .none
+        )
+        XCTAssertTrue(
+            GmailSearchQuery.namedSenderMismatches(VoiceRegressionDesk.greenacre, ask: ask)
+        )
+        XCTAssertFalse(
+            GmailSearchQuery.namedSenderMismatches(VoiceRegressionDesk.laren, ask: ask)
+        )
+        XCTAssertEqual(GmailSearchQuery.editDistance("lauren", "laren"), 1)
+    }
+
     func testFromMarieQueryMatchesMarieNotWaterfront() {
         let query = GmailSearchQuery.query(from: marieAsk) ?? ""
         XCTAssertTrue(GmailSearchQuery.matches(Self.marieEmail, gmailQuery: query))

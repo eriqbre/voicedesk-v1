@@ -4,7 +4,7 @@ import XCTest
 final class VoiceRegressionReplayTests: XCTestCase {
     func testAllSeedFixturesReplay() throws {
         let fixtures = try Self.loadSeedFixtures()
-        XCTAssertGreaterThanOrEqual(fixtures.count, 22, "seed utterances are missing")
+        XCTAssertGreaterThanOrEqual(fixtures.count, 25, "seed utterances are missing")
         for fixture in fixtures {
             let replay = VoiceTurnReplay.play(fixture)
             let ask = fixture.userTranscript
@@ -29,14 +29,33 @@ final class VoiceRegressionReplayTests: XCTestCase {
                     XCTAssertNil(replay.evidence?.focusedEmail, ask)
                     XCTAssertGreaterThanOrEqual(replay.cardLabels.count, 2, ask)
                 }
-                if fixture.userTranscript.lowercased().contains("murray"),
-                   fixture.intent != "inbox-overview" {
-                    XCTAssertFalse(replay.stickyCleared, ask)
-                    XCTAssertTrue(
-                        replay.cardLabels.contains { $0.contains("Murray Mitchell") },
-                        "\(ask): \(replay.cardLabels)"
-                    )
+                let lowerAsk = fixture.userTranscript.lowercased()
+                let namedMurray = lowerAsk.contains("murray") && fixture.intent != "inbox-overview"
+                let namedLauren = lowerAsk.contains("lauren") || lowerAsk.contains("laren")
+                if namedMurray || namedLauren {
                     XCTAssertNotEqual(replay.intent, "inbox-overview", ask)
+                    XCTAssertFalse(
+                        replay.cardLabels.contains { $0.contains("Greenacre") },
+                        "\(ask): named person must not attach Greenacre \(replay.cardLabels)"
+                    )
+                    if namedMurray, !replay.shouldSearchGmail {
+                        XCTAssertTrue(
+                            replay.cardLabels.contains { $0.contains("Murray Mitchell") },
+                            "\(ask): \(replay.cardLabels)"
+                        )
+                    }
+                    if namedLauren, !replay.shouldSearchGmail {
+                        XCTAssertTrue(
+                            replay.cardLabels.contains { $0.contains("Laren Cole") || $0.contains("Lauren") },
+                            "\(ask): \(replay.cardLabels)"
+                        )
+                    }
+                    let stickyName = (fixture.stickyFromName ?? "").lowercased()
+                    if fixture.hadFocusedEmail == true,
+                       !stickyName.contains("murray"), !stickyName.contains("lauren"), !stickyName.contains("laren"),
+                       !stickyName.isEmpty {
+                        XCTAssertTrue(replay.stickyCleared, "\(ask): named person must clear mismatched sticky")
+                    }
                 }
             }
 
@@ -133,6 +152,70 @@ final class VoiceRegressionReplayTests: XCTestCase {
         let haystack = (replay.notes + [replay.gmailQuery ?? ""]).joined(separator: "\n").lowercased()
         XCTAssertFalse(haystack.contains("how murray"), haystack)
         XCTAssertFalse(haystack.contains("from:(\"how murray\")"), haystack)
+    }
+
+    func testInboxOverviewThenMurraySummaryIsMurrayNotGreenacre() {
+        let overview = VoiceTurnReplay.play(
+            utterance: "Uh, that's cool. Just show me my latest emails.",
+            context: VoiceRegressionDesk.greenacreFirst
+        )
+        XCTAssertTrue(overview.stickyCleared)
+        XCTAssertNil(overview.evidence?.focusedEmail)
+        XCTAssertTrue(overview.cardLabels.contains { $0.contains("Greenacre") })
+
+        let murrayAsk = "Give me a summary of Murray's last email."
+        XCTAssertEqual(GmailSearchQuery.query(from: murrayAsk), "from:murray")
+        let replay = VoiceTurnReplay.play(
+            utterance: murrayAsk,
+            context: VoiceRegressionDesk.greenacreFirst,
+            focusedEmail: nil
+        )
+        XCTAssertTrue(["desk-person", "desk-thread"].contains(replay.intent), replay.intent)
+        XCTAssertTrue(replay.cardLabels.contains { $0.contains("Murray Mitchell") }, "\(replay.cardLabels)")
+        XCTAssertFalse(replay.cardLabels.contains { $0.contains("Greenacre") }, "\(replay.cardLabels)")
+        XCTAssertEqual(replay.evidence?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertNotEqual(replay.shouldSearchGmail, true)
+        XCTAssertTrue(
+            replay.notes.contains(where: { $0.contains("from:murray") })
+                || (replay.gmailQuery ?? "").contains("from:murray"),
+            "\(replay.notes)"
+        )
+    }
+
+    func testLaurenAfterGreenacreStickyMatchesLarenAndClearsSticky() {
+        let ask = "Give me a summary of Lauren's latest, latest email."
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:lauren")
+        let replay = VoiceTurnReplay.play(
+            utterance: ask,
+            context: VoiceRegressionDesk.greenacreFirst,
+            focusedEmail: VoiceRegressionDesk.greenacre
+        )
+        XCTAssertTrue(replay.stickyCleared, "\(replay.notes)")
+        XCTAssertTrue(replay.notes.contains("sticky cleared"), "\(replay.notes)")
+        XCTAssertFalse(replay.notes.contains(where: { $0.contains("sticky reused") }), "\(replay.notes)")
+        XCTAssertTrue(replay.cardLabels.contains { $0.contains("Laren Cole") }, "\(replay.cardLabels)")
+        XCTAssertFalse(replay.cardLabels.contains { $0.contains("Greenacre") }, "\(replay.cardLabels)")
+        XCTAssertEqual(replay.evidence?.focusedEmail?.fromName, "Laren Cole")
+        XCTAssertTrue(
+            replay.notes.contains(where: { $0.contains("from:lauren") }),
+            "\(replay.notes)"
+        )
+    }
+
+    func testNamedMurrayWithNoCacheHitSearchesAndDoesNotAttachGreenacre() {
+        let ask = "Give me a summary of Murray's last email."
+        let replay = VoiceTurnReplay.play(
+            utterance: ask,
+            context: VoiceRegressionDesk.greenacreOnly,
+            focusedEmail: VoiceRegressionDesk.greenacre
+        )
+        XCTAssertTrue(replay.shouldSearchGmail)
+        XCTAssertEqual(replay.gmailQuery, "from:murray")
+        XCTAssertTrue(replay.stickyCleared)
+        XCTAssertTrue(replay.cardLabels.isEmpty, "\(replay.cardLabels)")
+        XCTAssertNil(replay.evidence?.focusedEmail)
+        XCTAssertFalse(replay.reply.contains("Greenacre"))
+        XCTAssertEqual(replay.reply, ConversationPresence.gmailSearchingBeat)
     }
 
     func testDidJohnTriviaDoesNotBuildFromJohn() {

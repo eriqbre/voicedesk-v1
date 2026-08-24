@@ -338,7 +338,7 @@ final class VoiceCloudDogfoodLogTests: XCTestCase {
         )
     }
 
-    func testClassifyMurrayAskVsStickyJohnIsFirstClass() {
+    func testClassifyMurrayAskVsStickyJohnClearsAndDoesNotKeepJohn() {
         let john = EmailItem(
             providerID: "jm",
             fromName: "John Madison",
@@ -349,25 +349,27 @@ final class VoiceCloudDogfoodLogTests: XCTestCase {
             body: "Listing referral.",
             filterTag: "Inbox"
         )
-        let evidence = ConversationPresence.DeskEvidence(
-            topic: .inbox,
-            text: "John Madison wrote about Listing referral.",
-            cards: [.email(john)],
-            focusedEmail: john,
-            resetsFocusedEmail: false
+        let murray = VoiceRegressionDesk.murray
+        let evidence = ConversationPresence.deskEvidence(
+            for: "Okay, got it. Hey, can you give me a summary of Murray's latest email?",
+            context: DeskContext(isConnected: true, snapshot: DeskSnapshot(emails: [john, murray])),
+            focusedEmail: john
         )
         let classified = VoiceInteractionLog.classify(
             utterance: "Okay, got it. Hey, can you give me a summary of Murray's latest email?",
             evidence: evidence,
             hadFocusedEmail: true
         )
-        XCTAssertEqual(classified.sticky, .reused)
-        XCTAssertEqual(classified.focusedPerson, "John Madison")
+        XCTAssertEqual(classified.sticky, .cleared)
+        XCTAssertEqual(classified.focusedPerson, "Murray Mitchell")
         XCTAssertNotEqual(classified.intent, "inbox-overview")
-        XCTAssertTrue(
-            classified.notes.contains { $0.contains("sticky reused") },
-            classified.notes.joined(separator: ",")
-        )
+        XCTAssertTrue(classified.notes.contains("sticky cleared"), classified.notes.joined(separator: ","))
+        XCTAssertFalse(classified.notes.contains { $0.contains("John Madison") }, classified.notes.joined(separator: ","))
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card, not sticky John")
+        }
     }
 }
 

@@ -26,12 +26,53 @@ public enum VoiceRegressionDesk: Sendable {
         filterTag: "Inbox"
     )
 
+    public static let greenacre = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000003")!,
+        providerID: "fixture-greenacre",
+        fromName: "Greenacre Properties, Inc.",
+        fromEmail: "board@greenacre.example.com",
+        sentAtLabel: "Today 10:00 AM",
+        subject: "Board meeting notice",
+        preview: "Quarterly board meeting is Thursday.",
+        body: "The quarterly board meeting is Thursday at 2pm.",
+        filterTag: "Inbox"
+    )
+
+    public static let laren = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000004")!,
+        providerID: "fixture-laren",
+        fromName: "Laren Cole",
+        fromEmail: "laren@example.com",
+        sentAtLabel: "Today 7:30 AM",
+        subject: "Walk-through window",
+        preview: "Can we do Thursday at 11?",
+        body: "Can we do the walk-through Thursday at 11?",
+        filterTag: "Inbox"
+    )
+
     public static var snapshot: DeskSnapshot {
         DeskSnapshot(accountEmail: "agent@example.com", emails: [murray, steve])
     }
 
+    /// Dogfood shape: latest inbox is Greenacre, Murray and Laren are further down.
+    public static var greenacreFirstSnapshot: DeskSnapshot {
+        DeskSnapshot(accountEmail: "agent@example.com", emails: [greenacre, murray, steve, laren])
+    }
+
+    public static var greenacreOnlySnapshot: DeskSnapshot {
+        DeskSnapshot(accountEmail: "agent@example.com", emails: [greenacre])
+    }
+
     public static var connected: DeskContext {
         DeskContext(isConnected: true, snapshot: snapshot)
+    }
+
+    public static var greenacreFirst: DeskContext {
+        DeskContext(isConnected: true, snapshot: greenacreFirstSnapshot)
+    }
+
+    public static var greenacreOnly: DeskContext {
+        DeskContext(isConnected: true, snapshot: greenacreOnlySnapshot)
     }
 
     public static func sticky(named raw: String?) -> EmailItem? {
@@ -41,8 +82,23 @@ public enum VoiceRegressionDesk: Sendable {
             return murray
         case "steve", "steve brown":
             return steve
+        case "greenacre", "greenacre properties, inc.", "greenacre properties":
+            return greenacre
+        case "laren", "lauren", "laren cole", "lauren cole":
+            return laren
         default:
             return nil
+        }
+    }
+
+    public static func desk(preset raw: String?) -> DeskContext {
+        switch (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "greenacre-first":
+            return greenacreFirst
+        case "greenacre-only":
+            return greenacreOnly
+        default:
+            return connected
         }
     }
 }
