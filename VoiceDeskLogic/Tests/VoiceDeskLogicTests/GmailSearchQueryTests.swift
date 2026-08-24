@@ -330,6 +330,25 @@ final class GmailSearchQueryTests: XCTestCase {
         )
     }
 
+    func testSummaryFromLaurenAboutFleemanDropsFamilyFunDay() {
+        let ask = "Hey, give me a summary of the email from Lauren about Fleeman Road."
+        let plan = GmailSearchQuery.plan(from: ask)
+        XCTAssertTrue(plan?.senders.contains("lauren") == true, "\(plan?.senders ?? [])")
+        XCTAssertTrue(plan?.subjectTokens.contains("fleeman") == true, "\(plan?.subjectTokens ?? [])")
+        XCTAssertEqual(plan?.primary, "from:lauren fleeman road", plan?.primary ?? "nil")
+        XCTAssertEqual(
+            GmailSearchQuery.pick(
+                [VoiceRegressionDesk.alexAndLaren, VoiceRegressionDesk.larenJansen],
+                ask: ask
+            ),
+            .one(VoiceRegressionDesk.larenJansen)
+        )
+        XCTAssertFalse(
+            GmailSearchQuery.topicHit(VoiceRegressionDesk.alexAndLaren, plan: plan!),
+            "Family Fun Day must not match Fleeman"
+        )
+    }
+
     func testEricDoesNotFuzzyMapToMailboxOwnerEriq() {
         let ask = "When was Eric's last email?"
         XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:eric")

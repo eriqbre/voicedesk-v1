@@ -243,6 +243,29 @@ final class VoiceRegressionReplayTests: XCTestCase {
     }
 
     func testDogfoodLaurenEricUtterancesStayDesk() {
+        let fleemanAsk = VoiceTurnReplay.play(
+            utterance: "Hey, give me a summary of the email from Lauren about Fleeman Road.",
+            context: VoiceRegressionDesk.laurenSeveral
+        )
+        XCTAssertTrue(fleemanAsk.ownsDeskTurn)
+        XCTAssertNotEqual(fleemanAsk.intent, "general")
+        XCTAssertEqual(fleemanAsk.cardLabels, ["email:Laren Jansen:Fleeman Road disclosures"])
+        XCTAssertFalse(fleemanAsk.cardLabels.contains { $0.contains("Family Fun Day") })
+        XCTAssertFalse(fleemanAsk.reply.localizedCaseInsensitiveContains("which one"))
+
+        let regarding = VoiceTurnReplay.play(
+            utterance: "The one regarding Fleeman Road.",
+            context: VoiceRegressionDesk.laurenSeveral,
+            pendingSearchClarify: true,
+            clarifyMatches: [VoiceRegressionDesk.alexAndLaren, VoiceRegressionDesk.larenJansen],
+            priorSearchAsk: "Hey, give me a summary of the email from Lauren about Fleeman Road."
+        )
+        XCTAssertTrue(regarding.ownsDeskTurn)
+        XCTAssertNotEqual(regarding.intent, "general")
+        XCTAssertTrue(regarding.cardLabels.contains { $0.contains("Laren Jansen") })
+        XCTAssertFalse(regarding.cardLabels.contains { $0.contains("Family Fun Day") })
+        XCTAssertFalse(regarding.notes.contains("live Grok"))
+
         let lauren = VoiceTurnReplay.play(
             utterance: "What's the latest email from Lauren?",
             context: VoiceRegressionDesk.laurenSeveral

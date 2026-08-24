@@ -47,6 +47,8 @@ final class AppModel {
     private var pendingSenderRefine = false
     /// Cards from the last multi-match Gmail search, for “the last one” / “most recent.”
     private var lastSearchMatches: [EmailItem] = []
+    /// Spoken ask that produced the last named/topic search — “that one” reuses its topic.
+    private var lastSearchAsk: String?
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
     private var lastUserUtterance = ""
@@ -392,7 +394,8 @@ final class AppModel {
         if let evidence = ConversationPresence.deskEvidence(
             for: text,
             context: deskContext,
-            focusedEmail: lastFocusedEmail
+            focusedEmail: lastFocusedEmail,
+            priorSearchAsk: lastSearchAsk
         ) {
             claimLocalAssistantReply()
             surfaceDeskEvidence(evidence)
@@ -521,7 +524,8 @@ final class AppModel {
         if let evidence = ConversationPresence.deskEvidence(
             for: text,
             context: deskContext,
-            focusedEmail: lastFocusedEmail
+            focusedEmail: lastFocusedEmail,
+            priorSearchAsk: lastSearchAsk
         ) {
             claimLocalAssistantReply()
             await applyDeskEvidence(evidence)
@@ -726,6 +730,12 @@ final class AppModel {
         } else {
             lastSearchMatches = []
         }
+        if let ask = evidence.searchAsk, !ask.isEmpty {
+            lastSearchAsk = ask
+        } else if let plan = GmailSearchQuery.plan(from: lastUserUtterance),
+                  !plan.subjectTokens.isEmpty {
+            lastSearchAsk = lastUserUtterance
+        }
         if evidence.expandEarlierMessages, let email = evidence.focusedEmail {
             markExpandEarlier(for: email)
         }
@@ -758,7 +768,8 @@ final class AppModel {
             focusedEmail: lastFocusedEmail,
             pendingSearchClarify: awaitingClarify,
             clarifyMatches: lastSearchMatches,
-            pendingSenderRefine: pendingSenderRefine
+            pendingSenderRefine: pendingSenderRefine,
+            priorSearchAsk: lastSearchAsk
         ) {
             await applyDeskEvidence(evidence)
         } else {

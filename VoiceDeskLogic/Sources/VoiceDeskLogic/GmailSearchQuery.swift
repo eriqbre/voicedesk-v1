@@ -151,6 +151,11 @@ public enum GmailSearchQuery: Sendable {
             rememberPhrase(aboutName)
         }
 
+        // “the Fleeman one” / “the disclosures one” — topic, not “the last one”.
+        for token in topicAfterTheOne(in: raw) {
+            rememberSubject(token)
+        }
+
         if compactLetters(raw).contains("showingtime") {
             rememberPhrase("showing time")
         }
@@ -337,12 +342,9 @@ public enum GmailSearchQuery: Sendable {
 
         var ranked = emails.map { (email: $0, score: score($0, plan: plan, owner: owner)) }
         if !plan.subjectTokens.isEmpty {
-            let withTopic = ranked.filter { subjectHit($0.email, plan: plan) && isStrong($0.email, score: $0.score) }
-            if !withTopic.isEmpty {
-                ranked = withTopic
-            } else {
-                ranked = ranked.filter { isStrong($0.email, score: $0.score) }
-            }
+            // Topic tokens constrain the local card filter. No sender-only fallback —
+            // Family Fun Day must not survive “about Fleeman Road” just because Lauren matched.
+            ranked = ranked.filter { topicHit($0.email, plan: plan) && isStrong($0.email, score: $0.score) }
         } else {
             ranked = ranked.filter { isStrong($0.email, score: $0.score) }
         }
@@ -371,12 +373,25 @@ public enum GmailSearchQuery: Sendable {
     }
 
     public static func subjectHit(_ email: EmailItem, plan: GmailSearchPlan) -> Bool {
-        let subjectHay = email.subject.lowercased()
-        let previewHay = email.preview.lowercased()
-        let bodyHay = (email.body ?? "").lowercased()
-        return plan.subjectTokens.contains { token in
-            subjectHay.contains(token) || previewHay.contains(token) || bodyHay.contains(token)
-        }
+        topicHit(email, plan: plan)
+    }
+
+    /// Subject / snippet / from only. Body is not the topic filter — a picnic
+    /// email that mentions “road” in the body must not keep a Fleeman ask.
+    public static func topicHaystack(_ email: EmailItem) -> String {
+        "\(email.subject) \(email.preview) \(email.fromName) \(email.fromEmail)".lowercased()
+    }
+
+    public static func topicHit(_ email: EmailItem, plan: GmailSearchPlan) -> Bool {
+        topicHit(email, tokens: plan.subjectTokens)
+    }
+
+    public static func topicHit(_ email: EmailItem, tokens: [String]) -> Bool {
+        guard !tokens.isEmpty else { return true }
+        let hay = topicHaystack(email)
+        let distinctive = tokens.filter { $0.count >= 5 }
+        let needed = distinctive.isEmpty ? tokens : distinctive
+        return needed.contains { hay.contains($0) }
     }
 
     public static func senderIdentity(_ email: EmailItem) -> String {
@@ -455,9 +470,12 @@ public enum GmailSearchQuery: Sendable {
         if let sender = senders.first {
             if !subjects.isEmpty {
                 add("from:\(sender) \(subjects.joined(separator: " "))")
+                // Topic-only so Gmail can still find Laren when `from:lauren` misses.
+                add(subjects.joined(separator: " "))
+            } else {
+                add("from:\(sender)")
+                add("from:\(sender) OR \(sender)")
             }
-            add("from:\(sender)")
-            add("from:\(sender) OR \(sender)")
         }
 
         if senders.isEmpty, phrases.isEmpty, !subjects.isEmpty {
@@ -486,14 +504,19 @@ public enum GmailSearchQuery: Sendable {
     }
 
     /// “How about Murray’s…” / “what about Steve” — skip filler, take the name.
+    /// “How about the one regarding Fleeman” is a topic pick, not from:fleeman.
     private static func nameAfterHowOrWhatAbout(in raw: String) -> String? {
         let lower = raw.lowercased()
         guard let regex = try? NSRegularExpression(pattern: #"\b(?:how|what)\s+about\s+(.+)$"#),
               let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
               let range = Range(match.range(at: 1), in: lower)
         else { return nil }
+        let after = String(lower[range])
+        if after.range(of: #"\bthe\s+one\b"#, options: .regularExpression) != nil { return nil }
+        if after.range(of: #"\bthe\s+[a-z]{3,}\s+one\b"#, options: .regularExpression) != nil { return nil }
+        if after.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("regarding") { return nil }
         var words: [String] = []
-        for piece in lower[range].split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
+        for piece in after.split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
             let token = sanitize(String(piece))
             guard token.count >= 2 else { continue }
             if stop.contains(token) {
@@ -504,6 +527,22 @@ public enum GmailSearchQuery: Sendable {
             if words.count >= 2 { break }
         }
         return words.isEmpty ? nil : words.joined(separator: " ")
+    }
+
+    /// Recency / ordinal leftovers — never a topic after “the … one”.
+    private static let theOneReserved: Set<String> = [
+        "last", "latest", "first", "second", "third", "newest", "top",
+        "other", "same", "next", "previous", "most", "recent"
+    ]
+
+    /// “the Fleeman one” / “the disclosures one”. Empty for “the last one”.
+    public static func topicAfterTheOne(in raw: String) -> [String] {
+        let lower = raw.lowercased()
+        guard let regex = try? NSRegularExpression(pattern: #"\bthe\s+([A-Za-z][A-Za-z\s]{1,40}?)\s+one\b"#),
+              let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+              let range = Range(match.range(at: 1), in: lower)
+        else { return [] }
+        return letterTokens(in: String(lower[range])).filter { !theOneReserved.contains($0) }
     }
 
     private static func sanitize(_ raw: String) -> String {
