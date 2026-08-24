@@ -14,6 +14,40 @@ final class GmailSearchQueryTests: XCTestCase {
         XCTAssertEqual(query, "from:murray")
     }
 
+    func testWhenWasMurraysLastEmailSentIsFromMurrayNotWasMurray() {
+        for ask in [
+            "When was Murray's last email sent?",
+            "When was Murray’s last email sent?",
+            "when was Murray's last email"
+        ] {
+            let plan = GmailSearchQuery.plan(from: ask)
+            XCTAssertEqual(plan?.primary, "from:murray", ask)
+            XCTAssertTrue(plan?.senders.contains("murray") == true, ask)
+            XCTAssertFalse(plan?.senders.contains("was") == true, ask)
+            XCTAssertFalse(plan?.phrases.contains(where: { $0.contains("was") }) == true, ask)
+            for variant in plan?.variants ?? [] {
+                XCTAssertTrue(variant.contains("from:murray"), "\(ask) \(variant)")
+                XCTAssertFalse(variant.lowercased().contains("was murray"), variant)
+                XCTAssertFalse(variant.contains("from:(\"was murray\")"), variant)
+                XCTAssertFalse(GmailSearchQuery.bareLetterTokens(in: variant).contains("was"), variant)
+            }
+        }
+        let working = GmailSearchQuery.query(from: "When did I last get an email from Murray?")
+        XCTAssertTrue(working?.contains("from:murray") == true, working ?? "nil")
+        XCTAssertFalse((working ?? "").lowercased().contains("was murray"))
+    }
+
+    func testQuickSummaryOfMurraysEmailIsFromMurrayNotQuickMurray() {
+        let ask = "Give me a quick summary of Murray's latest email."
+        let plan = GmailSearchQuery.plan(from: ask)
+        XCTAssertEqual(plan?.primary, "from:murray", plan?.primary ?? "nil")
+        XCTAssertFalse(plan?.phrases.contains(where: { $0.contains("quick") }) == true)
+        for variant in plan?.variants ?? [] {
+            XCTAssertFalse(variant.lowercased().contains("quick murray"), variant)
+            XCTAssertFalse(variant.contains("from:(\"quick murray\")"), variant)
+        }
+    }
+
     func testSteveBrownPossessiveKeepsMultiWordFrom() {
         let plan = GmailSearchQuery.plan(from: "show me Steve Brown's note")
         XCTAssertNotNil(plan)

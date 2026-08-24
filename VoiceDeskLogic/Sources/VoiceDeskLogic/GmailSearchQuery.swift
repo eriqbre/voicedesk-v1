@@ -44,7 +44,9 @@ public enum GmailSearchQuery: Sendable {
         "seeing", "cards", "card", "where", "last", "first", "give",
         "gave", "got", "asked", "ask", "could", "would", "should",
         "of", "in", "on", "up", "out", "into", "over", "than", "then",
-        "most", "recent", "by", "who", "whom"
+        "most", "recent", "by", "who", "whom",
+        // Question / auxiliary words. Never a first name before “X’s last email”.
+        "when", "was", "were", "how", "why"
     ]
 
     /// Sender-name match required before we attach a card for a named ask.
@@ -150,8 +152,11 @@ public enum GmailSearchQuery: Sendable {
             if let match = regex.firstMatch(in: raw, range: ns),
                let possRange = Range(match.range(at: 1), in: raw) {
                 let possessive = String(raw[possRange])
-                let before = letterTokens(in: String(raw[..<possRange.lowerBound])).last
-                if let before, !stop.contains(sanitize(before)) {
+                // Immediate word only — “Steve Brown's” keeps the pair.
+                // letterTokens would skip “of”/“was” and glue “quick”/“when”
+                // into from:("quick murray") / from:("was murray").
+                let before = immediateLetterWord(before: possRange.lowerBound, in: raw)
+                if let before, isPossessiveNamePrefix(before) {
                     rememberPhrase("\(before) \(possessive)")
                 } else {
                     rememberSender(possessive)
@@ -318,6 +323,25 @@ public enum GmailSearchQuery: Sendable {
             add(subjects.joined(separator: " "))
         }
         return variants
+    }
+
+    /// Word immediately before `end` (no skip-over of “of” / “was”).
+    private static func immediateLetterWord(before end: String.Index, in raw: String) -> String? {
+        var word = ""
+        for ch in raw[..<end].reversed() {
+            if ch.isLetter {
+                word.insert(ch, at: word.startIndex)
+            } else if !word.isEmpty {
+                break
+            }
+        }
+        return word.isEmpty ? nil : word
+    }
+
+    /// True when the token before “X’s” is a real given name, not “was” / “of”.
+    private static func isPossessiveNamePrefix(_ raw: String) -> Bool {
+        let token = sanitize(raw)
+        return token.count >= 3 && !stop.contains(token)
     }
 
     private static func sanitize(_ raw: String) -> String {

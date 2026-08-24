@@ -4,7 +4,7 @@ import XCTest
 final class VoiceRegressionReplayTests: XCTestCase {
     func testAllSeedFixturesReplay() throws {
         let fixtures = try Self.loadSeedFixtures()
-        XCTAssertGreaterThanOrEqual(fixtures.count, 8, "seed utterances are missing")
+        XCTAssertGreaterThanOrEqual(fixtures.count, 16, "seed utterances are missing")
         for fixture in fixtures {
             let replay = VoiceTurnReplay.play(fixture)
             let ask = fixture.userTranscript
@@ -93,6 +93,26 @@ final class VoiceRegressionReplayTests: XCTestCase {
                 "\(fixture.userTranscript): \(fixture.piiWarnings())"
             )
         }
+    }
+
+    func testWhenWasMurraysLastEmailReplayForbidsWasMurrayQuery() {
+        let ask = "When was Murray's last email sent?"
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:murray")
+        let replay = VoiceTurnReplay.play(
+            utterance: ask,
+            context: VoiceRegressionDesk.connected,
+            focusedEmail: VoiceRegressionDesk.steve
+        )
+        XCTAssertTrue(["desk-person", "desk-thread"].contains(replay.intent), replay.intent)
+        XCTAssertTrue(replay.cardLabels.contains { $0.contains("Murray Mitchell") }, "\(replay.cardLabels)")
+        XCTAssertTrue(
+            replay.notes.contains(where: { $0.contains("from:murray") })
+                || (replay.gmailQuery ?? "").contains("from:murray"),
+            "\(replay.notes) \(replay.gmailQuery ?? "")"
+        )
+        let haystack = (replay.notes + [replay.gmailQuery ?? ""]).joined(separator: "\n").lowercased()
+        XCTAssertFalse(haystack.contains("was murray"), haystack)
+        XCTAssertFalse(haystack.contains("from:(\"was murray\")"), haystack)
     }
 
     func testDidJohnTriviaDoesNotBuildFromJohn() {
