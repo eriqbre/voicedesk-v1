@@ -27,7 +27,7 @@ final class VersionAskTests: XCTestCase {
             XCTAssertFalse(plan.attachesCards, ask)
             XCTAssertEqual(
                 ConversationPresence.spokenIdentityLine(for: ask, identity: .fixture),
-                "VoiceDesk 0.1, build 1.",
+                "VoiceDesk 0.1, build 2.",
                 ask
             )
 
@@ -141,11 +141,11 @@ final class VersionAskTests: XCTestCase {
 
     func testSpokenLineUsesFixtureMarketingAndNeverInvents() {
         XCTAssertEqual(BuildIdentity.fixture.marketing, "0.1.0")
-        XCTAssertEqual(BuildIdentity.fixture.build, "1")
+        XCTAssertEqual(BuildIdentity.fixture.build, "2")
         XCTAssertEqual(BuildIdentity.fixture.shortSHA, "1fa0a0e")
-        XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk 0.1, build 1.")
+        XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk 0.1, build 2.")
         XCTAssertEqual(BuildIdentity.fixture.spokenSHALine, "VoiceDesk 1fa0a0e.")
-        XCTAssertEqual(BuildIdentity.fixture.dogfoodLine, "0.1.0 build 1 sha 1fa0a0e")
+        XCTAssertEqual(BuildIdentity.fixture.dogfoodLine, "0.1.0 build 2 sha 1fa0a0e")
         XCTAssertFalse(BuildIdentity.fixture.spokenLine.contains("0.1.0.1"))
         XCTAssertEqual(BuildIdentity.unknown.spokenLine, "VoiceDesk, unknown version.")
         XCTAssertEqual(BuildIdentity.unknown.spokenSHALine, "VoiceDesk, unknown SHA.")
@@ -195,7 +195,7 @@ final class VersionAskTests: XCTestCase {
         XCTAssertFalse(replay.shouldSearchGmail)
         XCTAssertTrue(replay.stickyCleared)
         XCTAssertTrue(replay.cardLabels.isEmpty)
-        XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk 0.1, build 1.")
+        XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk 0.1, build 2.")
         XCTAssertEqual(
             ConversationPresence.spokenIdentityLine(for: "what SHA is this", identity: .fixture),
             "VoiceDesk 1fa0a0e."

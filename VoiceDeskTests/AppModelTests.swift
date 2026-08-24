@@ -303,14 +303,14 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 0.1, build 1.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 0.1, build 2.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
-        XCTAssertTrue(fake.spoken.contains("VoiceDesk 0.1, build 1."))
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk 0.1, build 2."))
         XCTAssertTrue(fake.sentTurns.isEmpty)
         XCTAssertTrue(fake.assistantOutputSuppressed)
 
         await model.applyUserTurn("Can you show it to me?")
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 0.1, build 1.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 0.1, build 2.")
         XCTAssertGreaterThanOrEqual(
             model.turns.last?.cards.count ?? 0,
             2,
@@ -334,10 +334,10 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 0.1, build 1.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 0.1, build 2.")
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 0.1, build 1.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 0.1, build 2.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
     }
 
