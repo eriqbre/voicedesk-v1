@@ -377,6 +377,50 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
+    func testLiveWhatsPeriodHoldsThenCompletedPhraseSpeaksSHAOrDesk() async {
+        let event = CalendarItem(
+            title: "Dinner reservation",
+            whenLabel: "Tonight 7:00 PM",
+            location: "Oak & Stone",
+            relatedPeople: ["Massimo Ricci"]
+        )
+        var lauren = SampleData.syncedEmail()
+        lauren.fromName = "Laren Cole"
+        lauren.providerID = "msg-laren"
+        lauren.subject = "Walk-through window"
+        lauren.body = "Can we do Thursday at 11?"
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [lauren], events: [event])),
+            buildIdentity: .fixture
+        )
+        let afterWelcome = model.turns.count
+
+        fake.emitUser("What's.")
+        XCTAssertEqual(model.turns.count, afterWelcome, "bare What's. must not become a user turn")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+        XCTAssertFalse(fake.spoken.contains { $0.lowercased().contains("starting a thought") })
+
+        fake.emitUser("what SHA")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk 1fa0a0e."))
+        XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+
+        fake.emitUser("What's.")
+        let afterSecondHold = model.turns.count
+        fake.emitUser("what's on my calendar")
+        XCTAssertGreaterThan(model.turns.count, afterSecondHold)
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+
+        fake.emitUser("What's.")
+        fake.emitUser("what's the latest email from Lauren")
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+    }
+
     func testSHAAskSpeaksFixtureSHAWithoutInventing() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(
