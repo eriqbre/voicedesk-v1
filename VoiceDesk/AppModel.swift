@@ -39,7 +39,7 @@ final class AppModel {
     private var pendingThreadSummary = false
     /// Last local reply asked “Who’s it from?” or “Which one?” — next utterance is desk.
     private var pendingSearchClarify = false
-    /// Cards from the last multi-match Gmail search, for “the most recent one.”
+    /// Cards from the last multi-match Gmail search, for “the last one” / “most recent.”
     private var lastSearchMatches: [EmailItem] = []
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
@@ -801,10 +801,14 @@ final class AppModel {
         } else {
             glance = await emailSummarizer.glanceInbox(emails)
         }
-        let text = glance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : glance
-        replaceAssistant(id: beatID, text: text, cards: evidence.cards)
-        await speakDeskReply(text)
-        logVoiceTurn(evidence: evidence, reply: text, cards: evidence.cards)
+        let spoken = glance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : glance
+        // Cards are the list. Speak the glance; don’t reprint Name — topic lines in the bubble.
+        let onScreen = emails.isEmpty
+            ? spoken
+            : InboxGlance.onScreenText(compactCardCount: emails.count)
+        replaceAssistant(id: beatID, text: onScreen, cards: evidence.cards)
+        await speakDeskReply(spoken)
+        logVoiceTurn(evidence: evidence, reply: spoken, cards: evidence.cards)
     }
 
     @discardableResult

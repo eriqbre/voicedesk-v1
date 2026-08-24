@@ -81,12 +81,26 @@ final class InboxGlanceTests: XCTestCase {
         let newest = murray(id: "new", subject: "Walk-through today", label: "Today 2:00 PM")
         let matches = [older, middle, newest]
 
-        XCTAssertTrue(ConversationPresence.isClarifyPick("The most recent one."))
-        XCTAssertTrue(ConversationPresence.isClarifyPick("the latest"))
+        for phrase in Self.newestClarifyPhrases {
+            XCTAssertTrue(ConversationPresence.isClarifyPick(phrase), phrase)
+            XCTAssertEqual(ConversationPresence.clarifyPickKind(phrase), .newest, phrase)
+            XCTAssertFalse(ConversationPresence.wantsInboxOverview(phrase), phrase)
+            XCTAssertFalse(ConversationPresence.ownsConnectedDeskTurn(phrase), phrase)
+            XCTAssertTrue(
+                ConversationPresence.ownsConnectedDeskTurn(
+                    phrase,
+                    pendingSearchClarify: true,
+                    hasClarifyMatches: true
+                ),
+                phrase
+            )
+        }
         XCTAssertTrue(ConversationPresence.isClarifyPick("the first one"))
+        XCTAssertTrue(ConversationPresence.isClarifyPick("the second"))
         XCTAssertFalse(ConversationPresence.isClarifyPick("Show me the most recent email by showing time."))
-        XCTAssertFalse(ConversationPresence.wantsInboxOverview("The most recent one."))
-        XCTAssertFalse(ConversationPresence.ownsConnectedDeskTurn("The most recent one."))
+        XCTAssertFalse(ConversationPresence.isClarifyPick("Give me a summary of Murray's last email."))
+        XCTAssertFalse(ConversationPresence.wantsInboxOverview("The last one."))
+        XCTAssertFalse(ConversationPresence.ownsConnectedDeskTurn("The last one."))
         XCTAssertTrue(
             ConversationPresence.ownsConnectedDeskTurn(
                 "The most recent one.",
@@ -102,58 +116,121 @@ final class InboxGlanceTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(
-            ConversationPresence.pickClarifiedEmail(ask: "The most recent one.", candidates: matches)?.subject,
-            "Walk-through today"
-        )
-        XCTAssertEqual(
-            ConversationPresence.pickClarifiedEmail(ask: "the latest", candidates: matches)?.providerID,
-            "new"
-        )
+        for phrase in Self.newestClarifyPhrases {
+            XCTAssertEqual(
+                ConversationPresence.pickClarifiedEmail(ask: phrase, candidates: matches)?.subject,
+                "Walk-through today",
+                phrase
+            )
+            XCTAssertEqual(
+                ConversationPresence.pickClarifiedEmail(ask: phrase, candidates: matches)?.providerID,
+                "new",
+                phrase
+            )
+        }
         XCTAssertEqual(
             ConversationPresence.pickClarifiedEmail(ask: "the first one", candidates: matches)?.providerID,
             "old"
         )
-
-        let evidence = ConversationPresence.deskEvidence(
-            for: "The most recent one.",
-            context: DeskContext(isConnected: true, snapshot: .empty),
-            pendingSearchClarify: true,
-            clarifyMatches: matches
+        XCTAssertEqual(
+            ConversationPresence.pickClarifiedEmail(ask: "the second", candidates: matches)?.providerID,
+            "mid"
         )
-        XCTAssertEqual(evidence?.focusedEmail?.subject, "Walk-through today")
-        XCTAssertEqual(evidence?.shouldFetchBody, true)
-        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
-        if case .email(let item) = evidence?.cards.first {
-            XCTAssertEqual(item.fromName, "Murray Mitchell")
-            XCTAssertEqual(item.subject, "Walk-through today")
-        } else {
-            XCTFail("expected newest Murray card")
+
+        for phrase in Self.newestClarifyPhrases {
+            let evidence = ConversationPresence.deskEvidence(
+                for: phrase,
+                context: DeskContext(isConnected: true, snapshot: .empty),
+                pendingSearchClarify: true,
+                clarifyMatches: matches
+            )
+            XCTAssertEqual(evidence?.focusedEmail?.subject, "Walk-through today", phrase)
+            XCTAssertEqual(evidence?.shouldFetchBody, true, phrase)
+            XCTAssertNotEqual(evidence?.shouldSearchGmail, true, phrase)
+            if case .email(let item) = evidence?.cards.first {
+                XCTAssertEqual(item.fromName, "Murray Mitchell", phrase)
+                XCTAssertEqual(item.subject, "Walk-through today", phrase)
+            } else {
+                XCTFail("expected newest Murray card for \(phrase)")
+            }
+            XCTAssertFalse(ConversationPresence.isGrokDeskMeta(evidence?.text ?? ""), phrase)
+            XCTAssertFalse((evidence?.text ?? "").localizedCaseInsensitiveContains("stay quiet"), phrase)
+            XCTAssertFalse((evidence?.text ?? "").localizedCaseInsensitiveContains("ios app"), phrase)
+            XCTAssertFalse((evidence?.text ?? "").localizedCaseInsensitiveContains("got it. the client"), phrase)
         }
-        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(evidence?.text ?? ""))
-        XCTAssertFalse((evidence?.text ?? "").localizedCaseInsensitiveContains("stay quiet"))
-        XCTAssertFalse((evidence?.text ?? "").localizedCaseInsensitiveContains("ios app"))
     }
 
     func testMurrayClarifyThenMostRecentReplayIsDeskPerson() {
         let older = murray(id: "old", subject: "Old walk-through", label: "Yesterday 4:00 PM")
         let newest = murray(id: "new", subject: "Walk-through today", label: "Today 2:00 PM")
-        let replay = VoiceTurnReplay.play(
-            utterance: "The most recent one.",
-            context: VoiceRegressionDesk.greenacreOnly,
-            focusedEmail: older,
-            pendingSearchClarify: true,
-            clarifyMatches: [older, newest]
-        )
-        XCTAssertTrue(replay.ownsDeskTurn)
-        XCTAssertTrue(["desk-person", "desk-thread"].contains(replay.intent), replay.intent)
-        XCTAssertNotEqual(replay.intent, "general")
-        XCTAssertNotEqual(replay.intent, "inbox-overview")
-        XCTAssertFalse(replay.shouldSearchGmail)
-        XCTAssertEqual(replay.evidence?.focusedEmail?.providerID, "new")
-        XCTAssertTrue(replay.cardLabels.contains { $0.contains("Murray Mitchell") && $0.contains("Walk-through today") }, "\(replay.cardLabels)")
-        XCTAssertFalse(replay.cardLabels.contains { $0.contains("Greenacre") }, "\(replay.cardLabels)")
+        for phrase in Self.newestClarifyPhrases {
+            let replay = VoiceTurnReplay.play(
+                utterance: phrase,
+                context: VoiceRegressionDesk.greenacreOnly,
+                focusedEmail: older,
+                pendingSearchClarify: true,
+                clarifyMatches: [older, newest]
+            )
+            XCTAssertTrue(replay.ownsDeskTurn, phrase)
+            XCTAssertTrue(["desk-person", "desk-thread"].contains(replay.intent), "\(phrase) → \(replay.intent)")
+            XCTAssertNotEqual(replay.intent, "general", "\(phrase) must not yield to live Grok")
+            XCTAssertNotEqual(replay.intent, "inbox-overview", phrase)
+            XCTAssertFalse(replay.shouldSearchGmail, phrase)
+            XCTAssertEqual(replay.evidence?.focusedEmail?.providerID, "new", phrase)
+            XCTAssertTrue(
+                replay.cardLabels.contains { $0.contains("Murray Mitchell") && $0.contains("Walk-through today") },
+                "\(phrase) → \(replay.cardLabels)"
+            )
+            XCTAssertFalse(replay.cardLabels.contains { $0.contains("Greenacre") }, "\(phrase) → \(replay.cardLabels)")
+            XCTAssertFalse(replay.notes.contains("live Grok"), "\(phrase) → \(replay.notes)")
+        }
     }
+
+    /// Cards are the on-screen list. Eve still speaks the glance (TTS is fed `heuristic`, not the bubble).
+    func testInboxOverviewOnScreenOmitsGlanceWhenCardsAttached() {
+        let emails = [
+            VoiceRegressionDesk.greenacre,
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve
+        ]
+        let glance = InboxGlance.heuristic(emails)
+        XCTAssertTrue(InboxGlance.isMultiline(glance), glance)
+        XCTAssertTrue(glance.contains("—"), glance)
+        XCTAssertTrue(glance.contains("Greenacre") || glance.contains("Murray"), glance)
+
+        let onScreen = InboxGlance.onScreenText(compactCardCount: emails.count)
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(onScreen),
+            "on-screen must be empty or a short lead-in, not the glance: \(onScreen)"
+        )
+        XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), onScreen)
+        XCTAssertFalse(onScreen.contains("Greenacre"), onScreen)
+        XCTAssertFalse(onScreen.contains("Murray Mitchell"), onScreen)
+        XCTAssertFalse(onScreen.contains("—"), onScreen)
+
+        // Speak path: DeskReplySpeech / voice.speak still get the glance.
+        XCTAssertEqual(DeskReplySpeech.textToSpeak(glance, lastSpoken: nil), glance)
+        XCTAssertNotEqual(DeskReplySpeech.textToSpeak(glance, lastSpoken: nil), onScreen)
+
+        let evidence = ConversationPresence.deskEvidence(
+            for: "see my latest emails",
+            context: DeskContext(isConnected: true, snapshot: DeskSnapshot(emails: emails))
+        )
+        XCTAssertEqual(evidence?.shouldGlanceInbox, true)
+        XCTAssertEqual(evidence?.cards.count, 3)
+        XCTAssertTrue(InboxGlance.isMultiline(evidence?.text ?? ""), evidence?.text ?? "")
+        let bubble = InboxGlance.onScreenText(compactCardCount: evidence?.cards.count ?? 0)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(bubble), bubble)
+        XCTAssertFalse(InboxGlance.repeatsGlanceLines(bubble), bubble)
+    }
+
+    private static let newestClarifyPhrases = [
+        "The last one.",
+        "the last one",
+        "The most recent one.",
+        "the latest",
+        "that one"
+    ]
 
     private func murray(id: String, subject: String, label: String) -> EmailItem {
         EmailItem(

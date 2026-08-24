@@ -14,6 +14,35 @@ public enum VoiceRegressionDesk: Sendable {
         filterTag: "Inbox"
     )
 
+    public static let murrayOlder = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000005")!,
+        providerID: "fixture-murray-old",
+        fromName: "Murray Mitchell",
+        fromEmail: "murray@example.com",
+        sentAtLabel: "Yesterday 4:00 PM",
+        subject: "Old walk-through",
+        preview: "Can we walk the lot next week?",
+        body: "Can we walk the lot next week?",
+        filterTag: "Inbox"
+    )
+
+    public static let murrayNewest = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000006")!,
+        providerID: "fixture-murray-new",
+        fromName: "Murray Mitchell",
+        fromEmail: "murray@example.com",
+        sentAtLabel: "Today 2:00 PM",
+        subject: "Walk-through today",
+        preview: "Buyer is at the lot now — can you meet?",
+        body: "Buyer is at the lot now — can you meet?",
+        filterTag: "Inbox"
+    )
+
+    /// Multi-match Murray cards after “I found a few matches. Which one?”
+    public static var murraySeveralMatches: [EmailItem] {
+        [murrayOlder, murray, murrayNewest]
+    }
+
     public static let steve = EmailItem(
         id: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!,
         providerID: "fixture-steve",
@@ -63,6 +92,10 @@ public enum VoiceRegressionDesk: Sendable {
         DeskSnapshot(accountEmail: "agent@example.com", emails: [greenacre])
     }
 
+    public static var murraySeveralSnapshot: DeskSnapshot {
+        DeskSnapshot(accountEmail: "agent@example.com", emails: murraySeveralMatches)
+    }
+
     public static var connected: DeskContext {
         DeskContext(isConnected: true, snapshot: snapshot)
     }
@@ -97,6 +130,8 @@ public enum VoiceRegressionDesk: Sendable {
             return greenacreFirst
         case "greenacre-only":
             return greenacreOnly
+        case "murray-several":
+            return DeskContext(isConnected: true, snapshot: murraySeveralSnapshot)
         default:
             return connected
         }

@@ -218,6 +218,28 @@ final class VoiceRegressionReplayTests: XCTestCase {
         XCTAssertEqual(replay.reply, ConversationPresence.gmailSearchingBeat)
     }
 
+    func testClarifyPickPhrasesReplayNewestMurrayNotGeneral() {
+        for phrase in ["The last one.", "The most recent one.", "the latest", "that one"] {
+            let replay = VoiceTurnReplay.play(
+                utterance: phrase,
+                context: DeskContext(isConnected: true, snapshot: VoiceRegressionDesk.murraySeveralSnapshot),
+                pendingSearchClarify: true,
+                clarifyMatches: VoiceRegressionDesk.murraySeveralMatches
+            )
+            XCTAssertTrue(replay.ownsDeskTurn, phrase)
+            XCTAssertTrue(["desk-person", "desk-thread"].contains(replay.intent), "\(phrase) → \(replay.intent)")
+            XCTAssertNotEqual(replay.intent, "general", "\(phrase) must not yield to live Grok")
+            XCTAssertEqual(replay.evidence?.focusedEmail?.providerID, "fixture-murray-new", phrase)
+            XCTAssertTrue(
+                replay.cardLabels.contains { $0.contains("Murray Mitchell") && $0.contains("Walk-through today") },
+                "\(phrase) → \(replay.cardLabels)"
+            )
+            XCTAssertFalse(replay.cardLabels.contains { $0.contains("Greenacre") }, phrase)
+            XCTAssertTrue(replay.notes.contains("clarify pick"), "\(phrase) → \(replay.notes)")
+            XCTAssertFalse(replay.notes.contains("live Grok"), "\(phrase) → \(replay.notes)")
+        }
+    }
+
     func testDidJohnTriviaDoesNotBuildFromJohn() {
         let replay = VoiceTurnReplay.play(
             utterance: "did John Wick get released",

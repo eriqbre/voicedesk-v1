@@ -774,6 +774,10 @@ final class ConversationPresenceTests: XCTestCase {
             XCTAssertFalse(reply.contains("Need you to notarize the closing package"), "must not recite the Murray body: \(ask)")
             XCTAssertFalse(reply.localizedCaseInsensitiveContains("please do not reply"), ask)
             XCTAssertEqual(evidence?.shouldGlanceInbox, true, ask)
+            let onScreen = InboxGlance.onScreenText(compactCardCount: evidence?.cards.count ?? 0)
+            XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(onScreen), "\(ask) on-screen: \(onScreen)")
+            XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), ask)
+            XCTAssertEqual(DeskReplySpeech.textToSpeak(reply, lastSpoken: nil), reply, ask)
         }
 
         let murrayAsk = "summarize the Murray email"

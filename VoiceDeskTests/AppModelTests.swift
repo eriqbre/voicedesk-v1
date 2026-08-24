@@ -455,7 +455,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.turns.last?.cards.filter { $0.kind == .email }.count, 3)
         XCTAssertTrue(fake.assistantOutputSuppressed)
 
-        await model.applyUserTurn("The most recent one.")
+        await model.applyUserTurn("The last one.")
         XCTAssertTrue(fake.sentTurns.isEmpty, "must not unmute live Grok for a clarify pick")
         XCTAssertTrue(fake.assistantOutputSuppressed)
         XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
@@ -877,12 +877,18 @@ final class AppModelTests: XCTestCase {
 
         await model.applyUserTurn("see my latest emails")
         XCTAssertEqual(fake.spoken.count, 1, "inbox-overview digest must Eve-speak")
-        XCTAssertEqual(fake.spoken.last, model.turns.last?.text)
-        let glance = model.turns.last?.text ?? ""
+        let glance = fake.spoken.last ?? ""
         XCTAssertTrue(glance.contains("Murray Mitchell"))
         XCTAssertTrue(InboxGlance.isMultiline(glance) || glance.contains("\n"), glance)
         XCTAssertFalse(glance.localizedCaseInsensitiveContains("please do not reply"), glance)
         XCTAssertFalse(glance.contains("Need you to notarize the closing package"), glance)
+        let onScreen = model.turns.last?.text ?? ""
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(onScreen),
+            "cards are the list; bubble must not reprint the glance: \(onScreen)"
+        )
+        XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), onScreen)
+        XCTAssertNotEqual(onScreen, glance, "TTS is fed the glance; the bubble is not")
         XCTAssertTrue(model.turns.last?.cards.allSatisfy { card in
             if case .email(let item) = card { return item.isCompactListRow }
             return false
@@ -1332,7 +1338,8 @@ final class GoogleSliceTests: XCTestCase {
         await model.applyUserTurn("Show me my latest emails.")
         XCTAssertEqual(sync.syncCalls, 1, "inbox-overview must sync after a search")
         XCTAssertEqual(model.deskSnapshot.emails.map(\.fromName), ["Laren Cole"])
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Laren Cole"))
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
+        XCTAssertFalse(InboxGlance.repeatsGlanceLines(model.turns.last?.text ?? ""))
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Eric Gross"))
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Murray Mitchell"))
         let overviewNames = model.turns.last?.cards.compactMap { card -> String? in
@@ -1374,7 +1381,8 @@ final class GoogleSliceTests: XCTestCase {
         )
 
         await model.applyUserTurn("Just show me my latest emails.")
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Greenacre"))
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
+        XCTAssertFalse(InboxGlance.repeatsGlanceLines(model.turns.last?.text ?? ""))
         let overviewNames = model.turns.last?.cards.compactMap { card -> String? in
             if case .email(let item) = card { return item.fromName }
             return nil

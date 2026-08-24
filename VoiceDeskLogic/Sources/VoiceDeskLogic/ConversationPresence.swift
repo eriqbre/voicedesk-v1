@@ -314,15 +314,20 @@ public enum ConversationPresence {
         if wantsInboxOverview(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) { return nil }
         switch normalizeClarifyPick(raw) {
         case "the most recent one", "the most recent", "most recent one", "most recent",
-             "the latest one", "the latest", "latest one",
-             "the newest one", "the newest", "newest one",
+             "the latest one", "the latest", "latest one", "latest",
+             "the newest one", "the newest", "newest one", "newest",
+             "the last one", "last one", "the last", "last",
+             "that last one", "the last email",
              "that one", "this one":
             return .newest
-        case "the first one", "the first", "first one":
+        case "the first one", "the first", "first one", "first",
+             "number one", "the number one":
             return .ordinal(0)
-        case "the second one", "the second", "second one":
+        case "the second one", "the second", "second one", "second",
+             "number two", "the number two":
             return .ordinal(1)
-        case "the third one", "the third", "third one":
+        case "the third one", "the third", "third one", "third",
+             "number three", "the number three":
             return .ordinal(2)
         default:
             return nil
@@ -344,7 +349,7 @@ public enum ConversationPresence {
     private static func normalizeClarifyPick(_ raw: String) -> String {
         var lower = raw.lowercased()
         lower = lower.replacingOccurrences(of: #"[^\p{L}\p{N}\s]"#, with: " ", options: .regularExpression)
-        let filler: Set<String> = ["um", "uh", "please", "yeah", "yes", "okay", "ok", "alright"]
+        let filler: Set<String> = ["um", "uh", "please", "yeah", "yes", "okay", "ok", "alright", "very", "just"]
         let words = lower
             .split { $0.isWhitespace }
             .map(String.init)

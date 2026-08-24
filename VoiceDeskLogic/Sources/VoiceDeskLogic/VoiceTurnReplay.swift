@@ -96,11 +96,16 @@ public enum VoiceTurnReplay: Sendable {
         } else {
             focused = nil
         }
+        let pendingClarify = fixture.pendingSearchClarify ?? false
+        // After “I found a few matches. Which one?” replay the compact cards as clarify matches
+        // so “the last one” / “the latest” pick newest Murray — not live Grok.
+        let matches = pendingClarify ? context.snapshot.emails : []
         return play(
             utterance: fixture.userTranscript,
             context: context,
             focusedEmail: focused,
-            pendingSearchClarify: fixture.pendingSearchClarify ?? false
+            pendingSearchClarify: pendingClarify,
+            clarifyMatches: matches
         )
     }
 }
