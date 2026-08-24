@@ -207,7 +207,10 @@ public enum VoiceInteractionLog: Sendable {
             intent = "desk-follow-up"
         } else if evidence?.focusedEmail != nil || ConversationPresence.looksLikeMailAsk(utterance) {
             intent = "desk-person"
-        } else if ConversationPresence.ownsConnectedDeskTurn(utterance) {
+        } else if ConversationPresence.ownsConnectedDeskTurn(
+            utterance,
+            pendingSearchClarify: pendingSearchClarify
+        ) {
             intent = "desk-person"
         } else {
             intent = "general"

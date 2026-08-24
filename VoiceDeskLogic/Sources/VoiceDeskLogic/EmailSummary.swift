@@ -54,6 +54,13 @@ public struct EmailSummaryRequest: Equatable, Sendable {
 
 public protocol EmailSummarizing: Sendable {
     func summarize(_ request: EmailSummaryRequest) async -> String
+    func glanceInbox(_ emails: [EmailItem]) async -> String
+}
+
+extension EmailSummarizing {
+    public func glanceInbox(_ emails: [EmailItem]) async -> String {
+        InboxGlance.heuristic(emails)
+    }
 }
 
 public struct HeuristicEmailSummarizer: EmailSummarizing {

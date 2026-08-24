@@ -406,6 +406,79 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.turns.contains { $0.text.lowercased().contains("i can search gmail") })
     }
 
+    func testMurraySeveralMatchesThenMostRecentPicksNewestNotGrok() async {
+        func murray(id: String, subject: String, label: String, body: String) -> EmailItem {
+            var item = SampleData.syncedEmail()
+            item.fromName = "Murray Mitchell"
+            item.fromEmail = "murray@example.com"
+            item.providerID = id
+            item.subject = subject
+            item.sentAtLabel = label
+            item.preview = body
+            item.body = body
+            return item
+        }
+        let oldest = murray(
+            id: "msg-murray-old",
+            subject: "Old walk-through",
+            label: "Yesterday 4:00 PM",
+            body: "Can we walk the lot next week?"
+        )
+        let middle = murray(
+            id: "msg-murray-mid",
+            subject: "Closing / notarization",
+            label: "Today 9:00 AM",
+            body: "Need you to notarize the closing package today."
+        )
+        let newest = murray(
+            id: "msg-murray-new",
+            subject: "Walk-through today",
+            label: "Today 2:00 PM",
+            body: "Buyer is at the lot now — can you meet?"
+        )
+        let sync = MockGoogleSync(result: .empty)
+        sync.searchable = [oldest, middle, newest]
+        sync.bodies[oldest.providerID ?? ""] = oldest.body ?? ""
+        sync.bodies[middle.providerID ?? ""] = middle.body ?? ""
+        sync.bodies[newest.providerID ?? ""] = newest.body ?? ""
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(),
+            sync: sync
+        )
+
+        await model.applyUserTurn("Give me a summary of Murray's last email.")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertEqual(model.turns.last?.cards.filter { $0.kind == .email }.count, 3)
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+
+        await model.applyUserTurn("The most recent one.")
+        XCTAssertTrue(fake.sentTurns.isEmpty, "must not unmute live Grok for a clarify pick")
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+        XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("stay quiet"))
+        XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("ios app handles"))
+        XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("i’ll stay quiet"))
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertEqual(item.subject, "Walk-through today")
+            XCTAssertEqual(item.providerID, "msg-murray-new")
+        } else {
+            XCTFail("expected newest Murray card")
+        }
+        let reply = model.turns.last?.text ?? ""
+        XCTAssertTrue(
+            reply.localizedCaseInsensitiveContains("lot")
+                || reply.localizedCaseInsensitiveContains("buyer")
+                || reply.localizedCaseInsensitiveContains("meet"),
+            reply
+        )
+        XCTAssertEqual(fake.spoken.last, reply)
+    }
+
     func testMarieLastEmailDoesNotAndLastToken() async {
         var marie = SampleData.syncedEmail()
         marie.fromName = "Marie Chen"
@@ -805,7 +878,11 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("see my latest emails")
         XCTAssertEqual(fake.spoken.count, 1, "inbox-overview digest must Eve-speak")
         XCTAssertEqual(fake.spoken.last, model.turns.last?.text)
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Murray Mitchell"))
+        let glance = model.turns.last?.text ?? ""
+        XCTAssertTrue(glance.contains("Murray Mitchell"))
+        XCTAssertTrue(InboxGlance.isMultiline(glance) || glance.contains("\n"), glance)
+        XCTAssertFalse(glance.localizedCaseInsensitiveContains("please do not reply"), glance)
+        XCTAssertFalse(glance.contains("Need you to notarize the closing package"), glance)
         XCTAssertTrue(model.turns.last?.cards.allSatisfy { card in
             if case .email(let item) = card { return item.isCompactListRow }
             return false

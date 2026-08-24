@@ -47,13 +47,15 @@ public enum VoiceTurnReplay: Sendable {
         utterance: String,
         context: DeskContext,
         focusedEmail: EmailItem? = nil,
-        pendingSearchClarify: Bool = false
+        pendingSearchClarify: Bool = false,
+        clarifyMatches: [EmailItem] = []
     ) -> Result {
         let evidence = ConversationPresence.deskEvidence(
             for: utterance,
             context: context,
             focusedEmail: focusedEmail,
-            pendingSearchClarify: pendingSearchClarify
+            pendingSearchClarify: pendingSearchClarify,
+            clarifyMatches: clarifyMatches
         )
         let classified = VoiceInteractionLog.classify(
             utterance: utterance,
@@ -64,7 +66,11 @@ public enum VoiceTurnReplay: Sendable {
         return Result(
             intent: classified.intent,
             notes: classified.notes,
-            ownsDeskTurn: ConversationPresence.ownsConnectedDeskTurn(utterance),
+            ownsDeskTurn: ConversationPresence.ownsConnectedDeskTurn(
+                utterance,
+                pendingSearchClarify: pendingSearchClarify,
+                hasClarifyMatches: !clarifyMatches.isEmpty
+            ),
             looksLikeMailAsk: ConversationPresence.looksLikeMailAsk(utterance),
             evidence: evidence,
             cardLabels: VoiceInteractionLog.cardLabels(evidence?.cards ?? []),

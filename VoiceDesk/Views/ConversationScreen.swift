@@ -108,6 +108,8 @@ struct TurnView: View {
                 Group {
                     if turn.role == .assistant, ConversationPresence.isGmailSearchingBeat(turn.text) {
                         AnimatedStatusDotsText(stem: ConversationPresence.gmailSearchingStem)
+                    } else if turn.role == .assistant, ConversationPresence.isThinkingBeat(turn.text) {
+                        AnimatedStatusDotsText(stem: ConversationPresence.thinkingStatusStem)
                     } else {
                         Text(turn.text)
                     }

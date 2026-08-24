@@ -26,5 +26,8 @@ final class StatusEllipsisTests: XCTestCase {
         )
         XCTAssertTrue(ConversationPresence.isGmailSearchingBeat(ConversationPresence.gmailSearchingBeat))
         XCTAssertEqual(ConversationPresence.gmailSearchingBeat, "Searching Gmail…")
+        XCTAssertTrue(ConversationPresence.isThinkingBeat(ConversationPresence.thinkingStatusBeat))
+        XCTAssertTrue(ConversationPresence.isStatusBeat(ConversationPresence.thinkingStatusBeat))
+        XCTAssertNil(DeskReplySpeech.textToSpeak(ConversationPresence.thinkingStatusBeat, lastSpoken: nil))
     }
 }

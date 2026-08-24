@@ -769,8 +769,11 @@ final class ConversationPresenceTests: XCTestCase {
             )
             let reply = evidence?.text ?? ""
             XCTAssertTrue(reply.contains("Murray Mitchell") || reply.contains("Steve Brown"), ask)
-            XCTAssertTrue(reply.contains("Closing") || reply.contains("Inspection") || reply.lowercased().contains("recent inbox"), ask)
-            XCTAssertFalse(reply.contains("Need you to notarize the closing package") && !reply.contains("Steve"), "must not be a single Murray thread summary: \(ask)")
+            XCTAssertTrue(reply.contains("Closing") || reply.contains("Inspection"), ask)
+            XCTAssertTrue(InboxGlance.isMultiline(reply) || reply.contains("\n"), "glance must not mash emails onto one line: \(ask) → \(reply)")
+            XCTAssertFalse(reply.contains("Need you to notarize the closing package"), "must not recite the Murray body: \(ask)")
+            XCTAssertFalse(reply.localizedCaseInsensitiveContains("please do not reply"), ask)
+            XCTAssertEqual(evidence?.shouldGlanceInbox, true, ask)
         }
 
         let murrayAsk = "summarize the Murray email"
@@ -839,6 +842,8 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("I’ll let the app handle that."))
         XCTAssertFalse(ConversationPresence.isGrokDeskHandoff("Murray wrote: Need you to notarize today."))
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta("Here’s the recent inbox. Murray Mitchell: Closing / notarization."))
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(InboxGlance.heuristic([VoiceRegressionDesk.murray, VoiceRegressionDesk.steve])))
+        XCTAssertTrue(ConversationPresence.isGrokDeskHandoff("I’ll stay quiet — the iOS app handles Gmail."))
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta(ConversationPresence.gmailSearchingBeat))
     }
 

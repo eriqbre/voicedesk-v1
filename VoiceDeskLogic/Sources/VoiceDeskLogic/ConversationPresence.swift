@@ -171,27 +171,11 @@ public enum ConversationPresence {
     }
 
     public static func inboxOverviewCopy(_ emails: [EmailItem]) -> String {
-        let recent = Array(emails.prefix(3))
-        guard let first = recent.first else {
+        let recent = Array(emails.prefix(InboxGlance.overviewLimit))
+        guard !recent.isEmpty else {
             return "Google is connected, but I don’t have any synced threads yet. I’m not inventing mail."
         }
-        if recent.count == 1 {
-            return "Latest from \(first.fromName): \(first.subject). I’m only showing mail I actually synced."
-        }
-        var parts = ["Here’s the recent inbox."]
-        for email in recent {
-            let gist = EmailBodyFormatting.spokenSummary(
-                from: email.body,
-                fallback: email.preview,
-                style: .brief
-            )
-            if gist.isEmpty {
-                parts.append("\(email.fromName): \(email.subject).")
-            } else {
-                parts.append("\(email.fromName): \(email.subject). \(gist)")
-            }
-        }
-        return parts.joined(separator: " ")
+        return InboxGlance.heuristic(recent)
     }
 
     public static func calendarReply(context: DeskContext) -> String {
@@ -250,6 +234,8 @@ public enum ConversationPresence {
         public var searchAsk: String?
         /// Inbox-overview / list intents must not keep a prior person/thread sticky.
         public var resetsFocusedEmail: Bool
+        /// Upgrade the fallback glance with one batched AI call; keep compact cards.
+        public var shouldGlanceInbox: Bool
 
         public init(
             topic: Topic,
@@ -262,7 +248,8 @@ public enum ConversationPresence {
             gmailQuery: String? = nil,
             gmailPlan: GmailSearchPlan? = nil,
             searchAsk: String? = nil,
-            resetsFocusedEmail: Bool = false
+            resetsFocusedEmail: Bool = false,
+            shouldGlanceInbox: Bool = false
         ) {
             self.topic = topic
             self.text = text
@@ -275,6 +262,7 @@ public enum ConversationPresence {
             self.gmailPlan = gmailPlan
             self.searchAsk = searchAsk
             self.resetsFocusedEmail = resetsFocusedEmail
+            self.shouldGlanceInbox = shouldGlanceInbox
         }
 
         public var claimsCardWithoutAttaching: Bool {
@@ -282,7 +270,10 @@ public enum ConversationPresence {
         }
 
         public var awaitsSearchClarify: Bool {
-            text == ConversationPresence.emailNeedMoreReply && cards.isEmpty
+            if text == ConversationPresence.emailNeedMoreReply && cards.isEmpty {
+                return true
+            }
+            return text == ConversationPresence.gmailSearchSeveralReply
         }
     }
 
@@ -292,8 +283,73 @@ public enum ConversationPresence {
     }
 
     /// Connected Google + desk ask: the client owns the turn. Grok must not speak.
-    public static func ownsConnectedDeskTurn(_ raw: String) -> Bool {
-        looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw)
+    public static func ownsConnectedDeskTurn(
+        _ raw: String,
+        pendingSearchClarify: Bool = false,
+        hasClarifyMatches: Bool = false
+    ) -> Bool {
+        if (pendingSearchClarify || hasClarifyMatches), isClarifyPick(raw) {
+            return true
+        }
+        // “Who’s it from?” — next utterance is a brand. Not after multi-match cards.
+        if pendingSearchClarify, !hasClarifyMatches,
+           GmailSearchQuery.plan(from: raw, treatAsBrand: true) != nil {
+            return true
+        }
+        return looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw)
+    }
+
+    /// After “I found a few matches. Which one?” — recency / ordinal, not live Grok.
+    public static func isClarifyPick(_ raw: String) -> Bool {
+        clarifyPickKind(raw) != nil
+    }
+
+    public enum ClarifyPickKind: Equatable, Sendable {
+        case newest
+        case ordinal(Int)
+    }
+
+    public static func clarifyPickKind(_ raw: String) -> ClarifyPickKind? {
+        if GmailSearchQuery.hasSenderPattern(raw) { return nil }
+        if wantsInboxOverview(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) { return nil }
+        switch normalizeClarifyPick(raw) {
+        case "the most recent one", "the most recent", "most recent one", "most recent",
+             "the latest one", "the latest", "latest one",
+             "the newest one", "the newest", "newest one",
+             "that one", "this one":
+            return .newest
+        case "the first one", "the first", "first one":
+            return .ordinal(0)
+        case "the second one", "the second", "second one":
+            return .ordinal(1)
+        case "the third one", "the third", "third one":
+            return .ordinal(2)
+        default:
+            return nil
+        }
+    }
+
+    public static func pickClarifiedEmail(ask: String, candidates: [EmailItem]) -> EmailItem? {
+        guard !candidates.isEmpty, let kind = clarifyPickKind(ask) else { return nil }
+        let ranked = EmailRecency.newestFirst(candidates)
+        switch kind {
+        case .newest:
+            return ranked.first
+        case .ordinal(let index):
+            guard candidates.indices.contains(index) else { return nil }
+            return candidates[index]
+        }
+    }
+
+    private static func normalizeClarifyPick(_ raw: String) -> String {
+        var lower = raw.lowercased()
+        lower = lower.replacingOccurrences(of: #"[^\p{L}\p{N}\s]"#, with: " ", options: .regularExpression)
+        let filler: Set<String> = ["um", "uh", "please", "yeah", "yes", "okay", "ok", "alright"]
+        let words = lower
+            .split { $0.isWhitespace }
+            .map(String.init)
+            .filter { !$0.isEmpty && !filler.contains($0) }
+        return words.joined(separator: " ")
     }
 
     /// Grok refusal or routing meta. Must never stay on the transcript after a local desk fetch.
@@ -324,7 +380,14 @@ public enum ConversationPresence {
             "checking the app",
             "pulling that up in the app",
             "i'll pull that up in the app",
-            "i’ll pull that up in the app"
+            "i’ll pull that up in the app",
+            "stay quiet",
+            "i'll stay quiet",
+            "i’ll stay quiet",
+            "ios app handles",
+            "the ios app",
+            "app handles gmail",
+            "handles gmail"
         ])
     }
 
@@ -441,7 +504,8 @@ public enum ConversationPresence {
         for raw: String,
         context: DeskContext,
         focusedEmail: EmailItem? = nil,
-        pendingSearchClarify: Bool = false
+        pendingSearchClarify: Bool = false,
+        clarifyMatches: [EmailItem] = []
     ) -> DeskEvidence? {
         if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
             return nil
@@ -488,9 +552,27 @@ public enum ConversationPresence {
             )
         }
 
-        if pendingSearchClarify, context.isConnected,
-           let plan = GmailSearchQuery.plan(from: raw, treatAsBrand: true) {
-            return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
+        if pendingSearchClarify || !clarifyMatches.isEmpty {
+            if isClarifyPick(raw) {
+                if let picked = pickClarifiedEmail(
+                    ask: raw,
+                    candidates: clarifyMatches.isEmpty ? [focusedEmail].compactMap { $0 } : clarifyMatches
+                ) {
+                    if wantsFullThread(raw) {
+                        return threadEvidence(picked)
+                    }
+                    return emailEvidence(picked)
+                }
+                return DeskEvidence(
+                    topic: .inbox,
+                    text: clarifyMatches.isEmpty ? emailNeedMoreReply : gmailSearchSeveralReply,
+                    cards: EmailItem.listCards(clarifyMatches)
+                )
+            }
+            if pendingSearchClarify, context.isConnected,
+               let plan = GmailSearchQuery.plan(from: raw, treatAsBrand: true) {
+                return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
+            }
         }
 
         if wantsInboxOverview(raw) {
@@ -895,6 +977,14 @@ public enum ConversationPresence {
         text.trimmingCharacters(in: .whitespacesAndNewlines) == gmailSearchingBeat
     }
 
+    public static func isThinkingBeat(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines) == thinkingStatusBeat
+    }
+
+    public static func isStatusBeat(_ text: String) -> Bool {
+        isGmailSearchingBeat(text) || isThinkingBeat(text)
+    }
+
     public static let gmailSearchEmptyReply =
         "I searched Gmail and didn’t find that. I’m not inventing it."
 
@@ -914,7 +1004,11 @@ public enum ConversationPresence {
         "No matching open task in the last sync. I’m not inventing one."
 
     private static func inboxOverviewEvidence(context: DeskContext) -> DeskEvidence {
-        inboxEvidence(context: context, followUp: false, resetsFocus: true)
+        var evidence = inboxEvidence(context: context, followUp: false, resetsFocus: true)
+        if context.isConnected, !context.snapshot.emails.isEmpty {
+            evidence.shouldGlanceInbox = true
+        }
+        return evidence
     }
 
     private static func calendarOverviewEvidence(context: DeskContext) -> DeskEvidence {
