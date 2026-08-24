@@ -2,8 +2,8 @@ import Foundation
 
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
 ///
-/// Eve **speaks** these lines. Compact email cards are the on-screen list — do not
-/// also print the Name — topic recitation in the chat bubble.
+/// Eve **speaks** these lines. Cards are the on-screen list — do not also print the
+/// spoken glance *or* a single-email AI summary in the chat bubble.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
     public static let snippetLimit = 80
@@ -112,12 +112,20 @@ public enum InboxGlance: Sendable {
         raw.split(whereSeparator: \.isNewline).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count >= 2
     }
 
-    /// Chat-bubble copy when compact cards are attached. Cards **are** the list.
-    /// Empty (no bubble) or `onScreenLeadIn` — never the spoken Name — topic lines.
+    /// Chat-bubble copy when email cards are attached. Cards **are** the visual.
+    /// Used for inbox glance (N compact rows) and a single-email summary card.
+    /// Empty (no bubble) or `onScreenLeadIn` — never the spoken glance or summary.
+    /// Clarify / not-found / connect / error replies must still be passed through
+    /// as the bubble; they are the message (and usually have no summary card).
     public static func onScreenText(compactCardCount: Int) -> String {
-        // Cards already list the inbox. Empty bubble (or `onScreenLeadIn`) — never the glance.
+        // Cards already carry the visual. Empty bubble (or `onScreenLeadIn`).
         _ = compactCardCount
         return ""
+    }
+
+    /// Same “cards are the visual” rule for one full email card + spoken summary.
+    public static func onScreenTextHidingSpokenSummary() -> String {
+        onScreenText(compactCardCount: 1)
     }
 
     /// True for empty / “Here are the latest.” — false if the glance recitation leaked on-screen.

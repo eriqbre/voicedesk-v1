@@ -13,7 +13,9 @@ struct VoiceDeskApp: App {
                     _ = model.handleOpenURL(url)
                 }
                 .task {
-                    await model.restoreGoogleIfNeeded()
+                    // First frame already painted from `makeForLaunch` cache / local state.
+                    await Task.yield()
+                    await model.prepareAfterFirstPaint()
                     VoiceCloudDogfoodClient.shared.prepareOnLaunch()
                 }
         }

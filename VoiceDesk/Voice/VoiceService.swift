@@ -40,6 +40,12 @@ protocol VoiceServicing: AnyObject {
     func interruptResponse()
     func suppressAssistantOutput(_ suppress: Bool)
     func cancel()
+    /// Open live Grok + audio session after first paint so the first tap can hear.
+    func warmUp() async
+}
+
+extension VoiceServicing {
+    func warmUp() async {}
 }
 
 enum VoiceRuntime {
@@ -87,6 +93,10 @@ final class VoiceBox {
     func startListening() async -> String {
         lastError = nil
         return await service.startListening()
+    }
+
+    func warmUp() async {
+        await service.warmUp()
     }
 
     func speak(_ text: String) async {
@@ -149,6 +159,8 @@ final class MockVoiceService: VoiceServicing {
         self.isInstant = instant
     }
 
+    private(set) var spoken: [String] = []
+
     func startListening() async -> String {
         apply(.cancel)
         if !isInstant {
@@ -164,6 +176,7 @@ final class MockVoiceService: VoiceServicing {
     }
 
     func speak(_ text: String) async {
+        spoken.append(text)
         apply(.speakStarted)
         if !isInstant {
             let milliseconds = min(4200, max(800, text.count * 28))

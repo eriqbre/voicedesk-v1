@@ -91,6 +91,7 @@ final class AppModel {
         self.emailSummarizer = emailSummarizer ?? HeuristicEmailSummarizer()
         self.isOnline = isOnline
         self.hasCompletedPlaybook = self.playbook.hasCompleted
+        // First paint: local cache only. Google restore + sync run after first frame.
         self.deskSnapshot = self.cache.load()
         self.voice.transcriptHandler = { [weak self] event in
             self?.handleLiveTranscript(event)
@@ -935,7 +936,11 @@ final class AppModel {
             EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
         )
         scrubGrokDeskRefusals()
-        appendAssistant(reply, cards: [.email(email.presented(as: .full))])
+        // Card is the visual. Eve still speaks `reply`; do not reprint it in the bubble.
+        appendAssistant(
+            InboxGlance.onScreenTextHidingSpokenSummary(),
+            cards: [.email(email.presented(as: .full))]
+        )
         await speakDeskReply(reply)
     }
 
@@ -1069,6 +1074,14 @@ final class AppModel {
             cards: [.connectGoogle(deskContext.connectItem)],
             suggestions: [ConversationPresence.connectGoogleChip]
         )
+    }
+
+    /// After the first ConversationScreen frame. Cache was already loaded in `init`.
+    /// Google restore + inbox refresh + live Grok warmup must not block first paint.
+    func prepareAfterFirstPaint() async {
+        async let restore: Void = restoreGoogleIfNeeded()
+        async let warmup: Void = voice.warmUp()
+        _ = await (restore, warmup)
     }
 
     func restoreGoogleIfNeeded() async {

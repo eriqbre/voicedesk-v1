@@ -10,6 +10,15 @@ public enum GoogleSyncPolicy: Sendable {
     /// a short TTL instead of every restore.
     public static let restoreSyncMaxAge: TimeInterval = 0
 
+    /// First ConversationScreen frame reads `FileDeskCache` / `DeskCaching.load()`.
+    /// Restore still refreshes when `shouldRefreshOnRestore` is true — after first paint.
+    public static let firstPaintRequiresAwaitingSync = false
+
+    /// Launch snapshot is whatever the cache already has. No `GoogleSyncing` call.
+    public static func snapshotForFirstPaint(from cache: DeskCaching) -> DeskSnapshot {
+        cache.load()
+    }
+
     /// Restore / foreground: connected + online must refresh, even when cache
     /// already has `accountEmail`. Offline keeps the last-synced snapshot.
     public static func shouldRefreshOnRestore(
