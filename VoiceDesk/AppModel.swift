@@ -37,8 +37,10 @@ final class AppModel {
     /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
     private var lastFocusedEmail: EmailItem?
     private var pendingThreadSummary = false
-    /// Last local reply asked “Who’s it from?” — next utterance is the brand/sender.
+    /// Last local reply asked “Who’s it from?” or “Which one?” — next utterance is desk.
     private var pendingSearchClarify = false
+    /// Cards from the last multi-match Gmail search, for “the most recent one.”
+    private var lastSearchMatches: [EmailItem] = []
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
     private var lastUserUtterance = ""
@@ -364,7 +366,11 @@ final class AppModel {
         }
         if google.isConnected {
             let awaitingClarify = consumeSearchClarify()
-            if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
+            if ConversationPresence.ownsConnectedDeskTurn(
+                text,
+                pendingSearchClarify: awaitingClarify,
+                hasClarifyMatches: !lastSearchMatches.isEmpty
+            ) {
                 claimLocalAssistantReply()
                 Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
                 return
@@ -486,7 +492,11 @@ final class AppModel {
 
         if google.isConnected {
             let awaitingClarify = consumeSearchClarify()
-            if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
+            if ConversationPresence.ownsConnectedDeskTurn(
+                text,
+                pendingSearchClarify: awaitingClarify,
+                hasClarifyMatches: !lastSearchMatches.isEmpty
+            ) {
                 claimLocalAssistantReply()
                 await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
                 return
@@ -597,7 +607,11 @@ final class AppModel {
     private func preemptGrokIfDeskTurn(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, google.isConnected else { return }
-        if ConversationPresence.ownsConnectedDeskTurn(text) {
+        if ConversationPresence.ownsConnectedDeskTurn(
+            text,
+            pendingSearchClarify: pendingSearchClarify,
+            hasClarifyMatches: !lastSearchMatches.isEmpty
+        ) {
             claimLocalAssistantReply()
         }
     }
@@ -678,6 +692,17 @@ final class AppModel {
         }
         pendingThreadSummary = evidence.expandEarlierMessages
         pendingSearchClarify = evidence.awaitsSearchClarify
+        if evidence.awaitsSearchClarify {
+            let cards = evidence.cards.compactMap { card -> EmailItem? in
+                if case .email(let item) = card { return item }
+                return nil
+            }
+            if !cards.isEmpty {
+                lastSearchMatches = EmailRecency.newestFirst(cards)
+            }
+        } else {
+            lastSearchMatches = []
+        }
         if evidence.expandEarlierMessages, let email = evidence.focusedEmail {
             markExpandEarlier(for: email)
         }
@@ -685,7 +710,18 @@ final class AppModel {
 
     private func consumeSearchClarify() -> Bool {
         if pendingSearchClarify { return true }
-        return turns.last(where: { $0.role == .assistant })?.text == ConversationPresence.emailNeedMoreReply
+        guard let last = turns.last(where: { $0.role == .assistant }) else { return false }
+        if last.text == ConversationPresence.emailNeedMoreReply { return true }
+        if last.text == ConversationPresence.gmailSearchSeveralReply {
+            if lastSearchMatches.isEmpty {
+                lastSearchMatches = last.cards.compactMap { card in
+                    if case .email(let item) = card { return item }
+                    return nil
+                }
+            }
+            return true
+        }
+        return false
     }
 
     /// Inbox-overview / calendar-overview must hit Google before cards are built.
@@ -697,7 +733,8 @@ final class AppModel {
             for: text,
             context: deskContext,
             focusedEmail: lastFocusedEmail,
-            pendingSearchClarify: awaitingClarify
+            pendingSearchClarify: awaitingClarify,
+            clarifyMatches: lastSearchMatches
         ) {
             await applyDeskEvidence(evidence)
         } else {
@@ -742,9 +779,40 @@ final class AppModel {
             )
             return
         }
+        if evidence.shouldGlanceInbox {
+            await applyInboxGlance(evidence)
+            return
+        }
         appendAssistant(evidence.text, cards: evidence.cards)
         await speakDeskReply(evidence.text)
         logVoiceTurn(evidence: evidence, reply: evidence.text)
+    }
+
+    private func applyInboxGlance(_ evidence: ConversationPresence.DeskEvidence) async {
+        let emails = evidence.cards.compactMap { card -> EmailItem? in
+            if case .email(let item) = card { return item }
+            return nil
+        }
+        let fallback = emails.isEmpty ? evidence.text : InboxGlance.heuristic(emails)
+        let beatID = appendThinkingBeat()
+        let glance: String
+        if emails.isEmpty {
+            glance = fallback
+        } else {
+            glance = await emailSummarizer.glanceInbox(emails)
+        }
+        let text = glance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : glance
+        replaceAssistant(id: beatID, text: text, cards: evidence.cards)
+        await speakDeskReply(text)
+        logVoiceTurn(evidence: evidence, reply: text, cards: evidence.cards)
+    }
+
+    @discardableResult
+    private func appendThinkingBeat() -> UUID {
+        let turn = ConversationTurn(role: .assistant, text: ConversationPresence.thinkingStatusBeat)
+        turns.append(turn)
+        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
+        return turn.id
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {
@@ -784,13 +852,16 @@ final class AppModel {
                 removeTurn(id: beatID)
                 await applyLoadedEmail(email, mergeIntoInbox: false)
             case .several(let emails):
-                lastFocusedEmail = emails.first
+                let ranked = EmailRecency.newestFirst(emails)
+                lastSearchMatches = ranked
+                lastFocusedEmail = ranked.first
+                pendingSearchClarify = true
                 refreshPresence()
                 scrubGrokDeskRefusals()
                 replaceAssistant(
                     id: beatID,
                     text: ConversationPresence.gmailSearchSeveralReply,
-                    cards: EmailItem.listCards(emails)
+                    cards: EmailItem.listCards(ranked)
                 )
                 await speakDeskReply(ConversationPresence.gmailSearchSeveralReply)
             }
