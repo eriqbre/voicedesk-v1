@@ -52,11 +52,18 @@ final class HotCacheMergeTests: XCTestCase {
     func testExistingRowUpdatesInPlaceAndKeepsRicherBody() {
         var cachedFleeman = VoiceRegressionDesk.larenJansen
         cachedFleeman.body = "Disclosures for the Fleeman Road listing are attached."
-        var incomingFleeman = VoiceRegressionDesk.larenJansen
-        incomingFleeman.id = UUID()
-        incomingFleeman.subject = "Fleeman Road disclosures (updated)"
-        incomingFleeman.preview = "Updated packet."
-        incomingFleeman.body = nil
+        let incomingFleeman = EmailItem(
+            id: UUID(),
+            providerID: cachedFleeman.providerID,
+            threadID: cachedFleeman.threadID,
+            fromName: cachedFleeman.fromName,
+            fromEmail: cachedFleeman.fromEmail,
+            sentAtLabel: cachedFleeman.sentAtLabel,
+            subject: "Fleeman Road disclosures (updated)",
+            preview: "Updated packet.",
+            body: nil,
+            filterTag: cachedFleeman.filterTag
+        )
 
         let merged = DeskSnapshotMerge.emails(
             incoming: [incomingFleeman],
