@@ -48,7 +48,9 @@ public enum GmailSearchQuery: Sendable {
         // Question / auxiliary words. Never a first name before “X’s last email”.
         "when", "was", "were", "how", "why",
         // Conversational filler before “how about X’s latest email”.
-        "okay", "ok", "perfect", "alright"
+        "okay", "ok", "perfect", "alright",
+        // Calendar overview words. “What’s the latest on my calendar?” is not from:calendar.
+        "calendar", "schedule", "week", "upcoming", "meetings"
     ]
 
     /// Sender-name match required before we attach a card for a named ask.

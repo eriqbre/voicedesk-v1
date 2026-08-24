@@ -89,6 +89,24 @@ final class VoiceInteractionLogTests: XCTestCase {
         )
         XCTAssertTrue(["desk-person", "desk-thread"].contains(personClass.intent), personClass.intent)
         XCTAssertNotEqual(personClass.intent, "inbox-overview")
+
+        let calendarAsk = "What's the latest on my calendar?"
+        let calendarEvidence = ConversationPresence.deskEvidence(
+            for: calendarAsk,
+            context: DeskContext(
+                isConnected: true,
+                snapshot: DeskSnapshot(
+                    events: [CalendarItem(title: "Massimo showing", whenLabel: "Today 3:00 PM")]
+                )
+            )
+        )
+        let calendarClass = VoiceInteractionLog.classify(
+            utterance: calendarAsk,
+            evidence: calendarEvidence
+        )
+        XCTAssertEqual(calendarClass.intent, "calendar")
+        XCTAssertNotEqual(calendarClass.intent, "inbox-overview")
+        XCTAssertNotEqual(calendarEvidence?.text, ConversationPresence.calendarMissReply)
         XCTAssertFalse(personClass.notes.contains("sticky cleared"))
         if case .email(let item) = person?.cards.first {
             XCTAssertEqual(item.fromName, "Murray Mitchell")

@@ -366,23 +366,7 @@ final class AppModel {
             let awaitingClarify = consumeSearchClarify()
             if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
                 claimLocalAssistantReply()
-                if let evidence = ConversationPresence.deskEvidence(
-                    for: text,
-                    context: deskContext,
-                    focusedEmail: lastFocusedEmail,
-                    pendingSearchClarify: awaitingClarify
-                ) {
-                    surfaceDeskEvidence(evidence)
-                } else {
-                    pendingSearchClarify = true
-                    appendAssistant(ConversationPresence.emailNeedMoreReply)
-                    speakDeskReplyLater(ConversationPresence.emailNeedMoreReply)
-                    logVoiceTurn(
-                        evidence: nil,
-                        reply: ConversationPresence.emailNeedMoreReply,
-                        notes: ["need-more"]
-                    )
-                }
+                Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
                 return
             }
         }
@@ -504,23 +488,7 @@ final class AppModel {
             let awaitingClarify = consumeSearchClarify()
             if awaitingClarify || ConversationPresence.ownsConnectedDeskTurn(text) {
                 claimLocalAssistantReply()
-                if let evidence = ConversationPresence.deskEvidence(
-                    for: text,
-                    context: deskContext,
-                    focusedEmail: lastFocusedEmail,
-                    pendingSearchClarify: awaitingClarify
-                ) {
-                    await applyDeskEvidence(evidence)
-                } else {
-                    pendingSearchClarify = true
-                    appendAssistant(ConversationPresence.emailNeedMoreReply)
-                    await speakDeskReply(ConversationPresence.emailNeedMoreReply)
-                    logVoiceTurn(
-                        evidence: nil,
-                        reply: ConversationPresence.emailNeedMoreReply,
-                        notes: ["need-more"]
-                    )
-                }
+                await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
                 return
             }
         }
@@ -720,6 +688,36 @@ final class AppModel {
         return turns.last(where: { $0.role == .assistant })?.text == ConversationPresence.emailNeedMoreReply
     }
 
+    /// Inbox-overview / calendar-overview must hit Google before cards are built.
+    private func fulfillConnectedDeskTurn(_ text: String, awaitingClarify: Bool) async {
+        if shouldRefreshDeskSnapshot(for: text) {
+            await syncDesk()
+        }
+        if let evidence = ConversationPresence.deskEvidence(
+            for: text,
+            context: deskContext,
+            focusedEmail: lastFocusedEmail,
+            pendingSearchClarify: awaitingClarify
+        ) {
+            await applyDeskEvidence(evidence)
+        } else {
+            pendingSearchClarify = true
+            appendAssistant(ConversationPresence.emailNeedMoreReply)
+            await speakDeskReply(ConversationPresence.emailNeedMoreReply)
+            logVoiceTurn(
+                evidence: nil,
+                reply: ConversationPresence.emailNeedMoreReply,
+                notes: ["need-more"]
+            )
+        }
+    }
+
+    private func shouldRefreshDeskSnapshot(for text: String) -> Bool {
+        guard google.isConnected, isOnline else { return false }
+        if ConversationPresence.wantsInboxOverview(text) { return true }
+        return ConversationPresence.wantsCalendarAsk(text) && deskSnapshot.events.isEmpty
+    }
+
     private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
         Task { await applyDeskEvidence(evidence) }
     }
@@ -784,14 +782,10 @@ final class AppModel {
                 await speakDeskReply(ConversationPresence.gmailSearchEmptyReply)
             case .one(let email):
                 removeTurn(id: beatID)
-                await applyLoadedEmail(email)
+                await applyLoadedEmail(email, mergeIntoInbox: false)
             case .several(let emails):
-                for email in emails {
-                    upsertSnapshotEmail(email)
-                }
-                cache.save(deskSnapshot)
-                refreshPresence()
                 lastFocusedEmail = emails.first
+                refreshPresence()
                 scrubGrokDeskRefusals()
                 replaceAssistant(
                     id: beatID,
@@ -848,9 +842,11 @@ final class AppModel {
         }
     }
 
-    private func applyLoadedEmail(_ email: EmailItem) async {
-        upsertSnapshotEmail(email)
-        cache.save(deskSnapshot)
+    private func applyLoadedEmail(_ email: EmailItem, mergeIntoInbox: Bool = true) async {
+        if mergeIntoInbox {
+            upsertSnapshotEmail(email)
+            cache.save(deskSnapshot)
+        }
         refreshPresence()
         refreshEmailCards(email)
         lastFocusedEmail = email
@@ -922,6 +918,10 @@ final class AppModel {
         )
         var notes = classified.notes + extraNotes
         if intentHint == "cancel" { notes.append("user stop") }
+        if classified.intent == "inbox-overview" || classified.intent == "calendar",
+           let age = GoogleSyncPolicy.cacheAgeNote(lastSyncedAt: deskSnapshot.lastSyncedAt) {
+            notes.append(age)
+        }
         var errors: [String] = []
         if let error = voice.lastError, !error.isEmpty {
             errors.append(error)
@@ -997,11 +997,14 @@ final class AppModel {
         await google.restoreSession()
         if google.isConnected {
             deskSnapshot = cache.load()
-            if deskSnapshot.accountEmail == nil {
+            if GoogleSyncPolicy.shouldRefreshOnRestore(
+                isConnected: true,
+                isOnline: isOnline,
+                lastSyncedAt: deskSnapshot.lastSyncedAt
+            ) {
                 await syncDesk()
-            } else {
-                refreshPresence()
             }
+            refreshPresence()
             refreshGoogleCards()
         }
     }

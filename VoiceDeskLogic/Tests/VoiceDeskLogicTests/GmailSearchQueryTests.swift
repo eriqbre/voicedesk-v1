@@ -69,6 +69,20 @@ final class GmailSearchQueryTests: XCTestCase {
         XCTAssertEqual(primary, "from:murray", primary ?? "nil")
     }
 
+    func testLatestOnMyCalendarIsNotASenderPattern() {
+        for ask in [
+            "What's the latest on my calendar?",
+            "whats the latest on my calendar",
+            "latest on my calendar",
+            "What's on my calendar this week"
+        ] {
+            XCTAssertFalse(GmailSearchQuery.hasSenderPattern(ask), ask)
+            XCTAssertNil(GmailSearchQuery.query(from: ask), ask)
+            XCTAssertFalse(GmailSearchQuery.letterTokens(in: ask).contains("calendar"), ask)
+            XCTAssertFalse(GmailSearchQuery.letterTokens(in: ask).contains("latest"), ask)
+        }
+    }
+
     func testQuickSummaryOfMurraysEmailIsFromMurrayNotQuickMurray() {
         let ask = "Give me a quick summary of Murray's latest email."
         let plan = GmailSearchQuery.plan(from: ask)

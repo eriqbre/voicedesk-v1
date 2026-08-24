@@ -395,7 +395,38 @@ public enum ConversationPresence {
     public static func wantsCalendarAsk(_ raw: String) -> Bool {
         let lower = raw.lowercased()
         if wantsCalendarDetails(raw) { return true }
+        if wantsCalendarOverview(raw) { return true }
         return contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
+            || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
+    }
+
+    /// List / digest of upcoming events — not a named reservation or “that event”.
+    public static func wantsCalendarOverview(_ raw: String) -> Bool {
+        if wantsCalendarDetails(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, [
+            "what's the latest on my calendar",
+            "whats the latest on my calendar",
+            "what's on my calendar",
+            "whats on my calendar",
+            "latest on my calendar",
+            "recent on my calendar",
+            "on my calendar this week",
+            "what's on my calendar this week",
+            "whats on my calendar this week",
+            "my calendar this week"
+        ]) {
+            return true
+        }
+        let latest = contains(lower, ["latest", "recent"])
+        if latest, contains(lower, ["my calendar", "on my calendar", "the calendar"]) {
+            return true
+        }
+        return wantsCalendarListPhrase(lower) && !GmailSearchQuery.hasSenderPattern(raw)
+    }
+
+    private static func wantsCalendarListPhrase(_ lower: String) -> Bool {
+        contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
             || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
     }
 
@@ -417,6 +448,9 @@ public enum ConversationPresence {
         }
 
         if wantsCalendarAsk(raw) {
+            if wantsCalendarOverview(raw) {
+                return calendarOverviewEvidence(context: context)
+            }
             if let event = matchingCalendar(for: raw, in: context.snapshot.events) {
                 return DeskEvidence(
                     topic: .calendar,
@@ -425,19 +459,14 @@ public enum ConversationPresence {
                 )
             }
             if context.isConnected {
-                if wantsCalendarDetails(raw) || matchingCalendar(for: raw, in: context.snapshot.events) == nil,
-                   GmailSearchQuery.hasSenderPattern(raw) || wantsCalendarDetails(raw) {
+                if wantsCalendarDetails(raw) || GmailSearchQuery.hasSenderPattern(raw) {
                     return DeskEvidence(
                         topic: .calendar,
                         text: calendarMissReply,
                         cards: []
                     )
                 }
-                return DeskEvidence(
-                    topic: .calendar,
-                    text: calendarReply(context: context),
-                    cards: cards(for: .calendar, context: context)
-                )
+                return calendarOverviewEvidence(context: context)
             }
         }
 
@@ -841,6 +870,14 @@ public enum ConversationPresence {
         inboxEvidence(context: context, followUp: false, resetsFocus: true)
     }
 
+    private static func calendarOverviewEvidence(context: DeskContext) -> DeskEvidence {
+        DeskEvidence(
+            topic: .calendar,
+            text: calendarReply(context: context),
+            cards: cards(for: .calendar, context: context)
+        )
+    }
+
     private static func inboxEvidence(
         context: DeskContext,
         followUp: Bool,
@@ -910,11 +947,15 @@ public enum ConversationPresence {
 
     public static func matchingCalendar(for raw: String, in events: [CalendarItem]) -> CalendarItem? {
         let lower = raw.lowercased()
+        let stop: Set<String> = [
+            "latest", "recent", "calendar", "schedule", "today", "week",
+            "upcoming", "what", "whats", "this", "that", "your"
+        ]
         for event in events {
             let titleWords = event.title.lowercased()
                 .split { !$0.isLetter }
                 .map(String.init)
-                .filter { $0.count >= 4 }
+                .filter { $0.count >= 4 && !stop.contains($0) }
             if titleWords.contains(where: { lower.contains($0) }) {
                 return event
             }
@@ -922,7 +963,7 @@ public enum ConversationPresence {
                 let nameWords = person.lowercased()
                     .split { !$0.isLetter }
                     .map(String.init)
-                    .filter { $0.count >= 3 }
+                    .filter { $0.count >= 3 && !stop.contains($0) }
                 if nameWords.contains(where: { lower.contains($0) }) {
                     return event
                 }
