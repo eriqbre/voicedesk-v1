@@ -1126,17 +1126,15 @@ final class AppModel {
                 now: Date(),
                 onInboxMessageIDs: announceLaunch
                     ? { [weak self] ids in
-                        Task { @MainActor in
-                            guard let self else { return }
-                            switch self.launchSyncPhase {
-                            case .restoringGoogle, .syncingInbox, .downloadingNewEmails:
-                                self.launchSyncPhase = LaunchSyncStatus.phaseAfterInboxIDs(
-                                    ids,
-                                    cachedProviderIDs: cachedIDs
-                                )
-                            default:
-                                break
-                            }
+                        guard let self else { return }
+                        switch self.launchSyncPhase {
+                        case .restoringGoogle, .syncingInbox, .downloadingNewEmails:
+                            self.launchSyncPhase = LaunchSyncStatus.phaseAfterInboxIDs(
+                                ids,
+                                cachedProviderIDs: cachedIDs
+                            )
+                        default:
+                            break
                         }
                     }
                     : nil

@@ -9,7 +9,7 @@ protocol GoogleSyncing: AnyObject, Sendable {
         token: String,
         accountEmail: String,
         now: Date,
-        onInboxMessageIDs: (@Sendable ([String]) -> Void)?
+        onInboxMessageIDs: (@MainActor @Sendable ([String]) -> Void)?
     ) async throws -> DeskSnapshot
     func fetchMessage(token: String, messageID: String, now: Date) async throws -> EmailItem
     func searchMessages(token: String, query: String, now: Date) async throws -> [EmailItem]
@@ -30,7 +30,7 @@ final class LiveGoogleSync: GoogleSyncing {
         token: String,
         accountEmail: String,
         now: Date,
-        onInboxMessageIDs: (@Sendable ([String]) -> Void)? = nil
+        onInboxMessageIDs: (@MainActor @Sendable ([String]) -> Void)? = nil
     ) async throws -> DeskSnapshot {
         let session = self.session
         let limit = self.recentMessageLimit
@@ -130,7 +130,7 @@ final class LiveGoogleSync: GoogleSyncing {
         token: String,
         now: Date,
         limit: Int,
-        onInboxMessageIDs: (@Sendable ([String]) -> Void)?
+        onInboxMessageIDs: (@MainActor @Sendable ([String]) -> Void)?
     ) async throws -> [EmailItem] {
         let listData = try await getData(
             session: session,
@@ -139,7 +139,9 @@ final class LiveGoogleSync: GoogleSyncing {
         )
         let list = try Self.object(listData)
         let ids = (list["messages"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
-        onInboxMessageIDs?(Array(ids.prefix(limit)))
+        if let onInboxMessageIDs {
+            await MainActor.run { onInboxMessageIDs(Array(ids.prefix(limit))) }
+        }
         var messages: [[String: Any]] = []
         for id in ids.prefix(limit) {
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -215,7 +217,7 @@ final class MockGoogleSync: GoogleSyncing {
         token: String,
         accountEmail: String,
         now: Date,
-        onInboxMessageIDs: (@Sendable ([String]) -> Void)? = nil
+        onInboxMessageIDs: (@MainActor @Sendable ([String]) -> Void)? = nil
     ) async throws -> DeskSnapshot {
         _ = token
         syncCalls += 1
