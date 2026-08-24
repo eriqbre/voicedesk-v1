@@ -786,7 +786,10 @@ final class AppModel {
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
         rememberEvidence(evidence)
         if evidence.topic == .version {
-            let line = buildIdentity.spokenLine
+            let line = ConversationPresence.spokenIdentityLine(
+                for: lastUserUtterance,
+                identity: buildIdentity
+            )
             appendAssistant(line)
             await speakDeskReply(line)
             logVoiceTurn(
@@ -794,7 +797,7 @@ final class AppModel {
                 intentHint: "version",
                 reply: line,
                 cards: [],
-                notes: ["local build identity"]
+                notes: ["local build identity", buildIdentity.dogfoodLine]
             )
             return
         }

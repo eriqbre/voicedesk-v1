@@ -30,11 +30,48 @@ final class XcodeProjectLayoutTests: XCTestCase {
         XCTAssertTrue(plist.contains("$(GIT_SHA)"))
         XCTAssertTrue(plist.contains("<key>GIT_BRANCH</key>"))
         XCTAssertTrue(plist.contains("$(GIT_BRANCH)"))
+        // GENERATE_INFOPLIST_FILE already maps MARKETING_VERSION / CURRENT_PROJECT_VERSION.
+        XCTAssertFalse(plist.contains("CFBundleShortVersionString"))
+        XCTAssertFalse(plist.contains("CFBundleVersion"))
 
         XCTAssertFalse(pbx.contains("$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"))
         XCTAssertFalse(pbx.contains("INFOPLIST_PATH"))
         XCTAssertFalse(pbx.contains("com.googleusercontent.apps.REPLACE_ME"))
         XCTAssertTrue(pbx.contains("GENERATE_INFOPLIST_FILE = YES"))
+    }
+
+    func testVersionXcconfigIsSourceOfTruth() throws {
+        let version = try XCTUnwrap(repoFile("Config/Version.xcconfig"))
+        XCTAssertTrue(version.contains("MARKETING_VERSION = 0.1.0"))
+        XCTAssertTrue(version.contains("CURRENT_PROJECT_VERSION = 1"))
+        XCTAssertFalse(version.contains("0.1.1.32"))
+        XCTAssertTrue(version.contains("0.x.y = dogfood only"))
+        XCTAssertTrue(version.contains("1.0.0 = first build anyone else may have"))
+
+        let xcconfig = try XCTUnwrap(repoFile("Config/VoiceDesk.xcconfig"))
+        XCTAssertTrue(xcconfig.contains("#include \"Version.xcconfig\""))
+        let versionInclude = try XCTUnwrap(xcconfig.range(of: "#include \"Version.xcconfig\""))
+        let generatedInclude = try XCTUnwrap(xcconfig.range(of: "#include? \"Generated/GoogleSecrets.xcconfig\""))
+        XCTAssertLessThan(versionInclude.lowerBound, generatedInclude.lowerBound)
+
+        let pbx = try XCTUnwrap(pbxprojContents())
+        let appDebug = pbx.range(of: "A1000000000000000000000E /* Debug */")
+        let appRelease = pbx.range(of: "A1000000000000000000000F /* Release */")
+        let testsDebug = pbx.range(of: "B10000000000000000000007 /* Debug */")
+        XCTAssertNotNil(appDebug)
+        XCTAssertNotNil(appRelease)
+        XCTAssertNotNil(testsDebug)
+        if let start = appDebug, let end = testsDebug {
+            let appSlice = String(pbx[start.lowerBound..<end.lowerBound])
+            XCTAssertFalse(
+                appSlice.contains("MARKETING_VERSION"),
+                "VoiceDesk app target must inherit MARKETING_VERSION from Version.xcconfig"
+            )
+            XCTAssertFalse(
+                appSlice.contains("CURRENT_PROJECT_VERSION"),
+                "VoiceDesk app target must inherit CURRENT_PROJECT_VERSION from Version.xcconfig"
+            )
+        }
     }
 
     func testInjectScriptWritesXcconfigOnly() throws {
@@ -64,6 +101,7 @@ final class XcodeProjectLayoutTests: XCTestCase {
         }
 
         let xcconfig = try XCTUnwrap(repoFile("Config/VoiceDesk.xcconfig"))
+        XCTAssertTrue(xcconfig.contains("#include \"Version.xcconfig\""))
         XCTAssertTrue(xcconfig.contains("#include? \"Generated/GoogleSecrets.xcconfig\""))
         XCTAssertTrue(xcconfig.contains("INFOPLIST_FILE = Config/Info.plist"))
         XCTAssertTrue(xcconfig.contains("DEVELOPMENT_TEAM ="))
@@ -71,9 +109,11 @@ final class XcodeProjectLayoutTests: XCTestCase {
         XCTAssertTrue(xcconfig.contains("GIT_BRANCH ="))
         XCTAssertFalse(xcconfig.contains("REPLACE_ME"))
         let includeIndex = try XCTUnwrap(xcconfig.range(of: "#include? \"Generated/GoogleSecrets.xcconfig\""))
+        let versionInclude = try XCTUnwrap(xcconfig.range(of: "#include \"Version.xcconfig\""))
         let reversedDefault = try XCTUnwrap(xcconfig.range(of: "GOOGLE_REVERSED_CLIENT_ID ="))
         let teamDefault = try XCTUnwrap(xcconfig.range(of: "DEVELOPMENT_TEAM ="))
         let shaDefault = try XCTUnwrap(xcconfig.range(of: "GIT_SHA ="))
+        XCTAssertLessThan(versionInclude.lowerBound, includeIndex.lowerBound)
         XCTAssertLessThan(reversedDefault.lowerBound, includeIndex.lowerBound)
         XCTAssertLessThan(teamDefault.lowerBound, includeIndex.lowerBound)
         XCTAssertLessThan(shaDefault.lowerBound, includeIndex.lowerBound)

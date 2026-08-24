@@ -1,0 +1,6 @@
+// 0.x.y = dogfood only (Eriq + Bridget). 1.0.0 = first build anyone else may have.
+// Clean epoch: 0.1.0 / build 1. Prior SHA-only phone tips were pre-version.
+// CURRENT_PROJECT_VERSION always increases and is never reused (Apple CFBundleVersion).
+// Patch = same-capability fix. Minor = new capability. Never a four-part marketing string.
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
