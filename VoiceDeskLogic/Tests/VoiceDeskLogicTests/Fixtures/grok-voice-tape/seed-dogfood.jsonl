@@ -1,5 +1,29 @@
-{"id":"latest-emails","utterance":"show me my latest emails"}
-{"id":"murray-last-email","utterance":"summarize Murray's last email"}
-{"id":"calendar-this-week","utterance":"what's on my calendar this week"}
-{"id":"john-wick-year","utterance":"what year was John Wick released?"}
-{"id":"the-last-one","utterance":"the last one"}
+{"id":"inbox-show-latest","family":"inbox-overview","utterance":"show me my latest emails","intent":"inbox-overview","live":true,"hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"inbox-my-latest","family":"inbox-overview","utterance":"my latest emails","intent":"inbox-overview","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"inbox-what-are","family":"inbox-overview","utterance":"what are my latest emails","intent":"inbox-overview","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"inbox-can-you-pull","family":"inbox-overview","utterance":"can you pull my latest emails","intent":"inbox-overview","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"inbox-okay-got-it-summary","family":"inbox-overview","utterance":"okay got it, give me a summary of my latest emails","intent":"inbox-overview","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"inbox-um-show","family":"inbox-overview","utterance":"um, show me my latest emails","intent":"inbox-overview","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"inbox-restart-latest","family":"inbox-overview","utterance":"wait— my latest, uh, my latest emails","intent":"inbox-overview","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"murray-last-email","family":"named-person","utterance":"Murray's last email","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"live":true,"deskPreset":"greenacre-first","hadFocusedEmail":true,"stickyFromName":"Steve Brown"}
+{"id":"murray-how-about-latest","family":"named-person","utterance":"how about Murray's latest email","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"deskPreset":"greenacre-first","hadFocusedEmail":true,"stickyFromName":"Steve Brown"}
+{"id":"murray-summary-last-sent","family":"named-person","utterance":"give me a summary of the last email that Murray sent","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"deskPreset":"greenacre-first","hadFocusedEmail":true,"stickyFromName":"Steve Brown"}
+{"id":"murray-latest-summary-from","family":"named-person","utterance":"what's the latest email summary from Murray","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"deskPreset":"greenacre-first","hadFocusedEmail":true,"stickyFromName":"Steve Brown"}
+{"id":"murray-um-summarize","family":"named-person","utterance":"um, summarize Murray's last email","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"deskPreset":"greenacre-first","hadFocusedEmail":true,"stickyFromName":"Steve Brown"}
+{"id":"murray-restart-name","family":"named-person","utterance":"wait, Murray— yeah, Murray's last email","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"deskPreset":"greenacre-first","hadFocusedEmail":true,"stickyFromName":"Steve Brown"}
+{"id":"clarify-last-one","family":"clarify-pick-newest","utterance":"the last one","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"live":true,"pendingSearchClarify":true,"deskPreset":"murray-several","hadFocusedEmail":false}
+{"id":"clarify-uh-most-recent","family":"clarify-pick-newest","utterance":"uh, the most recent one","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"pendingSearchClarify":true,"deskPreset":"murray-several","hadFocusedEmail":false}
+{"id":"clarify-the-newest","family":"clarify-pick-newest","utterance":"the newest","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"pendingSearchClarify":true,"deskPreset":"murray-several","hadFocusedEmail":false}
+{"id":"clarify-yeah-that","family":"clarify-pick-newest","utterance":"yeah that","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"pendingSearchClarify":true,"deskPreset":"murray-several","hadFocusedEmail":false}
+{"id":"clarify-ok-that","family":"clarify-pick-newest","utterance":"ok that","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"pendingSearchClarify":true,"deskPreset":"murray-several","hadFocusedEmail":false}
+{"id":"clarify-uh-the-last-one","family":"clarify-pick-newest","utterance":"uh the last one","intent":"desk-person","allowedIntents":["desk-person","desk-thread"],"pendingSearchClarify":true,"deskPreset":"murray-several","hadFocusedEmail":false}
+{"id":"cal-this-week","family":"calendar-overview","utterance":"what's on my calendar this week","intent":"calendar","live":true,"hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"cal-latest-on","family":"calendar-overview","utterance":"what's the latest on my calendar","intent":"calendar","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"cal-restart-week","family":"calendar-overview","utterance":"okay, what are, what's on my calendar for the week","intent":"calendar","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"cal-coming-up","family":"calendar-overview","utterance":"what's coming up on my calendar","intent":"calendar","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"cal-um-this-week","family":"calendar-overview","utterance":"um, what's on my calendar this week","intent":"calendar","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"general-wick-released","family":"general","utterance":"what year was John Wick released?","intent":"general","live":true,"hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"general-wick-come-out","family":"general","utterance":"what year did John Wick come out","intent":"general","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"general-wick-when","family":"general","utterance":"when did John Wick come out","intent":"general","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"general-wick-restart","family":"general","utterance":"uh, what year was, what year was John Wick released","intent":"general","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}
+{"id":"general-wick-did","family":"general","utterance":"did John Wick get released","intent":"general","hadFocusedEmail":true,"stickyFromName":"Murray Mitchell"}

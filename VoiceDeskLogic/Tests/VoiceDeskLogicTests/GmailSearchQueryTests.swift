@@ -37,6 +37,19 @@ final class GmailSearchQueryTests: XCTestCase {
         XCTAssertFalse((working ?? "").lowercased().contains("was murray"))
     }
 
+    func testRestartYeahMurrayStaysFromMurrayNotYeahMurray() {
+        for ask in [
+            "wait, Murray— yeah, Murray's last email",
+            "um Murray's last email",
+            "yeah Murray's latest email"
+        ] {
+            let plan = GmailSearchQuery.plan(from: ask)
+            XCTAssertEqual(plan?.primary, "from:murray", "\(ask) \(plan?.primary ?? "nil")")
+            XCTAssertFalse(plan?.phrases.contains(where: { $0.contains("yeah") }) == true, ask)
+            XCTAssertFalse((plan?.primary ?? "").contains("yeah murray"), ask)
+        }
+    }
+
     func testHowAboutMurraysLatestEmailIsFromMurrayNotHowMurray() {
         for ask in [
             "How about Murray's latest email?",

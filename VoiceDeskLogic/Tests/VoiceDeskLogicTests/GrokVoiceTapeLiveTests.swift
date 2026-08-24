@@ -11,7 +11,9 @@ final class GrokVoiceTapeLiveTests: XCTestCase {
             throw XCTSkip("XAI_API_KEY / VOICEDESK_XAI_API_KEY not set — live tape skipped")
         }
         let directory = try XCTUnwrap(GrokVoiceTapeTests.seedDirectory())
-        let fixtures = try GrokVoiceTape.loadFixtures(from: directory)
+        let all = try GrokVoiceTape.loadFixtures(from: directory)
+        let fixtures = GrokVoiceTape.liveSubset(all)
+        XCTAssertEqual(Set(fixtures.map(\.family)).count, 5, "live tape must hit one of each family")
         XCTAssertFalse(fixtures.isEmpty)
 
         continueAfterFailure = true

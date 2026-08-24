@@ -15,19 +15,70 @@ public enum GrokVoiceTape: Sendable {
 
     public struct Fixture: Codable, Equatable, Sendable {
         public var id: String
+        public var family: String
         public var utterance: String
+        public var intent: String
+        public var allowedIntents: [String]?
+        /// Live tape hits a subset — one or two per family — not every synonym.
+        public var live: Bool?
         /// Optional 24 kHz mono PCM16 LE `.wav` or raw `.pcm` / `.raw`, relative to the fixture file.
         public var pcmFile: String?
+        public var deskPreset: String?
+        public var pendingSearchClarify: Bool?
+        public var hadFocusedEmail: Bool?
+        public var stickyFromName: String?
 
-        public init(id: String, utterance: String, pcmFile: String? = nil) {
+        public init(
+            id: String,
+            family: String,
+            utterance: String,
+            intent: String,
+            allowedIntents: [String]? = nil,
+            live: Bool? = nil,
+            pcmFile: String? = nil,
+            deskPreset: String? = nil,
+            pendingSearchClarify: Bool? = nil,
+            hadFocusedEmail: Bool? = nil,
+            stickyFromName: String? = nil
+        ) {
             self.id = id
+            self.family = family
             self.utterance = utterance
+            self.intent = intent
+            self.allowedIntents = allowedIntents
+            self.live = live
             self.pcmFile = pcmFile
+            self.deskPreset = deskPreset
+            self.pendingSearchClarify = pendingSearchClarify
+            self.hadFocusedEmail = hadFocusedEmail
+            self.stickyFromName = stickyFromName
         }
 
         public var hasPCM: Bool {
             guard let pcmFile else { return false }
             return !pcmFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        public var runLive: Bool { live == true }
+
+        public var intentsThatPass: Set<String> {
+            var set = Set(allowedIntents ?? [])
+            set.insert(intent)
+            return set
+        }
+
+        public var replayContext: DeskContext {
+            VoiceRegressionDesk.desk(preset: deskPreset)
+        }
+
+        public var replayFocusedEmail: EmailItem? {
+            guard hadFocusedEmail == true else { return nil }
+            return VoiceRegressionDesk.sticky(named: stickyFromName)
+        }
+
+        public var replayClarifyMatches: [EmailItem] {
+            guard pendingSearchClarify == true else { return [] }
+            return replayContext.snapshot.emails
         }
     }
 
@@ -126,6 +177,26 @@ public enum GrokVoiceTape: Sendable {
             fixtures.append(try decoder.decode(Fixture.self, from: Data(line.utf8)))
         }
         return fixtures
+    }
+
+    /// Offline family outcome. No network. Uses the synthetic regression desk — not live mail.
+    public static func replay(_ fixture: Fixture) -> VoiceTurnReplay.Result {
+        VoiceTurnReplay.play(
+            utterance: fixture.utterance,
+            context: fixture.replayContext,
+            focusedEmail: fixture.replayFocusedEmail,
+            pendingSearchClarify: fixture.pendingSearchClarify ?? false,
+            clarifyMatches: fixture.replayClarifyMatches
+        )
+    }
+
+    public static func liveSubset(_ fixtures: [Fixture]) -> [Fixture] {
+        let marked = fixtures.filter(\.runLive)
+        if !marked.isEmpty { return marked }
+        var seen = Set<String>()
+        return fixtures.filter { fixture in
+            seen.insert(fixture.family).inserted
+        }
     }
 
     public static func loadFixtures(from directory: URL) throws -> [Fixture] {

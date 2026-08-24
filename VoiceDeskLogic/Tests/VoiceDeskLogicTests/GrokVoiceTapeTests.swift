@@ -30,24 +30,88 @@ final class GrokVoiceTapeTests: XCTestCase {
         }
     }
 
-    func testSeedFixturesAreDogfoodPhrasesWithoutPCM() throws {
+    func testSeedFixturesAreSynonymFamilies() throws {
         let fixtures = try Self.loadSeedFixtures()
-        XCTAssertEqual(fixtures.count, 5)
-        XCTAssertEqual(fixtures.map(\.id), [
-            "latest-emails",
-            "murray-last-email",
-            "calendar-this-week",
-            "john-wick-year",
-            "the-last-one"
-        ])
-        XCTAssertEqual(fixtures.map(\.utterance), [
-            "show me my latest emails",
-            "summarize Murray's last email",
-            "what's on my calendar this week",
-            "what year was John Wick released?",
-            "the last one"
-        ])
+        XCTAssertGreaterThanOrEqual(fixtures.count, 20)
         XCTAssertTrue(fixtures.allSatisfy { !$0.hasPCM })
+
+        let families = Dictionary(grouping: fixtures, by: \.family)
+        for name in [
+            "inbox-overview",
+            "named-person",
+            "clarify-pick-newest",
+            "calendar-overview",
+            "general"
+        ] {
+            let group = try XCTUnwrap(families[name], "missing family \(name)")
+            XCTAssertGreaterThanOrEqual(group.count, 4, name)
+            XCTAssertFalse(Set(group.map(\.utterance)).count < group.count, "\(name) has duplicate utterances")
+        }
+
+        let live = GrokVoiceTape.liveSubset(fixtures)
+        XCTAssertEqual(Set(live.map(\.family)).count, 5, "live subset must hit every family")
+        XCTAssertLessThan(live.count, fixtures.count)
+        XCTAssertTrue(live.allSatisfy(\.runLive))
+    }
+
+    func testSynonymFamiliesReplayExpectedIntent() throws {
+        let fixtures = try Self.loadSeedFixtures()
+        for fixture in fixtures {
+            let replay = GrokVoiceTape.replay(fixture)
+            let ask = fixture.utterance
+            XCTAssertTrue(
+                fixture.intentsThatPass.contains(replay.intent),
+                "\(fixture.family) \(ask): intent \(replay.intent) not in \(fixture.intentsThatPass.sorted())"
+            )
+            XCTAssertFalse(GrokVoiceTape.isDeskRefusal(replay.reply), "\(ask): \(replay.reply)")
+            XCTAssertFalse(replay.notes.contains("live Grok"), ask)
+
+            let haystack = (replay.notes + replay.cardLabels + [replay.gmailQuery ?? "", replay.reply, replay.intent])
+                .joined(separator: "\n")
+                .lowercased()
+            XCTAssertFalse(haystack.contains("ios app"), "\(ask): \(haystack)")
+            XCTAssertFalse(haystack.contains("let the app handle"), "\(ask): \(haystack)")
+            XCTAssertFalse(haystack.contains("i'll stay quiet"), "\(ask): \(haystack)")
+
+            switch fixture.family {
+            case "inbox-overview":
+                XCTAssertEqual(replay.intent, "inbox-overview", ask)
+                XCTAssertTrue(replay.stickyCleared, ask)
+                XCTAssertGreaterThanOrEqual(replay.cardLabels.count, 2, "\(ask): \(replay.cardLabels)")
+                XCTAssertFalse(replay.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ask)
+            case "named-person":
+                XCTAssertTrue(["desk-person", "desk-thread"].contains(replay.intent), "\(ask) → \(replay.intent)")
+                XCTAssertTrue(replay.cardLabels.contains { $0.contains("Murray Mitchell") }, "\(ask): \(replay.cardLabels)")
+                XCTAssertFalse(replay.cardLabels.contains { $0.contains("Greenacre") }, "\(ask): \(replay.cardLabels)")
+                XCTAssertTrue(replay.stickyCleared, ask)
+                XCTAssertFalse(replay.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ask)
+                XCTAssertFalse((replay.gmailQuery ?? "").contains("from:steve"), ask)
+            case "clarify-pick-newest":
+                XCTAssertTrue(replay.ownsDeskTurn, ask)
+                XCTAssertNotEqual(replay.intent, "general", ask)
+                XCTAssertEqual(replay.evidence?.focusedEmail?.providerID, "fixture-murray-new", ask)
+                XCTAssertTrue(
+                    replay.cardLabels.contains { $0.contains("Murray Mitchell") && $0.contains("Walk-through today") },
+                    "\(ask): \(replay.cardLabels)"
+                )
+                XCTAssertFalse(replay.cardLabels.contains { $0.contains("Greenacre") }, ask)
+            case "calendar-overview":
+                XCTAssertEqual(replay.intent, "calendar", ask)
+                XCTAssertFalse(replay.attachesEmailCard, ask)
+                XCTAssertNil(replay.gmailQuery, ask)
+                XCTAssertFalse(haystack.contains("from:"), "\(ask): \(haystack)")
+                XCTAssertFalse(haystack.contains("inventing mail"), ask)
+            case "general":
+                XCTAssertEqual(replay.intent, "general", ask)
+                XCTAssertFalse(replay.ownsDeskTurn, ask)
+                XCTAssertFalse(replay.looksLikeMailAsk, ask)
+                XCTAssertFalse(replay.attachesEmailCard, ask)
+                XCTAssertNil(replay.gmailQuery, ask)
+                XCTAssertFalse((replay.gmailQuery ?? "").contains("from:john"), ask)
+            default:
+                XCTFail("unknown family \(fixture.family)")
+            }
+        }
     }
 
     func testAPIKeyIsEnvironmentOnlyAndNeverLooksAtSecretsPlist() {

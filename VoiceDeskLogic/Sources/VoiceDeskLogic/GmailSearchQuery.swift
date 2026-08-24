@@ -49,6 +49,10 @@ public enum GmailSearchQuery: Sendable {
         "when", "was", "were", "how", "why",
         // Conversational filler before “how about X’s latest email”.
         "okay", "ok", "perfect", "alright",
+        // Restarts / um-uh / yeah-that leftovers. “wait, Murray— yeah, Murray’s”
+        // must stay from:murray, not from:("yeah murray").
+        "yeah", "yes", "yep", "yup", "wait", "um", "uh", "sure", "please",
+        "mm", "hmm", "mhm",
         // Calendar overview words. “What’s the latest on my calendar?” is not from:calendar.
         "calendar", "schedule", "week", "upcoming", "meetings"
     ]
