@@ -45,7 +45,7 @@ public struct BuildIdentity: Equatable, Sendable {
         )
     }
 
-    /// Default spoken desk reply. `"VoiceDesk 0.1, build 2."` or unknown — never a guessed version.
+    /// Default spoken desk reply. `"VoiceDesk point 1, build 2."` for 0.x, or unknown — never a guessed version.
     public var spokenLine: String {
         guard let spokenMarketing, !build.isEmpty else {
             return Self.unknownSpokenLine
@@ -70,16 +70,24 @@ public struct BuildIdentity: Equatable, Sendable {
     }
 
     /// Speak major.minor; keep a non-zero patch. Never four dotted numbers.
+    /// 0.x speaks `"point N"` so TTS does not say “zero.”
     public var spokenMarketing: String? {
         let parts = marketing.split(separator: ".", omittingEmptySubsequences: false)
         guard (2...3).contains(parts.count),
               parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) else {
             return nil
         }
+        let core: String
         if parts.count == 3, parts[2] == "0" {
-            return "\(parts[0]).\(parts[1])"
+            core = "\(parts[0]).\(parts[1])"
+        } else {
+            core = marketing
         }
-        return marketing
+        let spokenParts = core.split(separator: ".", omittingEmptySubsequences: false)
+        if spokenParts.first == "0", spokenParts.count >= 2 {
+            return "point \(spokenParts.dropFirst().joined(separator: "."))"
+        }
+        return core
     }
 
     private static func normalizedMarketing(_ raw: String) -> String {

@@ -303,14 +303,14 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 0.1, build 2.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 2.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
-        XCTAssertTrue(fake.spoken.contains("VoiceDesk 0.1, build 2."))
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 2."))
         XCTAssertTrue(fake.sentTurns.isEmpty)
         XCTAssertTrue(fake.assistantOutputSuppressed)
 
         await model.applyUserTurn("Can you show it to me?")
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 0.1, build 2.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 2.")
         XCTAssertGreaterThanOrEqual(
             model.turns.last?.cards.count ?? 0,
             2,
@@ -334,11 +334,47 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 0.1, build 2.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 2.")
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 0.1, build 2.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 2.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+    }
+
+    func testLiveEchoAfterVersionSpeakIsDroppedAndRealAsksStay() async {
+        let event = CalendarItem(
+            title: "Dinner reservation",
+            whenLabel: "Tonight 7:00 PM",
+            location: "Oak & Stone",
+            relatedPeople: ["Massimo Ricci"]
+        )
+        var lauren = SampleData.syncedEmail()
+        lauren.fromName = "Laren Cole"
+        lauren.providerID = "msg-laren"
+        lauren.subject = "Walk-through window"
+        lauren.body = "Can we do Thursday at 11?"
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [lauren], events: [event])),
+            buildIdentity: .fixture
+        )
+        await model.applyUserTurn("what's on the phone")
+        let afterVersion = model.turns.count
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 2."))
+
+        fake.emitUser("zero")
+        fake.emitUser("point one")
+        fake.emitUser("build 2")
+        XCTAssertEqual(model.turns.count, afterVersion, "echo leftovers must not become user turns")
+
+        fake.emitUser("what's on my calendar")
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 2.")
+
+        fake.emitUser("latest email from Lauren")
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
     func testSHAAskSpeaksFixtureSHAWithoutInventing() async {
