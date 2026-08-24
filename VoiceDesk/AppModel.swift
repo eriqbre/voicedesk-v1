@@ -672,7 +672,7 @@ final class AppModel {
 
     private func rememberEvidence(_ evidence: ConversationPresence.DeskEvidence) {
         if evidence.resetsFocusedEmail {
-            lastFocusedEmail = nil
+            lastFocusedEmail = evidence.focusedEmail
         } else if let email = evidence.focusedEmail {
             lastFocusedEmail = email
         }

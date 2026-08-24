@@ -154,10 +154,14 @@ public enum VoiceInteractionLog: Sendable {
         var searchQuery: String?
 
         if pendingSearchClarify { notes.append("pending clarify") }
-        if evidence?.resetsFocusedEmail == true {
+        let attached = evidence?.focusedEmail
+        let namedMismatch = GmailSearchQuery.namedSenderMismatches(attached, ask: utterance)
+            || (hadFocusedEmail && evidence?.resetsFocusedEmail == true)
+            || (hadFocusedEmail && attached == nil && GmailSearchQuery.hasSenderPattern(utterance))
+        if evidence?.resetsFocusedEmail == true || namedMismatch {
             sticky = .cleared
             notes.append("sticky cleared")
-        } else if hadFocusedEmail, let focused = evidence?.focusedEmail, evidence?.resetsFocusedEmail != true {
+        } else if hadFocusedEmail, let focused = attached, evidence?.resetsFocusedEmail != true {
             sticky = .reused
             focusedPerson = focused.fromName
             notes.append("sticky reused (\(focused.fromName))")
@@ -178,7 +182,8 @@ public enum VoiceInteractionLog: Sendable {
                 notes.append("named query \(planned)")
             }
         }
-        if let sender = evidence?.focusedEmail?.fromName, evidence?.resetsFocusedEmail != true {
+        if let sender = attached?.fromName,
+           !GmailSearchQuery.namedSenderMismatches(attached, ask: utterance) {
             focusedPerson = sender
             notes.append("sender \(sender)")
         }

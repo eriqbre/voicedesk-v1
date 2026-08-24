@@ -499,10 +499,18 @@ public enum ConversationPresence {
 
         if wantsFullThread(raw) {
             if let email = resolveThreadEmail(for: raw, context: context, focusedEmail: focusedEmail) {
-                return threadEvidence(email)
+                return threadEvidence(email, resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail))
             }
             if context.isConnected, let plan = GmailSearchQuery.plan(from: raw) {
-                return searchEvidence(ask: raw, plan: plan, expandEarlier: true)
+                return searchEvidence(
+                    ask: raw,
+                    plan: plan,
+                    expandEarlier: true,
+                    resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail)
+                )
+            }
+            if GmailSearchQuery.hasSenderPattern(raw) {
+                return namedSenderMissEvidence(ask: raw, focused: focusedEmail, hasInbox: !context.snapshot.emails.isEmpty)
             }
             if !context.snapshot.emails.isEmpty {
                 return inboxEvidence(context: context, followUp: true)
@@ -518,7 +526,18 @@ public enum ConversationPresence {
 
         if looksLikeMailAsk(raw), !wantsCalendarDetails(raw) {
             if let email = matchingEmail(for: raw, in: context.snapshot.emails) {
-                return emailEvidence(email)
+                return emailEvidence(email, resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail))
+            }
+            if GmailSearchQuery.hasSenderPattern(raw) {
+                if context.isConnected, let plan = GmailSearchQuery.plan(from: raw) {
+                    return searchEvidence(
+                        ask: raw,
+                        plan: plan,
+                        expandEarlier: wantsFullThread(raw),
+                        resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail)
+                    )
+                }
+                return namedSenderMissEvidence(ask: raw, focused: focusedEmail, hasInbox: !context.snapshot.emails.isEmpty)
             }
             if wantsEmailFollowUp(raw) {
                 if let focusedEmail {
@@ -527,8 +546,7 @@ public enum ConversationPresence {
                 if !context.snapshot.emails.isEmpty {
                     return inboxEvidence(context: context, followUp: true)
                 }
-                if context.isConnected, GmailSearchQuery.hasSenderPattern(raw),
-                   let plan = GmailSearchQuery.plan(from: raw) {
+                if context.isConnected, let plan = GmailSearchQuery.plan(from: raw) {
                     return searchEvidence(ask: raw, plan: plan, expandEarlier: false)
                 }
                 return DeskEvidence(
@@ -783,6 +801,11 @@ public enum ConversationPresence {
         return "I don’t have a synced thread yet. I’m not inventing cards."
     }
 
+    /// Named `from:X` never inherits sticky or inbox[0] when that sender is not the match.
+    public static func namedSenderClearsSticky(_ raw: String, focused: EmailItem?) -> Bool {
+        GmailSearchQuery.namedSenderMismatches(focused, ask: raw)
+    }
+
     private static func resolveThreadEmail(
         for raw: String,
         context: DeskContext,
@@ -790,6 +813,9 @@ public enum ConversationPresence {
     ) -> EmailItem? {
         if let match = matchingEmail(for: raw, in: context.snapshot.emails) {
             return match
+        }
+        if GmailSearchQuery.hasSenderPattern(raw) {
+            return nil
         }
         if let focusedEmail { return focusedEmail }
         if context.snapshot.emails.count == 1 {
@@ -801,28 +827,35 @@ public enum ConversationPresence {
         return nil
     }
 
-    private static func emailEvidence(_ email: EmailItem) -> DeskEvidence {
+    private static func emailEvidence(_ email: EmailItem, resetsFocus: Bool = false) -> DeskEvidence {
         DeskEvidence(
             topic: .inbox,
             text: emailBodyReply(email),
             cards: [.email(email)],
             focusedEmail: email,
-            shouldFetchBody: true
+            shouldFetchBody: true,
+            resetsFocusedEmail: resetsFocus
         )
     }
 
-    private static func threadEvidence(_ email: EmailItem) -> DeskEvidence {
+    private static func threadEvidence(_ email: EmailItem, resetsFocus: Bool = false) -> DeskEvidence {
         DeskEvidence(
             topic: .inbox,
             text: emailThreadReply(email),
             cards: [.email(email)],
             focusedEmail: email,
             shouldFetchBody: true,
-            expandEarlierMessages: true
+            expandEarlierMessages: true,
+            resetsFocusedEmail: resetsFocus
         )
     }
 
-    private static func searchEvidence(ask: String, plan: GmailSearchPlan, expandEarlier: Bool) -> DeskEvidence {
+    private static func searchEvidence(
+        ask: String,
+        plan: GmailSearchPlan,
+        expandEarlier: Bool,
+        resetsFocus: Bool = false
+    ) -> DeskEvidence {
         DeskEvidence(
             topic: .inbox,
             text: gmailSearchingBeat,
@@ -832,7 +865,21 @@ public enum ConversationPresence {
             shouldSearchGmail: true,
             gmailQuery: plan.primary,
             gmailPlan: plan,
-            searchAsk: ask
+            searchAsk: ask,
+            resetsFocusedEmail: resetsFocus
+        )
+    }
+
+    private static func namedSenderMissEvidence(
+        ask: String,
+        focused: EmailItem?,
+        hasInbox: Bool
+    ) -> DeskEvidence {
+        DeskEvidence(
+            topic: .inbox,
+            text: emailBodyUnknownReply(hasInbox: hasInbox),
+            cards: [],
+            resetsFocusedEmail: namedSenderClearsSticky(ask, focused: focused) || focused != nil
         )
     }
 

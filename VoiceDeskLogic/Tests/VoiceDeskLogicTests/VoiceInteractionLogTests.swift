@@ -89,6 +89,8 @@ final class VoiceInteractionLogTests: XCTestCase {
         )
         XCTAssertTrue(["desk-person", "desk-thread"].contains(personClass.intent), personClass.intent)
         XCTAssertNotEqual(personClass.intent, "inbox-overview")
+        XCTAssertEqual(personClass.sticky, .cleared)
+        XCTAssertTrue(personClass.notes.contains("sticky cleared"))
 
         let calendarAsk = "What's the latest on my calendar?"
         let calendarEvidence = ConversationPresence.deskEvidence(
@@ -107,7 +109,6 @@ final class VoiceInteractionLogTests: XCTestCase {
         XCTAssertEqual(calendarClass.intent, "calendar")
         XCTAssertNotEqual(calendarClass.intent, "inbox-overview")
         XCTAssertNotEqual(calendarEvidence?.text, ConversationPresence.calendarMissReply)
-        XCTAssertFalse(personClass.notes.contains("sticky cleared"))
         if case .email(let item) = person?.cards.first {
             XCTAssertEqual(item.fromName, "Murray Mitchell")
         } else {
@@ -243,8 +244,9 @@ final class VoiceInteractionLogTests: XCTestCase {
             evidence: person,
             hadFocusedEmail: true
         )
-        XCTAssertEqual(reused.sticky, .reused)
+        XCTAssertEqual(reused.sticky, .cleared)
         XCTAssertEqual(reused.focusedPerson, "Murray Mitchell")
+        XCTAssertTrue(reused.notes.contains("sticky cleared"))
     }
 
     func testRecordNoopsWhenGateOverrideIsOff() {

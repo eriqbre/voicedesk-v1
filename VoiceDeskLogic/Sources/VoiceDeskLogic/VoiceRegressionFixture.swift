@@ -18,6 +18,7 @@ public struct VoiceRegressionFixture: Codable, Equatable, Sendable {
     /// Prior sticky person/thread (not always present on a raw log line).
     public var hadFocusedEmail: Bool?
     public var stickyFromName: String?
+    public var deskPreset: String?
     public var pendingSearchClarify: Bool?
     public var connected: Bool?
 
@@ -55,6 +56,7 @@ public struct VoiceRegressionFixture: Codable, Equatable, Sendable {
         voicePath: String = "Eve realtime",
         hadFocusedEmail: Bool? = nil,
         stickyFromName: String? = nil,
+        deskPreset: String? = nil,
         pendingSearchClarify: Bool? = nil,
         connected: Bool? = true,
         assertReply: Bool? = nil,
@@ -73,6 +75,7 @@ public struct VoiceRegressionFixture: Codable, Equatable, Sendable {
         self.voicePath = voicePath
         self.hadFocusedEmail = hadFocusedEmail
         self.stickyFromName = stickyFromName
+        self.deskPreset = deskPreset
         self.pendingSearchClarify = pendingSearchClarify
         self.connected = connected
         self.assertReply = assertReply
@@ -164,7 +167,7 @@ extension VoiceRegressionFixture {
     enum CodingKeys: String, CodingKey {
         case id, timestamp, source, userTranscript, intent, routingNotes
         case cardsAttached, assistantReply, voicePath
-        case hadFocusedEmail, stickyFromName, pendingSearchClarify, connected
+        case hadFocusedEmail, stickyFromName, deskPreset, pendingSearchClarify, connected
         case assertReply, requiredNotes, forbiddenSubstrings, allowedIntents
     }
 
@@ -181,6 +184,7 @@ extension VoiceRegressionFixture {
         voicePath = try c.decodeIfPresent(String.self, forKey: .voicePath) ?? "Eve realtime"
         hadFocusedEmail = try c.decodeIfPresent(Bool.self, forKey: .hadFocusedEmail)
         stickyFromName = try c.decodeIfPresent(String.self, forKey: .stickyFromName)
+        deskPreset = try c.decodeIfPresent(String.self, forKey: .deskPreset)
         pendingSearchClarify = try c.decodeIfPresent(Bool.self, forKey: .pendingSearchClarify)
         connected = try c.decodeIfPresent(Bool.self, forKey: .connected)
         assertReply = try c.decodeIfPresent(Bool.self, forKey: .assertReply)

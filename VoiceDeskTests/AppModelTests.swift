@@ -1265,6 +1265,91 @@ final class GoogleSliceTests: XCTestCase {
         XCTAssertEqual(overviewNames, ["Laren Cole"])
     }
 
+    func testInboxOverviewThenMurraySummaryIsMurrayNotGreenacre() async {
+        var greenacre = SampleData.syncedEmail()
+        greenacre.fromName = "Greenacre Properties, Inc."
+        greenacre.fromEmail = "board@greenacre.example.com"
+        greenacre.subject = "Board meeting notice"
+        greenacre.providerID = "msg-greenacre-top"
+        greenacre.body = "The quarterly board meeting is Thursday at 2pm."
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.fromEmail = "murray@example.com"
+        murray.subject = "Closing / notarization"
+        murray.providerID = "msg-murray-after-inbox"
+        murray.body = "Need you to notarize the closing package today."
+        var laren = SampleData.syncedEmail()
+        laren.fromName = "Laren Cole"
+        laren.fromEmail = "laren@example.com"
+        laren.subject = "Walk-through window"
+        laren.providerID = "msg-laren-after-inbox"
+        laren.body = "Can we do the walk-through Thursday at 11?"
+        let snapshot = DeskSnapshot(emails: [greenacre, murray, laren])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies[greenacre.providerID!] = greenacre.body
+        sync.bodies[murray.providerID!] = murray.body
+        sync.bodies[laren.providerID!] = laren.body
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+
+        await model.applyUserTurn("Just show me my latest emails.")
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Greenacre"))
+        let overviewNames = model.turns.last?.cards.compactMap { card -> String? in
+            if case .email(let item) = card { return item.fromName }
+            return nil
+        } ?? []
+        XCTAssertEqual(overviewNames.first, "Greenacre Properties, Inc.")
+
+        await model.applyUserTurn("Give me a summary of Murray's last email.")
+        XCTAssertEqual(sync.searchQueries.filter { $0.contains("murray") }.count, 0, "Murray was in cache")
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Murray Mitchell")
+                      || (model.turns.last?.text ?? "").contains("notarize"), model.turns.last?.text ?? "")
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("Greenacre"))
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card after inbox overview")
+        }
+
+        await model.applyUserTurn("Give me a summary of Lauren's latest, latest email.")
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("Greenacre"))
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("Murray Mitchell")
+                       && !(model.turns.last?.text ?? "").contains("Laren"), model.turns.last?.text ?? "")
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Laren Cole")
+        } else {
+            XCTFail("expected Laren card after Lauren ask")
+        }
+    }
+
+    func testNamedMurrayMissDoesNotAttachGreenacre() async {
+        var greenacre = SampleData.syncedEmail()
+        greenacre.fromName = "Greenacre Properties, Inc."
+        greenacre.fromEmail = "board@greenacre.example.com"
+        greenacre.subject = "Board meeting notice"
+        greenacre.providerID = "msg-greenacre-only"
+        greenacre.body = "The quarterly board meeting is Thursday at 2pm."
+        let snapshot = DeskSnapshot(emails: [greenacre])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.searchable = []
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        await model.applyUserTurn("Give me a summary of Murray's last email.")
+        XCTAssertFalse(sync.searchQueries.isEmpty)
+        XCTAssertTrue(sync.searchQueries.contains { $0.contains("from:murray") })
+        XCTAssertEqual(model.turns.last?.text, ConversationPresence.gmailSearchEmptyReply)
+        XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("Greenacre"))
+    }
+
     func testLatestOnMyCalendarShowsUpcomingEventsNotMiss() async {
         let event = CalendarItem(
             title: "Massimo showing",
