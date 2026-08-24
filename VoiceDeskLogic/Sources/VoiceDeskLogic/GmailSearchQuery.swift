@@ -206,9 +206,12 @@ public enum GmailSearchQuery: Sendable {
 
         if let regex = try? NSRegularExpression(pattern: #"\b([A-Za-z]{3,})['’]s\b"#) {
             let ns = NSRange(raw.startIndex..., in: raw)
-            if let match = regex.firstMatch(in: raw, range: ns),
-               let possRange = Range(match.range(at: 1), in: raw) {
+            for match in regex.matches(in: raw, range: ns) {
+                guard let possRange = Range(match.range(at: 1), in: raw) else { continue }
                 let possessive = String(raw[possRange])
+                // “What's the latest email from Lauren?” is not What as a sender,
+                // and must not turn Lauren into a leftover subject (`from:lauren lauren`).
+                guard isPossessiveNamePrefix(possessive) else { continue }
                 // Immediate word only — “Steve Brown's” keeps the pair.
                 // letterTokens would skip “of”/“was” and glue “quick”/“when”
                 // into from:("quick murray") / from:("was murray").
@@ -222,6 +225,7 @@ public enum GmailSearchQuery: Sendable {
                 for token in after.prefix(2) {
                     rememberSubject(token)
                 }
+                break
             }
         }
 

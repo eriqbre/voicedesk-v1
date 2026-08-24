@@ -286,6 +286,12 @@ final class GmailSearchQueryTests: XCTestCase {
 
     func testLatestEmailFromLaurenDoesNotSilentlyPickJointAlexAndLaren() {
         let ask = "What's the latest email from Lauren?"
+        let plan = GmailSearchQuery.plan(from: ask)
+        XCTAssertEqual(plan?.primary, "from:lauren", plan?.primary ?? "nil")
+        XCTAssertFalse(plan?.subjectTokens.contains("lauren") == true, "\(plan?.subjectTokens ?? [])")
+        for variant in plan?.variants ?? [] {
+            XCTAssertFalse(variant.contains("from:lauren lauren"), variant)
+        }
         XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:lauren")
         switch GmailSearchQuery.pick(
             [VoiceRegressionDesk.alexAndLaren, VoiceRegressionDesk.larenJansen],

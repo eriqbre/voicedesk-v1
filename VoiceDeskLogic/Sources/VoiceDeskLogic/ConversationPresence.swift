@@ -1183,7 +1183,6 @@ public enum ConversationPresence {
         focused: EmailItem?,
         clarifyMatches: [EmailItem]
     ) -> DeskEvidence {
-        let owner = context.mailboxOwner
         let pool: [EmailItem]
         if !clarifyMatches.isEmpty {
             pool = clarifyMatches.filter { $0.id != focused?.id }

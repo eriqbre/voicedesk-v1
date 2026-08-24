@@ -103,8 +103,8 @@ final class SenderRefineTests: XCTestCase {
         XCTAssertTrue(
             ConversationPresence.ownsConnectedDeskTurn(
                 "Yeah",
-                pendingSenderRefine: true,
-                hasFocusedEmail: true
+                hasFocusedEmail: true,
+                pendingSenderRefine: true
             )
         )
         XCTAssertFalse(
