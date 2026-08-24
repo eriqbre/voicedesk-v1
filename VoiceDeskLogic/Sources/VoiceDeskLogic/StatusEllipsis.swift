@@ -1,6 +1,6 @@
 import Foundation
 
-/// Trailing-dot cycle for in-progress status copy (Searching Gmail / Thinking).
+/// Trailing-dot cycle for in-progress status copy (Searching Gmail / Thinking / launch sync).
 /// `.` → `..` → `...` → `.` — display only; stored beat text stays static.
 public enum StatusEllipsis: Sendable {
     public static let interval: TimeInterval = 0.45

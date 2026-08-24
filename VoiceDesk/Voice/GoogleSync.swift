@@ -5,7 +5,12 @@ import VoiceDeskLogic
 /// `Sendable` is valid because every implementation is `@MainActor`.
 @MainActor
 protocol GoogleSyncing: AnyObject, Sendable {
-    func sync(token: String, accountEmail: String, now: Date) async throws -> DeskSnapshot
+    func sync(
+        token: String,
+        accountEmail: String,
+        now: Date,
+        onInboxMessageIDs: (@Sendable ([String]) -> Void)?
+    ) async throws -> DeskSnapshot
     func fetchMessage(token: String, messageID: String, now: Date) async throws -> EmailItem
     func searchMessages(token: String, query: String, now: Date) async throws -> [EmailItem]
 }
@@ -21,10 +26,21 @@ final class LiveGoogleSync: GoogleSyncing {
         self.recentMessageLimit = recentMessageLimit
     }
 
-    func sync(token: String, accountEmail: String, now: Date) async throws -> DeskSnapshot {
+    func sync(
+        token: String,
+        accountEmail: String,
+        now: Date,
+        onInboxMessageIDs: (@Sendable ([String]) -> Void)? = nil
+    ) async throws -> DeskSnapshot {
         let session = self.session
         let limit = self.recentMessageLimit
-        async let emails = Self.recentEmails(session: session, token: token, now: now, limit: limit)
+        async let emails = Self.recentEmails(
+            session: session,
+            token: token,
+            now: now,
+            limit: limit,
+            onInboxMessageIDs: onInboxMessageIDs
+        )
         async let events = Self.upcomingEvents(session: session, token: token, now: now)
         async let tasks = Self.openTasks(session: session, token: token)
         return DeskSnapshot(
@@ -113,7 +129,8 @@ final class LiveGoogleSync: GoogleSyncing {
         session: URLSession,
         token: String,
         now: Date,
-        limit: Int
+        limit: Int,
+        onInboxMessageIDs: (@Sendable ([String]) -> Void)?
     ) async throws -> [EmailItem] {
         let listData = try await getData(
             session: session,
@@ -122,6 +139,7 @@ final class LiveGoogleSync: GoogleSyncing {
         )
         let list = try Self.object(listData)
         let ids = (list["messages"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        onInboxMessageIDs?(Array(ids.prefix(limit)))
         var messages: [[String: Any]] = []
         for id in ids.prefix(limit) {
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -193,10 +211,16 @@ final class MockGoogleSync: GoogleSyncing {
     var syncCalls = 0
     var failuresRemaining = 0
 
-    func sync(token: String, accountEmail: String, now: Date) async throws -> DeskSnapshot {
+    func sync(
+        token: String,
+        accountEmail: String,
+        now: Date,
+        onInboxMessageIDs: (@Sendable ([String]) -> Void)? = nil
+    ) async throws -> DeskSnapshot {
         _ = token
         syncCalls += 1
         if let error { throw GoogleSignInError.failed(error) }
+        onInboxMessageIDs?(result.emails.compactMap(\.providerID))
         var next = result
         next.accountEmail = accountEmail
         next.lastSyncedAt = now

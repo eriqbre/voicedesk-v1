@@ -1166,10 +1166,13 @@ final class GoogleSliceTests: XCTestCase {
             cache: cache,
             sync: sync
         )
+        model.launchStatusHold = .zero
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
         XCTAssertFalse(model.google.isConnected)
 
         await model.restoreGoogleIfNeeded()
+        XCTAssertEqual(model.launchSyncPhase, .idle)
+        XCTAssertFalse(model.turns.contains { LaunchSyncStatus.isSilent($0.text) })
         XCTAssertTrue(model.google.isConnected)
         XCTAssertEqual(sync.syncCalls, 1, "restore must hit Gmail even when cache already has accountEmail")
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Arrived this morning")
@@ -1195,7 +1198,10 @@ final class GoogleSliceTests: XCTestCase {
             sync: sync,
             isOnline: false
         )
+        model.launchStatusHold = .zero
         await model.restoreGoogleIfNeeded()
+        XCTAssertEqual(model.launchSyncPhase, .idle)
+        XCTAssertFalse(model.turns.contains { LaunchSyncStatus.isSilent($0.text) })
         XCTAssertEqual(sync.syncCalls, 0)
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
     }
