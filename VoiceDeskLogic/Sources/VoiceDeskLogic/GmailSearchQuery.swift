@@ -83,7 +83,14 @@ public enum GmailSearchQuery: Sendable {
         // Conversational filler before “how about X’s latest email”.
         "okay", "ok", "perfect", "alright",
         // Calendar overview words. “What’s the latest on my calendar?” is not from:calendar.
-        "calendar", "schedule", "week", "upcoming", "meetings"
+        "calendar", "schedule", "week", "upcoming", "meetings",
+        // Topic glue after a sender. “dealing with Fleeman” is not last name Dealing.
+        "dealing", "regarding"
+    ]
+
+    /// Spoken glue between a named sender and a topic. Not a last name.
+    public static let topicGlue: Set<String> = [
+        "dealing", "regarding", "about"
     ]
 
     /// Sender-name match required before we attach a card for a named ask.
@@ -186,10 +193,12 @@ public enum GmailSearchQuery: Sendable {
             }
         }
 
-        // Topic after regarding / about — “Lauren wrote regarding Fleeman Road”.
+        // Topic after regarding / about / dealing with — glue, not a last name.
         // Skip “how/what about <name>”; that is a sender, already captured.
         if nameAfterHowOrWhatAbout(in: raw) == nil,
-           let regex = try? NSRegularExpression(pattern: #"\b(?:regarding|about)\s+(.+)$"#) {
+           let regex = try? NSRegularExpression(
+            pattern: #"\b(?:regarding|about|dealing\s+with|deals\s+with)\s+(.+)$"#
+           ) {
             let lower = raw.lowercased()
             if let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
                let range = Range(match.range(at: 1), in: lower) {
@@ -567,7 +576,7 @@ public enum GmailSearchQuery: Sendable {
             for piece in lower[range].split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
                 let token = sanitize(String(piece))
                 guard token.count >= 2 else { continue }
-                if stop.contains(token) {
+                if stop.contains(token) || topicGlue.contains(token) {
                     if !words.isEmpty { break }
                     continue
                 }

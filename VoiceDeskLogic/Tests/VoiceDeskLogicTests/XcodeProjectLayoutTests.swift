@@ -43,7 +43,7 @@ final class XcodeProjectLayoutTests: XCTestCase {
     func testVersionXcconfigIsSourceOfTruth() throws {
         let version = try XCTUnwrap(repoFile("Config/Version.xcconfig"))
         XCTAssertTrue(version.contains("MARKETING_VERSION = 0.1.0"))
-        XCTAssertTrue(version.contains("CURRENT_PROJECT_VERSION = 3"))
+        XCTAssertTrue(version.contains("CURRENT_PROJECT_VERSION = 4"))
         XCTAssertFalse(version.contains("0.1.1.32"))
         XCTAssertTrue(version.contains("0.x.y = dogfood only"))
         XCTAssertTrue(version.contains("1.0.0 = first build anyone else may have"))
@@ -358,6 +358,12 @@ final class XcodeProjectLayoutTests: XCTestCase {
         let sync = try XCTUnwrap(repoFile("VoiceDesk/Voice/GoogleSync.swift"))
         XCTAssertTrue(sync.contains("GoogleSyncPolicy.recentInboxLimit"))
         XCTAssertFalse(sync.contains("recentMessageLimit: Int = 8"))
+        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
+        XCTAssertTrue(app.contains("DeskSnapshotMerge.applying"))
+        XCTAssertFalse(
+            app.contains("deskSnapshot = next"),
+            "sync must merge into the hot store, not replace it"
+        )
     }
 
     func testGoogleSignInPackageIsPinned() throws {

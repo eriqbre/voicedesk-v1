@@ -1210,8 +1210,9 @@ final class AppModel {
                 accountEmail: google.snapshot.email ?? "",
                 now: Date()
             )
-            deskSnapshot = next
-            cache.save(next)
+            let merged = DeskSnapshotMerge.applying(incoming: next, onto: deskSnapshot)
+            deskSnapshot = merged
+            cache.save(merged)
             refreshPresence()
             if announceLaunch {
                 launchSyncPhase = LaunchSyncStatus.phaseAfterInboxIDs(

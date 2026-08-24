@@ -31,6 +31,11 @@ public struct DeskSnapshot: Equatable, Hashable, Sendable, Codable {
         !emails.isEmpty || !events.isEmpty || !tasks.isEmpty
     }
 
+    /// Newest inbox rows for glance / “latest emails”. A view — never the store.
+    public var glanceEmails: [EmailItem] {
+        Array(emails.prefix(InboxGlance.overviewLimit))
+    }
+
     public var syncLabel: String {
         guard let lastSyncedAt else { return "Not synced yet" }
         return "Last synced \(DeskSnapshot.timeLabel(lastSyncedAt))"

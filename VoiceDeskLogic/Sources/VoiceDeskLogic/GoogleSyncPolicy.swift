@@ -6,8 +6,9 @@ public enum GoogleSyncPolicy: Sendable {
     public static let recentInboxLimit = 25
 
     /// Connected + online restore always hits Gmail. `0` means ignore `lastSyncedAt`
-    /// age — a non-empty cache must not skip network sync. Raise later if we want
-    /// a short TTL instead of every restore.
+    /// age — a non-empty cache must not skip network sync. The pull is a window;
+    /// `DeskSnapshotMerge` keeps mail that aged out of the latest-25 inbox list.
+    /// Raise later if we want a short TTL instead of every restore.
     public static let restoreSyncMaxAge: TimeInterval = 0
 
     /// First ConversationScreen frame reads `FileDeskCache` / `DeskCaching.load()`.

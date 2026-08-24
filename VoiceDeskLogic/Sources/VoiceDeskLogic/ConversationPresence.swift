@@ -127,7 +127,7 @@ public enum ConversationPresence {
         switch topic {
         case .inbox:
             if context.isConnected {
-                return context.snapshot.emails.prefix(5).map { .email($0) }
+                return context.snapshot.glanceEmails.map { .email($0) }
             }
             return [.connectGoogle(context.connectItem)]
         case .calendar:
@@ -602,11 +602,11 @@ public enum ConversationPresence {
         }
         // “Lauren wrote regarding Fleeman Road” — no “email” word required.
         if GmailSearchQuery.hasSenderPattern(raw),
-           contains(lower, ["wrote", "written", "regarding", "looking for the one"]) {
+           contains(lower, ["wrote", "written", "regarding", "dealing with", "looking for the one"]) {
             return true
         }
         // “The one regarding Fleeman Road” / “regarding Fleeman” — desk topic pick.
-        if contains(lower, ["regarding", "the one regarding", "looking for the one"]),
+        if contains(lower, ["regarding", "dealing with", "the one regarding", "looking for the one"]),
            GmailSearchQuery.plan(from: raw)?.subjectTokens.isEmpty == false {
             return true
         }

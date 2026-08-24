@@ -303,14 +303,14 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 3.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
-        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 3."))
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 4."))
         XCTAssertTrue(fake.sentTurns.isEmpty)
         XCTAssertTrue(fake.assistantOutputSuppressed)
 
         await model.applyUserTurn("Can you show it to me?")
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 3.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
         XCTAssertGreaterThanOrEqual(
             model.turns.last?.cards.count ?? 0,
             2,
@@ -334,10 +334,10 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 3.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 3.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
     }
 
@@ -362,16 +362,16 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("what's on the phone")
         let afterVersion = model.turns.count
-        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 3."))
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 4."))
 
         fake.emitUser("zero")
         fake.emitUser("point one")
-        fake.emitUser("build 3")
+        fake.emitUser("build 4")
         XCTAssertEqual(model.turns.count, afterVersion, "echo leftovers must not become user turns")
 
         fake.emitUser("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 3.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
 
         fake.emitUser("latest email from Lauren")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
@@ -1380,6 +1380,10 @@ final class GoogleSliceTests: XCTestCase {
         XCTAssertTrue(model.google.isConnected)
         XCTAssertEqual(sync.syncCalls, 1, "restore must hit Gmail even when cache already has accountEmail")
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Arrived this morning")
+        XCTAssertTrue(
+            model.deskSnapshot.emails.contains { $0.subject == "Day-one snapshot" },
+            "restore merge must keep cached mail that is not in the latest pull"
+        )
         XCTAssertEqual(model.deskSnapshot.accountEmail, "ada@example.com")
     }
 
@@ -1439,14 +1443,52 @@ final class GoogleSliceTests: XCTestCase {
         await model.applyUserTurn("Can you pull my latest emails?")
         XCTAssertEqual(sync.syncCalls, 1, "inbox-overview must sync before listing cache")
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Arrived this morning")
+        XCTAssertTrue(
+            model.deskSnapshot.emails.contains { $0.subject == "Day-one snapshot" },
+            "inbox sync merges; it must not drop cached mail"
+        )
         XCTAssertTrue((model.turns.last?.text ?? "").contains("New Sender"))
-        XCTAssertFalse((model.turns.last?.text ?? "").contains("Old Sender"))
         XCTAssertTrue(
             model.turns.last?.cards.contains { card in
                 if case .email(let item) = card { return item.subject == "Arrived this morning" }
                 return false
             } == true
         )
+    }
+
+    func testInboxSyncMergesAgedOutFleemanInsteadOfReplacingStore() async {
+        let fleeman = VoiceRegressionDesk.larenJansen
+        let newer = (0..<GoogleSyncPolicy.recentInboxLimit).map { index in
+            EmailItem(
+                providerID: "inbox-newer-\(index)",
+                fromName: index == 0 ? "Eriq Breland" : "Inbox \(index)",
+                fromEmail: "inbox\(index)@example.com",
+                sentAtLabel: "Today 4:00 PM",
+                subject: "Newer inbox \(index)",
+                preview: "Newer than Fleeman.",
+                filterTag: "Inbox"
+            )
+        }
+        let cache = MemoryDeskCache(
+            snapshot: DeskSnapshot(
+                accountEmail: "ada@example.com",
+                lastSyncedAt: Date(timeIntervalSince1970: 100),
+                emails: [fleeman]
+            )
+        )
+        let sync = MockGoogleSync(result: DeskSnapshot(emails: newer))
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: cache,
+            sync: sync
+        )
+        await model.syncDesk()
+        XCTAssertEqual(model.deskSnapshot.emails.count, 26)
+        XCTAssertTrue(model.deskSnapshot.emails.contains { $0.providerID == fleeman.providerID })
+        XCTAssertEqual(model.deskSnapshot.glanceEmails.count, 5)
+        XCTAssertFalse(model.deskSnapshot.glanceEmails.contains { $0.providerID == fleeman.providerID })
+        XCTAssertEqual(cache.load().emails.count, 26)
     }
 
     func testPersonEmailAskDoesNotInboxSync() async {
