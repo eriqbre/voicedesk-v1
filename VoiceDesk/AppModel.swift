@@ -352,6 +352,8 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
+            // Drop before barge-in / Grok / desk routing. GrokVoiceService
+            // already applied the same gate on speech_started.
             if echoGate.acceptUserTranscript(event.text, voiceState: voice.state) == nil {
                 return
             }

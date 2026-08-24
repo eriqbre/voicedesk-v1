@@ -122,14 +122,19 @@ public enum GrokRealtime {
 
     public static func sessionUpdateObject(
         voice: String = defaultVoice,
-        instructions: String = presenceInstructions
+        instructions: String = presenceInstructions,
+        interruptResponse: Bool? = nil,
+        createResponse: Bool? = nil
     ) -> [String: Any] {
         [
             "type": "session.update",
             "session": [
                 "voice": voice,
                 "instructions": instructions,
-                "turn_detection": ["type": "server_vad"] as [String: Any],
+                "turn_detection": turnDetectionObject(
+                    interruptResponse: interruptResponse,
+                    createResponse: createResponse
+                ),
                 "audio": [
                     "input": [
                         "format": [
@@ -146,6 +151,35 @@ public enum GrokRealtime {
                 ] as [String: Any]
             ] as [String: Any]
         ]
+    }
+
+    /// Default listen / first-tap: server VAD only. Verbatim speak passes
+    /// `interruptResponse: false` so her own echo cannot cancel the line.
+    public static func turnDetectionObject(
+        interruptResponse: Bool? = nil,
+        createResponse: Bool? = nil
+    ) -> [String: Any] {
+        var turn: [String: Any] = ["type": "server_vad"]
+        if let interruptResponse {
+            turn["interrupt_response"] = interruptResponse
+        }
+        if let createResponse {
+            turn["create_response"] = createResponse
+        }
+        return turn
+    }
+
+    /// Eve reads this line. Mic stays live; server must not barge-in on echo.
+    public static func verbatimSpeakSessionUpdateObject(
+        voice: String = defaultVoice,
+        text: String
+    ) -> [String: Any] {
+        sessionUpdateObject(
+            voice: voice,
+            instructions: verbatimSpeakInstructions(text: text),
+            interruptResponse: false,
+            createResponse: false
+        )
     }
 
     public static func sessionUpdateJSON(

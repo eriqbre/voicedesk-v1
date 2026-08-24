@@ -48,16 +48,51 @@ public struct EchoTranscriptGate: Equatable, Sendable {
     }
 
     /// Returns the trimmed transcript, or `nil` when this is echo and must not
-    /// become a user turn.
+    /// become a user turn. Echo is dropped **before** barge-in is considered.
     public func acceptUserTranscript(
         _ text: String,
         voiceState: VoiceState = .listening
     ) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if shouldIgnoreUserTranscript(voiceState: voiceState) { return nil }
         if isLeftoverEcho(trimmed) { return nil }
+        let speaking = shouldIgnoreUserTranscript(voiceState: voiceState)
+        if speaking {
+            // Short identity / version line: finish the sentence. Do not barge-in.
+            if isProtectedIdentityLine || lastSpokenLine.isEmpty { return nil }
+            return trimmed
+        }
         return trimmed
+    }
+
+    /// One-sentence VoiceDesk identity line — finish it over barge-in.
+    public var isProtectedIdentityLine: Bool {
+        Self.isProtectedIdentityLine(lastSpokenLine)
+    }
+
+    public static func isProtectedIdentityLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return trimmed.lowercased().hasPrefix("voicedesk")
+    }
+
+    /// `speech_started` has no words yet. Never cancel a desk / version line —
+    /// wait for the transcript so echo can be dropped first.
+    public func shouldCancelSpeakOnSpeechStarted(voiceState: VoiceState = .listening) -> Bool {
+        !shouldIgnoreUserTranscript(voiceState: voiceState)
+    }
+
+    /// Dropped echo never stops Eve. A live non-echo ask may barge-in except
+    /// on a short identity / version line (prefer finishing that sentence).
+    public func shouldCancelSpeak(
+        for transcript: String,
+        voiceState: VoiceState = .listening
+    ) -> Bool {
+        guard acceptUserTranscript(transcript, voiceState: voiceState) != nil else {
+            return false
+        }
+        if isProtectedIdentityLine { return false }
+        return shouldIgnoreUserTranscript(voiceState: voiceState)
     }
 
     /// Intent + plan after the gate. Dropped transcripts have intent `"dropped"`
