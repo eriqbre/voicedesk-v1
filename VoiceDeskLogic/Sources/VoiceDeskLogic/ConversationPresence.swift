@@ -330,6 +330,7 @@ public enum ConversationPresence {
 
     public static func isGrokDeskMeta(_ raw: String) -> Bool {
         if isGrokDeskHandoff(raw) { return true }
+        if isGrokCapabilityRefusal(raw) { return true }
         return contains(raw.lowercased(), [
             "can't pull",
             "cannot pull",
@@ -350,6 +351,17 @@ public enum ConversationPresence {
             "only have a snippet",
             "snippet only"
         ])
+    }
+
+    /// Short Grok capability refusal. Must not match a long Eve digest that
+    /// later quotes “can’t help” from an email body.
+    public static func isGrokCapabilityRefusal(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let lower = trimmed.lowercased()
+        guard contains(lower, DeskSpokenPath.forbiddenPhrases) else { return false }
+        if trimmed.count <= 96 { return true }
+        return DeskSpokenPath.strippingLeadingRefusal(trimmed).isEmpty
     }
 
     public static func looksLikeMailAsk(_ raw: String) -> Bool {

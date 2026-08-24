@@ -35,7 +35,10 @@ final class VoiceCloudDogfoodLogTests: XCTestCase {
         }
         XCTAssertTrue(text.hasSuffix("\n"))
         XCTAssertEqual(text.filter { $0 == "\n" }.count, 1)
-        XCTAssertTrue(text.contains("\"schemaVersion\":2"))
+        XCTAssertTrue(text.contains("\"schemaVersion\":3"))
+        XCTAssertTrue(text.contains("\"latencyMs\":30000"))
+        XCTAssertTrue(text.contains("\"replyReadyMs\":400"))
+        XCTAssertTrue(text.contains("awaitingNonMetaTranscript"))
         XCTAssertTrue(text.contains("\"sticky\":\"reused\""))
         XCTAssertTrue(text.contains("John Madison"))
         XCTAssertTrue(text.contains("from:john"))
@@ -51,6 +54,69 @@ final class VoiceCloudDogfoodLogTests: XCTestCase {
         XCTAssertEqual(decoded.searchQuery, "from:john@coastal.test")
         XCTAssertEqual(decoded.errors, ["timeout talking to Eve"])
         XCTAssertEqual(decoded.cardsAttached, ["email:John Madison:Listing referral"])
+        XCTAssertEqual(decoded.latencyMs, 30_000)
+        XCTAssertEqual(decoded.replyReadyMs, 400)
+        XCTAssertEqual(decoded.stages, ["awaitingNonMetaTranscript"])
+    }
+
+    func testSerializeTurnTimingFieldsAndLegacyOmitsThem() throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let timing = VoiceTurnTiming(
+            userFinalAt: start,
+            replyReadyAt: start.addingTimeInterval(0.25),
+            firstAudioAt: start.addingTimeInterval(30),
+            replyDoneAt: start.addingTimeInterval(34),
+            stages: ["gmailFetch", "xaiSummarize", "heldRefusalAudio", "awaitingNonMetaTranscript"]
+        )
+        XCTAssertEqual(timing.latencyMs, 30_000)
+        XCTAssertEqual(timing.replyReadyMs, 250)
+        let entry = VoiceInteractionEntry(
+            timestamp: start,
+            source: "live voice",
+            userTranscript: "Give me a quick summary of Murray's latest email.",
+            intent: "desk-thread",
+            routingNotes: [],
+            cardsAttached: ["email:Murray Mitchell:Closing"],
+            assistantReply: "Murray Mitchell emailed about closing.",
+            voicePath: "Eve realtime",
+            timing: timing
+        )
+        guard let data = VoiceCloudLogCodec.jsonlLine(for: entry),
+              let text = String(data: data, encoding: .utf8)
+        else {
+            return XCTFail("expected jsonl")
+        }
+        XCTAssertTrue(text.contains("\"schemaVersion\":3"))
+        XCTAssertTrue(text.contains("\"userFinalAt\""))
+        XCTAssertTrue(text.contains("\"replyReadyAt\""))
+        XCTAssertTrue(text.contains("\"firstAudioAt\""))
+        XCTAssertTrue(text.contains("\"replyDoneAt\""))
+        XCTAssertTrue(text.contains("\"latencyMs\":30000"))
+        XCTAssertTrue(text.contains("\"replyReadyMs\":250"))
+        XCTAssertTrue(text.contains("gmailFetch"))
+        XCTAssertTrue(text.contains("xaiSummarize"))
+        XCTAssertTrue(text.contains("heldRefusalAudio"))
+        XCTAssertTrue(text.contains("awaitingNonMetaTranscript"))
+        XCTAssertFalse(VoiceCloudLogRedactor.containsAudioKey(in: text))
+
+        let decoded = try VoiceCloudLogCodec.jsonDecoder().decode(VoiceInteractionEntry.self, from: Data(text.utf8))
+        XCTAssertEqual(decoded.latencyMs, 30_000)
+        XCTAssertEqual(decoded.replyReadyMs, 250)
+        XCTAssertEqual(decoded.stages, timing.stages)
+        XCTAssertNotNil(decoded.userFinalAt)
+        XCTAssertNotNil(decoded.firstAudioAt)
+
+        let legacy = """
+        {"source":"voice","userTranscript":"hi","intent":"general","routingNotes":[],"cardsAttached":[],"assistantReply":"hey","voicePath":"AVSpeech"}
+        """
+        let old = try VoiceCloudLogCodec.jsonDecoder().decode(
+            VoiceInteractionEntry.self,
+            from: Data(legacy.utf8)
+        )
+        XCTAssertNil(old.userFinalAt)
+        XCTAssertNil(old.latencyMs)
+        XCTAssertTrue(old.stages.isEmpty)
+        XCTAssertEqual(old.schemaVersion, 1)
     }
 
     func testLegacyJSONLDecodesWithoutNewKeys() throws {
@@ -65,6 +131,8 @@ final class VoiceCloudDogfoodLogTests: XCTestCase {
         XCTAssertNil(decoded.focusedPerson)
         XCTAssertEqual(decoded.errors, [])
         XCTAssertEqual(decoded.schemaVersion, 1)
+        XCTAssertNil(decoded.latencyMs)
+        XCTAssertTrue(decoded.stages.isEmpty)
     }
 
     func testRedactStripsSecretsAndEmailsKeepsTranscriptAndPerson() {
@@ -86,6 +154,8 @@ final class VoiceCloudDogfoodLogTests: XCTestCase {
             ]
         )
         let redacted = VoiceCloudLogRedactor.redact(entry)
+        XCTAssertEqual(redacted.latencyMs, entry.latencyMs)
+        XCTAssertEqual(redacted.stages, entry.stages)
         XCTAssertEqual(
             redacted.userTranscript,
             "Okay, got it. Hey, can you give me a summary of Murray's latest email?"
@@ -384,7 +454,14 @@ private func sampleEntry() -> VoiceInteractionEntry {
         cardsAttached: ["email:John Madison:Listing referral"],
         assistantReply: "John Madison wrote about Listing referral.",
         voicePath: "Eve realtime",
-        errors: ["timeout talking to Eve"]
+        errors: ["timeout talking to Eve"],
+        timing: VoiceTurnTiming(
+            userFinalAt: Date(timeIntervalSince1970: 1_700_000_000),
+            replyReadyAt: Date(timeIntervalSince1970: 1_700_000_000.4),
+            firstAudioAt: Date(timeIntervalSince1970: 1_700_000_030),
+            replyDoneAt: Date(timeIntervalSince1970: 1_700_000_034),
+            stages: ["awaitingNonMetaTranscript"]
+        )
     )
 }
 

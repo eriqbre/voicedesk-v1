@@ -175,6 +175,7 @@ final class VoiceInteractionLogTests: XCTestCase {
         XCTAssertTrue(text.contains("\"sticky\":\"cleared\""))
         XCTAssertTrue(text.contains("from:murray@example.com"))
         XCTAssertTrue(text.contains("socket drop"))
+        XCTAssertTrue(text.contains("\"schemaVersion\":3"))
         XCTAssertFalse(text.contains("audioBase64"))
     }
 

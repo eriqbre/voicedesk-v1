@@ -2,6 +2,7 @@
 # Elon / Cursor: pull VoiceDesk dogfood JSONL. Eriq never pastes a gist id.
 # Reads VOICE_DOGFOOD_GITHUB_TOKEN from VoiceDesk/Secrets.plist (or the env).
 # GET /gists and picks description == "VoiceDesk dogfood voice-log".
+# Schema v3 lines include latencyMs (firstAudioAt - userFinalAt) and stages.
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 PLIST="$ROOT/VoiceDesk/Secrets.plist"

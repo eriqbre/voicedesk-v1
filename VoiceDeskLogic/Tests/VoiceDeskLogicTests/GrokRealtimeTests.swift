@@ -95,6 +95,8 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("stay silent"))
         XCTAssertTrue(text.contains("let the app handle"))
         XCTAssertTrue(text.contains("NEVER narrate routing"))
+        XCTAssertTrue(text.contains("can’t help") || text.contains("can't help"))
+        XCTAssertTrue(text.contains("not able to"))
     }
 
     func testConnectedDeskFactsNeverLabelSnippetOnly() {
@@ -211,6 +213,8 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(prompt.contains(spoken))
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("word-for-word"))
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("let the app handle"))
+        XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("cannot help"))
+        XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("not able to"))
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains(spoken))
         XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
     }

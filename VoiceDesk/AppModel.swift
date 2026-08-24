@@ -52,6 +52,17 @@ final class AppModel {
     var expandEarlierEpoch: Int = 0
     /// Last known listening visual — used for the off earcon, not Grok.
     private var voiceListeningVisual = false
+    private var turnTiming = VoiceTurnTiming()
+    private var pendingVoiceLog: PendingVoiceLog?
+    private var awaitingSpeakTiming = false
+
+    private struct PendingVoiceLog {
+        var evidence: ConversationPresence.DeskEvidence?
+        var intentHint: String?
+        var reply: String?
+        var cards: [ContentCard]?
+        var notes: [String]
+    }
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -91,6 +102,9 @@ final class AppModel {
         self.deskSnapshot = self.cache.load()
         self.voice.transcriptHandler = { [weak self] event in
             self?.handleLiveTranscript(event)
+        }
+        self.voice.timingHandler = { [weak self] mark in
+            self?.handleSpeakTiming(mark)
         }
         startWelcome()
         refreshPresence()
@@ -398,6 +412,7 @@ final class AppModel {
         unmuteGrokAssistant()
         pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         pendingGeneralVoiceLog = true
+        awaitingSpeakTiming = voice.usesLiveLoop
         if ConversationPresence.wantsTour(text) {
             Task { await runTour() }
             pendingGeneralVoiceLog = false
@@ -408,6 +423,10 @@ final class AppModel {
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
         if ConversationPresence.isGrokDeskMeta(text) {
+            // Cut in-progress refusal audio. Do not sticky-mute the mic.
+            if google.isConnected {
+                voice.interruptResponse()
+            }
             return
         }
         if suppressLiveAssistant {
@@ -424,6 +443,7 @@ final class AppModel {
 
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
             turns[index].text += text
+            turnTiming.markReplyReady()
             if isFinal {
                 attachPendingCards(to: index)
                 liveAssistantID = nil
@@ -433,6 +453,7 @@ final class AppModel {
         }
 
         guard !text.isEmpty else { return }
+        turnTiming.markReplyReady()
         let turn = ConversationTurn(role: .assistant, text: text)
         liveAssistantID = turn.id
         turns.append(turn)
@@ -539,6 +560,7 @@ final class AppModel {
             unmuteGrokAssistant()
             pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
             pendingGeneralVoiceLog = true
+            awaitingSpeakTiming = true
             await voice.sendTextTurn(text)
             return
         }
@@ -603,7 +625,13 @@ final class AppModel {
         let plan = ConversationPresence.plan(for: text, context: deskContext)
         let cards = ConversationPresence.cards(for: plan.topic, context: deskContext)
         appendAssistant(plan.text, cards: cards)
+        turnTiming.markReplyReady()
+        awaitingSpeakTiming = true
         await voice.speak(plan.text)
+        if !voice.usesLiveLoop {
+            turnTiming.markFirstAudio()
+            turnTiming.markReplyDone()
+        }
         logVoiceTurn(intentHint: "general", reply: plan.text, cards: cards, notes: ["local plan"])
     }
 
@@ -758,6 +786,7 @@ final class AppModel {
             await speakDeskReply(ConversationPresence.connectHowToReply)
             return
         }
+        turnTiming.addStage("gmailFetch")
         let beatID = appendSearchingBeat()
         let variants = (plan?.variants.isEmpty == false) ? plan!.variants : [query]
         do {
@@ -834,6 +863,7 @@ final class AppModel {
             return
         }
         do {
+            turnTiming.addStage("gmailFetch")
             let full = try await sync.fetchMessage(token: token, messageID: id, now: Date())
             await applyLoadedEmail(full)
         } catch {
@@ -859,6 +889,8 @@ final class AppModel {
         }
         let includeEarlier = pendingThreadSummary
         pendingThreadSummary = false
+        let summarizerName = String(describing: type(of: emailSummarizer))
+        turnTiming.addStage(summarizerName.contains("Grok") ? "xaiSummarize" : "localSummarize")
         let reply = await emailSummarizer.summarize(
             EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
         )
@@ -876,10 +908,20 @@ final class AppModel {
             return
         }
         lastSpokenDeskReply = spoken
+        turnTiming.markReplyReady()
+        awaitingSpeakTiming = true
         await voice.speak(spoken)
+        if !voice.usesLiveLoop {
+            turnTiming.markFirstAudio()
+            turnTiming.markReplyDone()
+        }
     }
 
     private func rememberUserTurn(_ text: String, source: String) {
+        flushPendingVoiceLog(force: true)
+        turnTiming = VoiceTurnTiming()
+        turnTiming.markUserFinal()
+        awaitingSpeakTiming = false
         lastUserUtterance = text
         lastUserSource = source
         hadFocusedEmailAtTurnStart = lastFocusedEmail != nil
@@ -899,6 +941,20 @@ final class AppModel {
         )
     }
 
+    private func handleSpeakTiming(_ mark: VoiceSpeakTimingMark) {
+        switch mark {
+        case .firstAudio:
+            turnTiming.markFirstAudio()
+        case .replyDone:
+            turnTiming.markReplyDone()
+        case .stage(let name):
+            turnTiming.addStage(name)
+        }
+        if pendingVoiceLog != nil {
+            flushPendingVoiceLog()
+        }
+    }
+
     private func logVoiceTurn(
         evidence: ConversationPresence.DeskEvidence? = nil,
         intentHint: String? = nil,
@@ -914,14 +970,35 @@ final class AppModel {
             _ = extraNotes
             return
         }
+        pendingVoiceLog = PendingVoiceLog(
+            evidence: evidence,
+            intentHint: intentHint,
+            reply: reply,
+            cards: cards,
+            notes: extraNotes
+        )
+        flushPendingVoiceLog()
+    }
+
+    private func flushPendingVoiceLog(force: Bool = false) {
+        guard VoiceDogfoodGate.allowsLogging, let pending = pendingVoiceLog else { return }
+        let haveDone = turnTiming.replyDoneAt != nil
+        let waitForLiveAudio = awaitingSpeakTiming && voice.usesLiveLoop
+        // Live Eve: wait for response.done so latencyMs and replyDoneAt land on one line.
+        // Next user turn force-flushes if done never arrived.
+        if waitForLiveAudio, !force, !haveDone {
+            return
+        }
+        pendingVoiceLog = nil
+        awaitingSpeakTiming = false
         let classified = VoiceInteractionLog.classify(
             utterance: lastUserUtterance,
-            evidence: evidence,
+            evidence: pending.evidence,
             pendingSearchClarify: pendingClarifyAtTurnStart,
             hadFocusedEmail: hadFocusedEmailAtTurnStart
         )
-        var notes = classified.notes + extraNotes
-        if intentHint == "cancel" { notes.append("user stop") }
+        var notes = classified.notes + pending.notes
+        if pending.intentHint == "cancel" { notes.append("user stop") }
         var errors: [String] = []
         if let error = voice.lastError, !error.isEmpty {
             errors.append(error)
@@ -933,20 +1010,21 @@ final class AppModel {
             voicePath = "AVSpeech"
         }
         let focused = classified.focusedPerson
-            ?? evidence?.focusedEmail?.fromName
+            ?? pending.evidence?.focusedEmail?.fromName
             ?? (classified.sticky == .reused ? focusedPersonAtTurnStart : nil)
         let entry = VoiceInteractionEntry(
             source: lastUserSource,
             userTranscript: lastUserUtterance,
-            intent: intentHint ?? classified.intent,
+            intent: pending.intentHint ?? classified.intent,
             sticky: classified.sticky,
             focusedPerson: focused,
-            searchQuery: classified.searchQuery ?? evidence?.gmailQuery,
+            searchQuery: classified.searchQuery ?? pending.evidence?.gmailQuery,
             routingNotes: notes,
-            cardsAttached: VoiceInteractionLog.cardLabels(cards ?? evidence?.cards ?? []),
-            assistantReply: reply ?? evidence?.text ?? "",
+            cardsAttached: VoiceInteractionLog.cardLabels(pending.cards ?? pending.evidence?.cards ?? []),
+            assistantReply: pending.reply ?? pending.evidence?.text ?? "",
             voicePath: voicePath,
-            errors: errors
+            errors: errors,
+            timing: turnTiming
         )
         VoiceInteractionLog.record(entry)
         #if DEBUG

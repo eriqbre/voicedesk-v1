@@ -107,7 +107,7 @@ If Desktop is in iCloud, they can Save to Files into `Desktop/projects/voicedesk
 
 If an iCloud Documents container is later entitled, Debug also appends to that container’s `Documents/VoiceDesk-debug/` (nil-safe today — no entitlement shipped).
 
-**What each line contains (schema v2):** `timestamp`, `userTranscript`, `intent`, `sticky` (`cleared` / `reused` / `none`) + `focusedPerson`, `searchQuery`, `cardsAttached`, `assistantReply`, `voicePath`, `errors`. Routing notes stay as a human-readable echo. **No raw audio.**
+**What each line contains (schema v3):** `timestamp`, `userTranscript`, `intent`, `sticky` (`cleared` / `reused` / `none`) + `focusedPerson`, `searchQuery`, `cardsAttached`, `assistantReply`, `voicePath`, `errors`, plus response timing: `userFinalAt`, `replyReadyAt`, `firstAudioAt`, `replyDoneAt`, **`latencyMs`** (`firstAudioAt - userFinalAt`, primary stall), `replyReadyMs`, optional `stages` (`gmailFetch`, `xaiSummarize`, `heldRefusalAudio`, `awaitingNonMetaTranscript`). Routing notes stay as a human-readable echo. **No raw audio.** v1/v2 lines still decode (timing keys absent).
 
 Never commit `.debug/` or raw `voice-log.jsonl`.
 
@@ -125,6 +125,7 @@ On launch / first turn the app `GET /gists` and reuses a **private** gist whose 
 
 ```bash
 ./scripts/pull-voice-dogfood-log.sh | tail -n 40
+# stalls: jq -c '{intent,latencyMs,replyReadyMs,stages}' after the pull
 ```
 
 Equivalent:
@@ -150,7 +151,7 @@ After a good dogfood turn, **do not paste the log into chat**. Elon reads `.debu
 VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/voice-regression/*.jsonl
 ```
 
-Same schema as the DEBUG log (`userTranscript`, `intent`, `sticky`, `focusedPerson`, `searchQuery`, `routingNotes`, `cardsAttached`, `assistantReply`, `voicePath`, `errors`, `source`). Add replay keys when needed:
+Same schema as the DEBUG log (`userTranscript`, `intent`, `sticky`, `focusedPerson`, `searchQuery`, `routingNotes`, `cardsAttached`, `assistantReply`, `voicePath`, `errors`, `source`, plus v3 `latencyMs` / `stages` when present). Add replay keys when needed:
 
 | Key | When |
 |-----|------|

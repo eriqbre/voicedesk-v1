@@ -6,6 +6,8 @@ public struct VerbatimSpeakGate: Equatable, Sendable {
     public var isSpeaking = false
     public var awaitingCreated = false
     public var responseID: String?
+    /// Assistant transcript heard on the verbatim response (not shown in UI).
+    public var heard = ""
 
     public init() {}
 
@@ -13,9 +15,24 @@ public struct VerbatimSpeakGate: Equatable, Sendable {
         isSpeaking = true
         awaitingCreated = true
         responseID = nil
+        heard = ""
     }
 
-    /// First `response.created` after `begin()` is the verbatim turn. Unmute then.
+    public mutating func hear(_ delta: String) {
+        heard += delta
+    }
+
+    /// Play Eve audio only after the heard text is the digest, not a refusal.
+    public func allowsAudio(deskClaimed: Bool) -> Bool {
+        DeskSpokenPath.allowsLiveGrokAudio(
+            deskClaimed: deskClaimed,
+            verbatimSpeaking: isSpeaking,
+            assistantText: heard
+        )
+    }
+
+    /// First `response.created` after `begin()` is the verbatim turn.
+    /// Audio stays held until `allowsAudio` sees a non-refusal digest.
     @discardableResult
     public mutating func created(_ id: String) -> Bool {
         guard isSpeaking, awaitingCreated else { return false }
@@ -51,6 +68,7 @@ public struct VerbatimSpeakGate: Equatable, Sendable {
         isSpeaking = false
         awaitingCreated = false
         responseID = nil
+        heard = ""
         return true
     }
 
@@ -58,5 +76,6 @@ public struct VerbatimSpeakGate: Equatable, Sendable {
         isSpeaking = false
         awaitingCreated = false
         responseID = nil
+        heard = ""
     }
 }

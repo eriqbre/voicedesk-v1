@@ -696,8 +696,13 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("That’s not in my last sync."))
         XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("All I have is the latest note."))
         XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("I don’t have the full body."))
+        XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("I can’t help with that."))
+        XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("I’m not able to do that."))
+        XCTAssertTrue(ConversationPresence.isGrokCapabilityRefusal("I can't help with that."))
+        XCTAssertTrue(ConversationPresence.isGrokCapabilityRefusal("I'm not able to help."))
         XCTAssertFalse(ConversationPresence.isGrokDeskRefusal("Murray wrote: Need you to notarize today."))
         XCTAssertFalse(ConversationPresence.isGrokDeskRefusal(ConversationPresence.gmailSearchingBeat))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn("Give me a quick summary of Murray's latest email."))
     }
 
     private func assertDoesNotContradictConnectCard(_ text: String, _ ask: String = "") {

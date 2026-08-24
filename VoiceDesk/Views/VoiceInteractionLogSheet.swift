@@ -115,6 +115,15 @@ struct VoiceInteractionLogSheet: View {
                         Text("\(entry.source) · \(entry.voicePath)")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        if let latency = entry.latencyMs {
+                            Text("latencyMs \(latency)\(entry.replyReadyMs.map { " · replyReadyMs \($0)" } ?? "")")
+                                .font(.caption2.monospaced())
+                        }
+                        if !entry.stages.isEmpty {
+                            Text(entry.stages.joined(separator: " · "))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
                         if !entry.routingNotes.isEmpty {
                             Text(entry.routingNotes.joined(separator: " · "))
                                 .font(.caption2)
