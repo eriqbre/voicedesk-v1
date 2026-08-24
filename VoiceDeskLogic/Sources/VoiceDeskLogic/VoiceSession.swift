@@ -20,9 +20,23 @@ public enum VoiceSessionEvent: Hashable, Sendable {
 /// Tap-to-talk / wake-or-cancel state machine. Pure so Linux tests can run it.
 public struct VoiceSession: Hashable, Sendable {
     public var state: VoiceState
+    /// Desk claim / accepted userFinal: leftover Grok `turnFinished` must not
+    /// bounce the orb back to Listening while we wait for first audio.
+    public var holdsThinkingUntilAudio: Bool
 
-    public init(state: VoiceState = .idle) {
+    public init(state: VoiceState = .idle, holdsThinkingUntilAudio: Bool = false) {
         self.state = state
+        self.holdsThinkingUntilAudio = holdsThinkingUntilAudio
+    }
+
+    /// Orb/status: Eve heard them and is working. No mic mute, no earcon.
+    public mutating func beginThinking(holdUntilAudio: Bool = true) {
+        if state == .idle || state == .listening {
+            state = .thinking
+        }
+        if holdUntilAudio, state == .thinking {
+            holdsThinkingUntilAudio = true
+        }
     }
 
     public mutating func apply(_ event: VoiceSessionEvent) {
@@ -32,14 +46,21 @@ public struct VoiceSession: Hashable, Sendable {
         case (.listening, .listenFinished):
             state = .thinking
         case (.thinking, .speakStarted), (.idle, .speakStarted), (.listening, .speakStarted):
+            holdsThinkingUntilAudio = false
             state = .speaking
         case (.speaking, .speakFinished):
+            holdsThinkingUntilAudio = false
             state = .idle
-        case (.speaking, .turnFinished), (.thinking, .turnFinished), (.listening, .turnFinished):
+        case (.speaking, .turnFinished), (.listening, .turnFinished):
+            state = .listening
+        case (.thinking, .turnFinished):
+            if holdsThinkingUntilAudio { break }
             state = .listening
         case (.listening, .tapTalk), (.thinking, .tapTalk), (.speaking, .tapTalk):
+            holdsThinkingUntilAudio = false
             state = .idle
         case (_, .cancel):
+            holdsThinkingUntilAudio = false
             state = .idle
         default:
             break

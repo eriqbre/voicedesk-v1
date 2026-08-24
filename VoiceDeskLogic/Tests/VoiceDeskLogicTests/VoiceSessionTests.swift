@@ -54,4 +54,63 @@ final class VoiceSessionTests: XCTestCase {
         wake.disarm()
         XCTAssertFalse(wake.isArmed)
     }
+
+    func testDeskClaimHoldsThinkingUntilSpeakStarted() {
+        var session = VoiceSession(state: .listening)
+        session.beginThinking(holdUntilAudio: true)
+        XCTAssertEqual(session.state, .thinking)
+        XCTAssertTrue(session.holdsThinkingUntilAudio)
+
+        session.apply(.turnFinished)
+        XCTAssertEqual(session.state, .thinking, "leftover Grok done must not drop Thinking")
+
+        session.apply(.speakStarted)
+        XCTAssertEqual(session.state, .speaking)
+        XCTAssertFalse(session.holdsThinkingUntilAudio)
+    }
+
+    func testThinkingCancelReturnsIdle() {
+        var session = VoiceSession(state: .listening)
+        session.beginThinking(holdUntilAudio: true)
+        session.apply(.cancel)
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertFalse(session.holdsThinkingUntilAudio)
+    }
+
+    func testThinkingTapTalkReturnsIdle() {
+        var session = VoiceSession(state: .listening)
+        session.beginThinking(holdUntilAudio: true)
+        session.apply(.tapTalk)
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertFalse(session.holdsThinkingUntilAudio)
+    }
+
+    func testListenFinishedWithoutHoldStillYieldsOnTurnFinished() {
+        var session = VoiceSession(state: .listening)
+        session.apply(.listenFinished)
+        XCTAssertEqual(session.state, .thinking)
+        XCTAssertFalse(session.holdsThinkingUntilAudio)
+        session.apply(.turnFinished)
+        XCTAssertEqual(session.state, .listening)
+    }
+
+    func testBeginThinkingFromIdleAndIdempotentWhileThinking() {
+        var idle = VoiceSession()
+        idle.beginThinking(holdUntilAudio: true)
+        XCTAssertEqual(idle.state, .thinking)
+
+        var thinking = VoiceSession(state: .thinking)
+        thinking.beginThinking(holdUntilAudio: true)
+        XCTAssertEqual(thinking.state, .thinking)
+        XCTAssertTrue(thinking.holdsThinkingUntilAudio)
+        thinking.apply(.turnFinished)
+        XCTAssertEqual(thinking.state, .thinking)
+    }
+
+    func testBeginThinkingDoesNotLeaveSpeaking() {
+        var session = VoiceSession(state: .speaking)
+        session.beginThinking(holdUntilAudio: true)
+        XCTAssertEqual(session.state, .speaking)
+        XCTAssertFalse(session.holdsThinkingUntilAudio)
+    }
 }

@@ -875,6 +875,61 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.voice.state, .idle)
     }
 
+    func testLiveDeskClaimShowsThinkingUntilSpeakStarted() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = nil
+        murray.body = "Walk the lot Saturday at 10."
+        let summarizer = GateEmailSummarizer()
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [murray])),
+            emailSummarizer: summarizer
+        )
+        model.tapTalk()
+        await waitUntil { fake.started }
+        XCTAssertEqual(model.voice.state, .listening)
+
+        fake.emitUser("Hey, show me Murray's latest email.", itemID: "murray-think")
+        XCTAssertEqual(model.voice.state, .thinking)
+        XCTAssertTrue(fake.spoken.isEmpty)
+        XCTAssertFalse(fake.beganThinkingWithMuteAPI)
+        await waitUntil { summarizer.isWaiting }
+
+        summarizer.release()
+        await waitUntil { !fake.spoken.isEmpty }
+        XCTAssertEqual(model.voice.state, .speaking)
+        XCTAssertFalse(fake.cancelled)
+    }
+
+    func testLiveDeskClaimCancelLeavesThinkingForIdle() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = nil
+        murray.body = "Walk the lot Saturday at 10."
+        let summarizer = GateEmailSummarizer()
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [murray])),
+            emailSummarizer: summarizer
+        )
+        model.tapTalk()
+        await waitUntil { fake.started }
+
+        fake.emitUser("Hey, show me Murray's latest email.", itemID: "murray-cancel")
+        XCTAssertEqual(model.voice.state, .thinking)
+
+        model.tapTalk()
+        XCTAssertTrue(fake.cancelled)
+        XCTAssertEqual(model.voice.state, .idle)
+        XCTAssertFalse(fake.beganThinkingWithMuteAPI)
+        summarizer.release()
+    }
+
     func testClientSecretExtraction() {
         XCTAssertEqual(
             LiveGrokVoiceClient.extractClientSecret(from: ["value": "tok_1"]),
@@ -913,6 +968,9 @@ final class FakeLiveVoiceService: VoiceServicing {
     var sentTurns: [String] = []
     var spoken: [String] = []
     var assistantOutputSuppressed = false
+    var beganThinking = false
+    /// Guard: Thinking is chrome only — never a capture mute / half-duplex gate.
+    var beganThinkingWithMuteAPI = false
 
     var state: VoiceState { session.state }
 
@@ -926,6 +984,8 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func speak(_ text: String) async {
         spoken.append(text)
+        session.apply(.speakStarted)
+        eventHandler?(.state(session.state))
     }
 
     func sendTextTurn(_ text: String) async {
@@ -954,6 +1014,34 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func suppressAssistantOutput(_ suppress: Bool) {
         assistantOutputSuppressed = suppress
+    }
+
+    func beginThinking() {
+        beganThinking = true
+        beganThinkingWithMuteAPI = false
+        session.beginThinking(holdUntilAudio: true)
+        eventHandler?(.state(session.state))
+    }
+}
+
+/// Holds summarize so AppModel stays in Thinking until first audio / cancel.
+@MainActor
+final class GateEmailSummarizer: EmailSummarizing, @unchecked Sendable {
+    private var continuation: CheckedContinuation<String, Never>?
+    private(set) var isWaiting = false
+
+    func summarize(_ request: EmailSummaryRequest) async -> String {
+        _ = request
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            self.isWaiting = true
+        }
+    }
+
+    func release(_ text: String = "Murray wants to walk the lot Saturday.") {
+        isWaiting = false
+        continuation?.resume(returning: text)
+        continuation = nil
     }
 }
 

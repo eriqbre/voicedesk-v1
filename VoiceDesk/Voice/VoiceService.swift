@@ -39,6 +39,8 @@ protocol VoiceServicing: AnyObject {
     func updatePresenceInstructions(_ text: String)
     func interruptResponse()
     func suppressAssistantOutput(_ suppress: Bool)
+    /// Accepted userFinal / desk claim: show Thinking until first audio. Not a mute.
+    func beginThinking()
     func cancel()
 }
 
@@ -107,6 +109,11 @@ final class VoiceBox {
 
     func suppressAssistantOutput(_ suppress: Bool) {
         service.suppressAssistantOutput(suppress)
+    }
+
+    func beginThinking() {
+        service.beginThinking()
+        state = service.state
     }
 
     func cancel() {
@@ -188,6 +195,11 @@ final class MockVoiceService: VoiceServicing {
         _ = suppress
     }
 
+    func beginThinking() {
+        session.beginThinking(holdUntilAudio: true)
+        eventHandler?(.state(session.state))
+    }
+
     func cancel() {
         apply(.cancel)
     }
@@ -235,6 +247,8 @@ final class UnconfiguredVoiceService: VoiceServicing {
     func suppressAssistantOutput(_ suppress: Bool) {
         _ = suppress
     }
+
+    func beginThinking() {}
 
     func cancel() {
         state = .idle

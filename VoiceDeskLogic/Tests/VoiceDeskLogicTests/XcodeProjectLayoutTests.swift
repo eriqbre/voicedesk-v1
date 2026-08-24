@@ -228,6 +228,46 @@ final class XcodeProjectLayoutTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testThinkingPathDoesNotIntroduceMuteAPIs() throws {
+        let files = [
+            "VoiceDesk/AppModel.swift",
+            "VoiceDesk/Voice/GrokVoiceService.swift",
+            "VoiceDesk/Voice/VoiceService.swift",
+            "VoiceDesk/Voice/VoiceEarcon.swift",
+            "VoiceDesk/Views/ConversationScreen.swift",
+            "VoiceDeskLogic/Sources/VoiceDeskLogic/VoiceSession.swift"
+        ]
+        let banned = [
+            "captureGate",
+            "beginHalfDuplex",
+            "MicrophoneCaptureGate",
+            "fakeProgress",
+            "progressPercent"
+        ]
+        for relative in files {
+            let source = try XCTUnwrap(repoFile(relative), relative)
+            for token in banned {
+                XCTAssertFalse(
+                    source.contains(token),
+                    "\(relative) must not introduce mute/progress API \(token)"
+                )
+            }
+        }
+
+        let session = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/VoiceSession.swift"))
+        XCTAssertTrue(session.contains("beginThinking"))
+        XCTAssertTrue(session.contains("holdsThinkingUntilAudio"))
+        XCTAssertFalse(session.contains("VoiceEarcon"))
+
+        let bar = try XCTUnwrap(repoFile("VoiceDesk/Views/ConversationScreen.swift"))
+        XCTAssertTrue(bar.contains("Thinking…"))
+        XCTAssertTrue(bar.contains("ellipsis"))
+
+        let earcon = try XCTUnwrap(repoFile("VoiceDesk/Voice/VoiceEarcon.swift"))
+        XCTAssertTrue(earcon.contains("Mic on/off only"))
+        XCTAssertFalse(earcon.contains("beginThinking"))
+    }
+
     func testLiveSyncUsesRecentInboxLimitOf25() throws {
         let sync = try XCTUnwrap(repoFile("VoiceDesk/Voice/GoogleSync.swift"))
         XCTAssertTrue(sync.contains("GoogleSyncPolicy.recentInboxLimit"))
