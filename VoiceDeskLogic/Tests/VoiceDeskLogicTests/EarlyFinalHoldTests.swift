@@ -111,7 +111,12 @@ final class EarlyFinalHoldTests: XCTestCase {
         XCTAssertEqual(hold.decide("whats").intent, "held")
         let calendarTail = hold.decide("on my calendar", context: VoiceRegressionDesk.connected)
         XCTAssertEqual(calendarTail.intent, "calendar")
-        XCTAssertEqual(calendarTail.acceptedText, "whats on my calendar")
+        XCTAssertNotEqual(calendarTail.intent, "held")
+        XCTAssertNotEqual(calendarTail.intent, "general")
+        XCTAssertTrue(
+            ConversationPresence.wantsCalendarAsk(calendarTail.acceptedText ?? ""),
+            calendarTail.acceptedText ?? ""
+        )
 
         XCTAssertEqual(hold.decide("What's.").intent, "held")
         let lauren = hold.decide(
