@@ -241,6 +241,8 @@ public enum ConversationPresence {
         public var resetsFocusedEmail: Bool
         /// Upgrade the fallback glance with one batched AI call; keep compact cards.
         public var shouldGlanceInbox: Bool
+        /// After “no / not that one” the next short ack (“Yeah”) stays desk.
+        public var keepsSenderRefine: Bool
 
         public init(
             topic: Topic,
@@ -254,7 +256,8 @@ public enum ConversationPresence {
             gmailPlan: GmailSearchPlan? = nil,
             searchAsk: String? = nil,
             resetsFocusedEmail: Bool = false,
-            shouldGlanceInbox: Bool = false
+            shouldGlanceInbox: Bool = false,
+            keepsSenderRefine: Bool = false
         ) {
             self.topic = topic
             self.text = text
@@ -268,6 +271,7 @@ public enum ConversationPresence {
             self.searchAsk = searchAsk
             self.resetsFocusedEmail = resetsFocusedEmail
             self.shouldGlanceInbox = shouldGlanceInbox
+            self.keepsSenderRefine = keepsSenderRefine
         }
 
         public var claimsCardWithoutAttaching: Bool {
@@ -291,8 +295,17 @@ public enum ConversationPresence {
     public static func ownsConnectedDeskTurn(
         _ raw: String,
         pendingSearchClarify: Bool = false,
-        hasClarifyMatches: Bool = false
+        hasClarifyMatches: Bool = false,
+        hasFocusedEmail: Bool = false,
+        pendingSenderRefine: Bool = false
     ) -> Bool {
+        let deskFollow = pendingSearchClarify || hasClarifyMatches || hasFocusedEmail || pendingSenderRefine
+        if deskFollow, isSenderRejectRefine(raw) {
+            return true
+        }
+        if pendingSenderRefine, isClarifyPick(raw) {
+            return true
+        }
         if (pendingSearchClarify || hasClarifyMatches), isClarifyPick(raw) {
             return true
         }
@@ -302,6 +315,32 @@ public enum ConversationPresence {
             return true
         }
         return looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) || wantsVersionAsk(raw)
+    }
+
+    /// After a named-person card, reject + optional topic stays desk — never Grok.
+    ///
+    /// Reject family (add the next dogfood phrase here, then add a fixture):
+    /// - **reject**: no / nope / not that / not that one / not this one /
+    ///   the other one / the other / wrong one / that’s not it / not the one
+    /// - **reject + topic**: “No. Not that one. … regarding Fleeman Road.”
+    public static func isSenderRejectRefine(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        if contains(lower, [
+            "not that one", "not this one", "the other one", "the other",
+            "not that", "wrong one", "that's not", "thats not",
+            "no not that", "not the one", "not this"
+        ]) {
+            return true
+        }
+        let compact = lower
+            .replacingOccurrences(of: #"[^\p{L}\p{N}\s]"#, with: " ", options: .regularExpression)
+            .split { $0.isWhitespace }
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        if compact == ["no"] || compact == ["nope"] || compact == ["no", "no"] {
+            return true
+        }
+        return false
     }
 
     /// After “I found a few matches. Which one?” — recency / ordinal, not live Grok.
@@ -489,10 +528,18 @@ public enum ConversationPresence {
         ]) {
             return true
         }
-        return contains(lower, [
+        if contains(lower, [
             "send me", "sent me", "sends me", "emailed", "mailed me",
             "wrote me", "written me", "from:"
-        ])
+        ]) {
+            return true
+        }
+        // “Lauren wrote regarding Fleeman Road” — no “email” word required.
+        if GmailSearchQuery.hasSenderPattern(raw),
+           contains(lower, ["wrote", "written", "regarding", "looking for the one"]) {
+            return true
+        }
+        return false
     }
 
     public static func wantsCalendarAsk(_ raw: String) -> Bool {
@@ -592,7 +639,8 @@ public enum ConversationPresence {
         context: DeskContext,
         focusedEmail: EmailItem? = nil,
         pendingSearchClarify: Bool = false,
-        clarifyMatches: [EmailItem] = []
+        clarifyMatches: [EmailItem] = [],
+        pendingSenderRefine: Bool = false
     ) -> DeskEvidence? {
         if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
             return nil
@@ -643,6 +691,28 @@ public enum ConversationPresence {
             )
         }
 
+        let deskFollow = pendingSearchClarify || pendingSenderRefine || focusedEmail != nil || !clarifyMatches.isEmpty
+        if deskFollow, isSenderRejectRefine(raw) {
+            return rejectRefineEvidence(
+                ask: raw,
+                context: context,
+                focused: focusedEmail,
+                clarifyMatches: clarifyMatches
+            )
+        }
+
+        if pendingSenderRefine, isClarifyPick(raw) {
+            if let picked = pickClarifiedEmail(
+                ask: raw,
+                candidates: clarifyMatches.isEmpty ? [focusedEmail].compactMap { $0 } : clarifyMatches
+            ) ?? focusedEmail {
+                if wantsFullThread(raw) {
+                    return threadEvidence(picked)
+                }
+                return emailEvidence(picked)
+            }
+        }
+
         if pendingSearchClarify || !clarifyMatches.isEmpty {
             if isClarifyPick(raw) {
                 if let picked = pickClarifiedEmail(
@@ -673,19 +743,27 @@ public enum ConversationPresence {
         }
 
         if wantsFullThread(raw) {
+            if let named = namedMailEvidence(
+                ask: raw,
+                context: context,
+                focused: focusedEmail,
+                expandEarlier: true
+            ) {
+                return named
+            }
             if let email = resolveThreadEmail(for: raw, context: context, focusedEmail: focusedEmail) {
-                return threadEvidence(email, resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail))
+                return threadEvidence(email, resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail, owner: context.mailboxOwner))
             }
             if context.isConnected, let plan = GmailSearchQuery.plan(from: raw) {
                 return searchEvidence(
                     ask: raw,
                     plan: plan,
                     expandEarlier: true,
-                    resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail)
+                    resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail, owner: context.mailboxOwner)
                 )
             }
             if GmailSearchQuery.hasSenderPattern(raw) {
-                return namedSenderMissEvidence(ask: raw, focused: focusedEmail, hasInbox: !context.snapshot.emails.isEmpty)
+                return namedSenderMissEvidence(ask: raw, focused: focusedEmail, hasInbox: !context.snapshot.emails.isEmpty, owner: context.mailboxOwner)
             }
             if !context.snapshot.emails.isEmpty {
                 return inboxEvidence(context: context, followUp: true)
@@ -700,8 +778,13 @@ public enum ConversationPresence {
         }
 
         if looksLikeMailAsk(raw), !wantsCalendarDetails(raw) {
-            if let email = matchingEmail(for: raw, in: context.snapshot.emails) {
-                return emailEvidence(email, resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail))
+            if let named = namedMailEvidence(
+                ask: raw,
+                context: context,
+                focused: focusedEmail,
+                expandEarlier: wantsFullThread(raw)
+            ) {
+                return named
             }
             if GmailSearchQuery.hasSenderPattern(raw) {
                 if context.isConnected, let plan = GmailSearchQuery.plan(from: raw) {
@@ -709,10 +792,10 @@ public enum ConversationPresence {
                         ask: raw,
                         plan: plan,
                         expandEarlier: wantsFullThread(raw),
-                        resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail)
+                        resetsFocus: namedSenderClearsSticky(raw, focused: focusedEmail, owner: context.mailboxOwner)
                     )
                 }
-                return namedSenderMissEvidence(ask: raw, focused: focusedEmail, hasInbox: !context.snapshot.emails.isEmpty)
+                return namedSenderMissEvidence(ask: raw, focused: focusedEmail, hasInbox: !context.snapshot.emails.isEmpty, owner: context.mailboxOwner)
             }
             if wantsEmailFollowUp(raw) {
                 if let focusedEmail {
@@ -942,14 +1025,16 @@ public enum ConversationPresence {
         ])
     }
 
-    public static func matchingEmail(for raw: String, in emails: [EmailItem]) -> EmailItem? {
+    public static func matchingEmail(
+        for raw: String,
+        in emails: [EmailItem],
+        owner: MailboxOwner? = nil
+    ) -> EmailItem? {
         if let plan = GmailSearchQuery.plan(from: raw) {
-            switch GmailSearchQuery.pick(emails, plan: plan) {
+            switch GmailSearchQuery.pick(emails, plan: plan, owner: owner) {
             case .one(let email):
                 return email
-            case .several(let list):
-                return list.first
-            case .none:
+            case .several, .selfOnly, .none:
                 if GmailSearchQuery.hasSenderPattern(raw) {
                     return nil
                 }
@@ -977,8 +1062,12 @@ public enum ConversationPresence {
     }
 
     /// Named `from:X` never inherits sticky or inbox[0] when that sender is not the match.
-    public static func namedSenderClearsSticky(_ raw: String, focused: EmailItem?) -> Bool {
-        GmailSearchQuery.namedSenderMismatches(focused, ask: raw)
+    public static func namedSenderClearsSticky(
+        _ raw: String,
+        focused: EmailItem?,
+        owner: MailboxOwner? = nil
+    ) -> Bool {
+        GmailSearchQuery.namedSenderMismatches(focused, ask: raw, owner: owner)
     }
 
     private static func resolveThreadEmail(
@@ -986,7 +1075,7 @@ public enum ConversationPresence {
         context: DeskContext,
         focusedEmail: EmailItem?
     ) -> EmailItem? {
-        if let match = matchingEmail(for: raw, in: context.snapshot.emails) {
+        if let match = matchingEmail(for: raw, in: context.snapshot.emails, owner: context.mailboxOwner) {
             return match
         }
         if GmailSearchQuery.hasSenderPattern(raw) {
@@ -1048,14 +1137,144 @@ public enum ConversationPresence {
     private static func namedSenderMissEvidence(
         ask: String,
         focused: EmailItem?,
-        hasInbox: Bool
+        hasInbox: Bool,
+        owner: MailboxOwner? = nil
     ) -> DeskEvidence {
         DeskEvidence(
             topic: .inbox,
             text: emailBodyUnknownReply(hasInbox: hasInbox),
             cards: [],
-            resetsFocusedEmail: namedSenderClearsSticky(ask, focused: focused) || focused != nil
+            resetsFocusedEmail: namedSenderClearsSticky(ask, focused: focused, owner: owner) || focused != nil
         )
+    }
+
+    private static func namedMailEvidence(
+        ask: String,
+        context: DeskContext,
+        focused: EmailItem?,
+        expandEarlier: Bool,
+        emails: [EmailItem]? = nil
+    ) -> DeskEvidence? {
+        guard let plan = GmailSearchQuery.plan(from: ask) else { return nil }
+        let owner = context.mailboxOwner
+        let pool = emails ?? context.snapshot.emails
+        switch GmailSearchQuery.pick(pool, plan: plan, owner: owner) {
+        case .one(let email):
+            let reset = namedSenderClearsSticky(ask, focused: focused, owner: owner)
+            if expandEarlier {
+                return threadEvidence(email, resetsFocus: reset)
+            }
+            return emailEvidence(email, resetsFocus: reset)
+        case .several(let list):
+            return severalClarifyEvidence(
+                list,
+                resetsFocus: namedSenderClearsSticky(ask, focused: focused, owner: owner)
+            )
+        case .selfOnly:
+            return selfSenderClarifyEvidence(ask: ask, owner: owner)
+        case .none:
+            return nil
+        }
+    }
+
+    private static func rejectRefineEvidence(
+        ask: String,
+        context: DeskContext,
+        focused: EmailItem?,
+        clarifyMatches: [EmailItem]
+    ) -> DeskEvidence {
+        let owner = context.mailboxOwner
+        let pool: [EmailItem]
+        if !clarifyMatches.isEmpty {
+            pool = clarifyMatches.filter { $0.id != focused?.id }
+        } else {
+            pool = context.snapshot.emails.filter { $0.id != focused?.id }
+        }
+        if let named = namedMailEvidence(
+            ask: ask,
+            context: context,
+            focused: focused,
+            expandEarlier: wantsFullThread(ask),
+            emails: pool
+        ) {
+            var copy = named
+            copy.keepsSenderRefine = true
+            copy.resetsFocusedEmail = true
+            return copy
+        }
+        if let plan = GmailSearchQuery.plan(from: ask), context.isConnected {
+            var evidence = searchEvidence(
+                ask: ask,
+                plan: plan,
+                expandEarlier: wantsFullThread(ask),
+                resetsFocus: true
+            )
+            evidence.keepsSenderRefine = true
+            return evidence
+        }
+        let related = pool.filter { sharesSenderFamily($0, with: focused) }
+        let remaining = related.isEmpty ? pool : related
+        if remaining.count == 1 {
+            var evidence = emailEvidence(remaining[0], resetsFocus: true)
+            evidence.keepsSenderRefine = true
+            return evidence
+        }
+        if remaining.count > 1 {
+            var evidence = severalClarifyEvidence(Array(EmailRecency.newestFirst(remaining).prefix(3)), resetsFocus: true)
+            evidence.keepsSenderRefine = true
+            return evidence
+        }
+        return DeskEvidence(
+            topic: .inbox,
+            text: emailNeedMoreReply,
+            cards: [],
+            resetsFocusedEmail: true,
+            keepsSenderRefine: true
+        )
+    }
+
+    private static func severalClarifyEvidence(_ emails: [EmailItem], resetsFocus: Bool) -> DeskEvidence {
+        DeskEvidence(
+            topic: .inbox,
+            text: gmailSearchSeveralReply,
+            cards: EmailItem.listCards(EmailRecency.newestFirst(emails)),
+            resetsFocusedEmail: resetsFocus
+        )
+    }
+
+    private static func selfSenderClarifyEvidence(ask: String, owner: MailboxOwner?) -> DeskEvidence {
+        DeskEvidence(
+            topic: .inbox,
+            text: selfSenderClarifyReply(ask: ask, owner: owner),
+            cards: [],
+            resetsFocusedEmail: true
+        )
+    }
+
+    public static func selfSenderClarifyReply(ask: String, owner: MailboxOwner?) -> String {
+        _ = owner
+        let spoken = GmailSearchQuery.plan(from: ask)?.senders.first.map { $0.capitalized } ?? "that name"
+        return "The only \(spoken) I see is you. Did you mean your own email, or someone else?"
+    }
+
+    /// After rejecting Alex & Laren, keep Laren Jansen — not Greenacre.
+    private static func sharesSenderFamily(_ email: EmailItem, with focused: EmailItem?) -> Bool {
+        guard let focused else { return true }
+        let focusedWords = senderGivenNames(focused.fromName)
+        let emailWords = senderGivenNames(email.fromName)
+        for word in emailWords where word.count >= GmailSearchQuery.senderFuzzyMinLength {
+            if focusedWords.contains(where: { GmailSearchQuery.editDistance($0, word) <= GmailSearchQuery.senderFuzzyMaxEdits }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func senderGivenNames(_ raw: String) -> [String] {
+        raw.lowercased()
+            .split { !$0.isLetter }
+            .map(String.init)
+            .filter { $0.count >= 3 && !GmailSearchQuery.stop.contains($0) }
     }
 
     /// Spoken while the client actually calls Gmail. Never a capability claim.

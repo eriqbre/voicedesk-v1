@@ -20,6 +20,7 @@ public struct VoiceRegressionFixture: Codable, Equatable, Sendable {
     public var stickyFromName: String?
     public var deskPreset: String?
     public var pendingSearchClarify: Bool?
+    public var pendingSenderRefine: Bool?
     public var connected: Bool?
 
     /// When `pendingSearchClarify` is true, replay uses the desk snapshot emails as
@@ -61,6 +62,7 @@ public struct VoiceRegressionFixture: Codable, Equatable, Sendable {
         stickyFromName: String? = nil,
         deskPreset: String? = nil,
         pendingSearchClarify: Bool? = nil,
+        pendingSenderRefine: Bool? = nil,
         connected: Bool? = true,
         assertReply: Bool? = nil,
         requiredNotes: [String]? = nil,
@@ -80,6 +82,7 @@ public struct VoiceRegressionFixture: Codable, Equatable, Sendable {
         self.stickyFromName = stickyFromName
         self.deskPreset = deskPreset
         self.pendingSearchClarify = pendingSearchClarify
+        self.pendingSenderRefine = pendingSenderRefine
         self.connected = connected
         self.assertReply = assertReply
         self.requiredNotes = requiredNotes
@@ -170,7 +173,7 @@ extension VoiceRegressionFixture {
     enum CodingKeys: String, CodingKey {
         case id, timestamp, source, userTranscript, intent, routingNotes
         case cardsAttached, assistantReply, voicePath
-        case hadFocusedEmail, stickyFromName, deskPreset, pendingSearchClarify, connected
+        case hadFocusedEmail, stickyFromName, deskPreset, pendingSearchClarify, pendingSenderRefine, connected
         case assertReply, requiredNotes, forbiddenSubstrings, allowedIntents
     }
 
@@ -189,6 +192,7 @@ extension VoiceRegressionFixture {
         stickyFromName = try c.decodeIfPresent(String.self, forKey: .stickyFromName)
         deskPreset = try c.decodeIfPresent(String.self, forKey: .deskPreset)
         pendingSearchClarify = try c.decodeIfPresent(Bool.self, forKey: .pendingSearchClarify)
+        pendingSenderRefine = try c.decodeIfPresent(Bool.self, forKey: .pendingSenderRefine)
         connected = try c.decodeIfPresent(Bool.self, forKey: .connected)
         assertReply = try c.decodeIfPresent(Bool.self, forKey: .assertReply)
         requiredNotes = try c.decodeIfPresent([String].self, forKey: .requiredNotes)

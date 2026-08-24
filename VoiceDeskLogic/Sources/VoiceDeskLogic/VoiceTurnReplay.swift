@@ -48,21 +48,24 @@ public enum VoiceTurnReplay: Sendable {
         context: DeskContext,
         focusedEmail: EmailItem? = nil,
         pendingSearchClarify: Bool = false,
-        clarifyMatches: [EmailItem] = []
+        clarifyMatches: [EmailItem] = [],
+        pendingSenderRefine: Bool = false
     ) -> Result {
         let evidence = ConversationPresence.deskEvidence(
             for: utterance,
             context: context,
             focusedEmail: focusedEmail,
             pendingSearchClarify: pendingSearchClarify,
-            clarifyMatches: clarifyMatches
+            clarifyMatches: clarifyMatches,
+            pendingSenderRefine: pendingSenderRefine
         )
         let classified = VoiceInteractionLog.classify(
             utterance: utterance,
             evidence: evidence,
             pendingSearchClarify: pendingSearchClarify,
             hadFocusedEmail: focusedEmail != nil,
-            hasClarifyMatches: !clarifyMatches.isEmpty
+            hasClarifyMatches: !clarifyMatches.isEmpty,
+            pendingSenderRefine: pendingSenderRefine
         )
         return Result(
             intent: classified.intent,
@@ -70,7 +73,9 @@ public enum VoiceTurnReplay: Sendable {
             ownsDeskTurn: ConversationPresence.ownsConnectedDeskTurn(
                 utterance,
                 pendingSearchClarify: pendingSearchClarify,
-                hasClarifyMatches: !clarifyMatches.isEmpty
+                hasClarifyMatches: !clarifyMatches.isEmpty,
+                hasFocusedEmail: focusedEmail != nil,
+                pendingSenderRefine: pendingSenderRefine
             ),
             looksLikeMailAsk: ConversationPresence.looksLikeMailAsk(utterance),
             evidence: evidence,
@@ -98,6 +103,7 @@ public enum VoiceTurnReplay: Sendable {
             focused = nil
         }
         let pendingClarify = fixture.pendingSearchClarify ?? false
+        let pendingRefine = fixture.pendingSenderRefine ?? false
         // After “I found a few matches. Which one?” replay the compact cards as clarify matches
         // so “the last one” / “the latest” pick newest Murray — not live Grok.
         let matches = pendingClarify ? context.snapshot.emails : []
@@ -106,7 +112,8 @@ public enum VoiceTurnReplay: Sendable {
             context: context,
             focusedEmail: focused,
             pendingSearchClarify: pendingClarify,
-            clarifyMatches: matches
+            clarifyMatches: matches,
+            pendingSenderRefine: pendingRefine
         )
     }
 }

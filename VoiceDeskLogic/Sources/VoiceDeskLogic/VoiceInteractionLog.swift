@@ -147,7 +147,8 @@ public enum VoiceInteractionLog: Sendable {
         evidence: ConversationPresence.DeskEvidence?,
         pendingSearchClarify: Bool = false,
         hadFocusedEmail: Bool = false,
-        hasClarifyMatches: Bool = false
+        hasClarifyMatches: Bool = false,
+        pendingSenderRefine: Bool = false
     ) -> VoiceTurnClassification {
         var notes: [String] = []
         var sticky: VoiceStickyState = .none
@@ -155,6 +156,10 @@ public enum VoiceInteractionLog: Sendable {
         var searchQuery: String?
 
         if pendingSearchClarify { notes.append("pending clarify") }
+        if pendingSenderRefine { notes.append("pending refine") }
+        if ConversationPresence.isSenderRejectRefine(utterance) {
+            notes.append("sender refine")
+        }
         let attached = evidence?.focusedEmail
         let namedMismatch = GmailSearchQuery.namedSenderMismatches(attached, ask: utterance)
             || (hadFocusedEmail && evidence?.resetsFocusedEmail == true)
@@ -214,12 +219,22 @@ public enum VoiceInteractionLog: Sendable {
             intent = "desk-follow-up"
         } else if pendingSearchClarify, ConversationPresence.isClarifyPick(utterance) {
             intent = "desk-person"
+        } else if pendingSenderRefine, ConversationPresence.isClarifyPick(utterance) {
+            intent = "desk-person"
+        } else if ConversationPresence.isSenderRejectRefine(utterance),
+                  pendingSearchClarify || pendingSenderRefine || hadFocusedEmail || hasClarifyMatches {
+            intent = "desk-person"
         } else if evidence?.focusedEmail != nil || ConversationPresence.looksLikeMailAsk(utterance) {
+            intent = "desk-person"
+        } else if evidence?.text == ConversationPresence.gmailSearchSeveralReply
+                    || (evidence?.text.hasPrefix("The only ") == true && evidence?.cards.isEmpty == true) {
             intent = "desk-person"
         } else if ConversationPresence.ownsConnectedDeskTurn(
             utterance,
             pendingSearchClarify: pendingSearchClarify,
-            hasClarifyMatches: hasClarifyMatches
+            hasClarifyMatches: hasClarifyMatches,
+            hasFocusedEmail: hadFocusedEmail,
+            pendingSenderRefine: pendingSenderRefine
         ) {
             intent = "desk-person"
         } else {

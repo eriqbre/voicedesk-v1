@@ -43,6 +43,8 @@ final class AppModel {
     private var pendingThreadSummary = false
     /// Last local reply asked “Who’s it from?” or “Which one?” — next utterance is desk.
     private var pendingSearchClarify = false
+    /// After “no / not that one” a short ack (“Yeah”) stays desk, not small talk.
+    private var pendingSenderRefine = false
     /// Cards from the last multi-match Gmail search, for “the last one” / “most recent.”
     private var lastSearchMatches: [EmailItem] = []
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
@@ -53,6 +55,7 @@ final class AppModel {
     private var focusedPersonAtTurnStart: String?
     private var pendingGeneralVoiceLog = false
     private var pendingClarifyAtTurnStart = false
+    private var pendingRefineAtTurnStart = false
     private var hadClarifyMatchesAtTurnStart = false
     private var expandEarlierEmailIDs: Set<UUID> = []
     private var expandEarlierProviderIDs: Set<String> = []
@@ -377,7 +380,9 @@ final class AppModel {
             if ConversationPresence.ownsConnectedDeskTurn(
                 text,
                 pendingSearchClarify: awaitingClarify,
-                hasClarifyMatches: !lastSearchMatches.isEmpty
+                hasClarifyMatches: !lastSearchMatches.isEmpty,
+                hasFocusedEmail: lastFocusedEmail != nil,
+                pendingSenderRefine: pendingSenderRefine
             ) {
                 claimLocalAssistantReply()
                 Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
@@ -503,7 +508,9 @@ final class AppModel {
             if ConversationPresence.ownsConnectedDeskTurn(
                 text,
                 pendingSearchClarify: awaitingClarify,
-                hasClarifyMatches: !lastSearchMatches.isEmpty
+                hasClarifyMatches: !lastSearchMatches.isEmpty,
+                hasFocusedEmail: lastFocusedEmail != nil,
+                pendingSenderRefine: pendingSenderRefine
             ) {
                 claimLocalAssistantReply()
                 await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
@@ -623,7 +630,9 @@ final class AppModel {
         if ConversationPresence.ownsConnectedDeskTurn(
             text,
             pendingSearchClarify: pendingSearchClarify,
-            hasClarifyMatches: !lastSearchMatches.isEmpty
+            hasClarifyMatches: !lastSearchMatches.isEmpty,
+            hasFocusedEmail: lastFocusedEmail != nil,
+            pendingSenderRefine: pendingSenderRefine
         ) {
             claimLocalAssistantReply()
         }
@@ -705,6 +714,7 @@ final class AppModel {
         }
         pendingThreadSummary = evidence.expandEarlierMessages
         pendingSearchClarify = evidence.awaitsSearchClarify
+        pendingSenderRefine = evidence.keepsSenderRefine
         if evidence.awaitsSearchClarify {
             let cards = evidence.cards.compactMap { card -> EmailItem? in
                 if case .email(let item) = card { return item }
@@ -747,7 +757,8 @@ final class AppModel {
             context: deskContext,
             focusedEmail: lastFocusedEmail,
             pendingSearchClarify: awaitingClarify,
-            clarifyMatches: lastSearchMatches
+            clarifyMatches: lastSearchMatches,
+            pendingSenderRefine: pendingSenderRefine
         ) {
             await applyDeskEvidence(evidence)
         } else {
@@ -862,11 +873,12 @@ final class AppModel {
                 found = try await sync.searchMessages(token: token, query: variant, now: Date())
                 if !found.isEmpty { break }
             }
+            let owner = deskContext.mailboxOwner
             let picked: GmailSearchPick
             if let plan {
-                picked = GmailSearchQuery.pick(found, plan: plan)
+                picked = GmailSearchQuery.pick(found, plan: plan, owner: owner)
             } else if let ask {
-                picked = GmailSearchQuery.pick(found, ask: ask)
+                picked = GmailSearchQuery.pick(found, ask: ask, owner: owner)
             } else if found.isEmpty {
                 picked = .none
             } else if found.count == 1 {
@@ -878,6 +890,10 @@ final class AppModel {
             case .none:
                 replaceAssistant(id: beatID, text: ConversationPresence.gmailSearchEmptyReply)
                 await speakDeskReply(ConversationPresence.gmailSearchEmptyReply)
+            case .selfOnly:
+                let reply = ConversationPresence.selfSenderClarifyReply(ask: ask ?? query, owner: owner)
+                replaceAssistant(id: beatID, text: reply)
+                await speakDeskReply(reply)
             case .one(let email):
                 removeTurn(id: beatID)
                 await applyLoadedEmail(email, mergeIntoInbox: false)
@@ -986,6 +1002,7 @@ final class AppModel {
         hadFocusedEmailAtTurnStart = lastFocusedEmail != nil
         focusedPersonAtTurnStart = lastFocusedEmail?.fromName
         pendingClarifyAtTurnStart = pendingSearchClarify
+        pendingRefineAtTurnStart = pendingSenderRefine
         hadClarifyMatchesAtTurnStart = !lastSearchMatches.isEmpty
         pendingGeneralVoiceLog = false
     }
@@ -1021,7 +1038,8 @@ final class AppModel {
             evidence: evidence,
             pendingSearchClarify: pendingClarifyAtTurnStart,
             hadFocusedEmail: hadFocusedEmailAtTurnStart,
-            hasClarifyMatches: hadClarifyMatchesAtTurnStart
+            hasClarifyMatches: hadClarifyMatchesAtTurnStart,
+            pendingSenderRefine: pendingRefineAtTurnStart
         )
         var notes = classified.notes + extraNotes
         if intentHint == "cancel" { notes.append("user stop") }
