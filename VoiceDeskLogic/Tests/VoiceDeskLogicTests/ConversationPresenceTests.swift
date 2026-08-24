@@ -551,7 +551,9 @@ final class ConversationPresenceTests: XCTestCase {
             "what's in my inbox",
             "latest emails",
             "recent emails",
-            "see my latest emails"
+            "see my latest emails",
+            "Can you pull my latest emails?",
+            "pull my latest emails"
         ] {
             XCTAssertTrue(ConversationPresence.wantsInboxOverview(ask), ask)
             XCTAssertFalse(ConversationPresence.wantsFullThread(ask), ask)

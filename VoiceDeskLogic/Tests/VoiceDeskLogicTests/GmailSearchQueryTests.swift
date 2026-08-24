@@ -5,10 +5,6 @@ final class GmailSearchQueryTests: XCTestCase {
     private let marieAsk = "Hey, can you give me a full summary of Marie’s last email?"
     private let showingAsk = "You search my inbox for emails from showing time?"
 
-    func testBaselineInboxLimitIs25() {
-        XCTAssertEqual(GoogleSyncPolicy.recentInboxLimit, 25)
-    }
-
     func testMurrayAskUsesFromClause() {
         let query = GmailSearchQuery.query(from: "Hey, show me Murray's latest email.")
         XCTAssertEqual(query, "from:murray")

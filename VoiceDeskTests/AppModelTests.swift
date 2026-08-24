@@ -1040,6 +1040,155 @@ final class GoogleSliceTests: XCTestCase {
         XCTAssertFalse(kinds.contains(.email))
     }
 
+    func testRestoreWithCachedAccountStillSyncsInbox() async {
+        var stale = SampleData.syncedEmail()
+        stale.fromName = "Old Sender"
+        stale.subject = "Day-one snapshot"
+        stale.providerID = "msg-restore-stale"
+        var fresh = SampleData.syncedEmail()
+        fresh.fromName = "New Sender"
+        fresh.subject = "Arrived this morning"
+        fresh.providerID = "msg-restore-fresh"
+        fresh.body = "Signed this morning."
+        let cache = MemoryDeskCache(
+            snapshot: DeskSnapshot(
+                accountEmail: "ada@example.com",
+                lastSyncedAt: Date(timeIntervalSince1970: 100),
+                emails: [stale]
+            )
+        )
+        let sync = MockGoogleSync(result: DeskSnapshot(emails: [fresh]))
+        let backend = MockGoogleAuthBackend()
+        backend.restoreOnLaunch = true
+        let google = GoogleSession(backend: backend, clientIDConfigured: true)
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: google,
+            cache: cache,
+            sync: sync
+        )
+        XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
+        XCTAssertFalse(model.google.isConnected)
+
+        await model.restoreGoogleIfNeeded()
+        XCTAssertTrue(model.google.isConnected)
+        XCTAssertEqual(sync.syncCalls, 1, "restore must hit Gmail even when cache already has accountEmail")
+        XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Arrived this morning")
+        XCTAssertEqual(model.deskSnapshot.accountEmail, "ada@example.com")
+    }
+
+    func testRestoreOfflineKeepsCachedInboxWithoutSync() async {
+        var stale = SampleData.syncedEmail()
+        stale.subject = "Day-one snapshot"
+        stale.providerID = "msg-restore-offline"
+        let cache = MemoryDeskCache(
+            snapshot: DeskSnapshot(
+                accountEmail: "ada@example.com",
+                lastSyncedAt: Date(timeIntervalSince1970: 100),
+                emails: [stale]
+            )
+        )
+        let sync = MockGoogleSync(result: DeskSnapshot(emails: [SampleData.syncedEmail()]))
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: cache,
+            sync: sync,
+            isOnline: false
+        )
+        await model.restoreGoogleIfNeeded()
+        XCTAssertEqual(sync.syncCalls, 0)
+        XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
+    }
+
+    func testInboxOverviewPullLatestHitsSyncNotStaleCache() async {
+        var stale = SampleData.syncedEmail()
+        stale.fromName = "Old Sender"
+        stale.subject = "Day-one snapshot"
+        stale.providerID = "msg-overview-stale"
+        stale.body = "Yesterday's mail."
+        var fresh = SampleData.syncedEmail()
+        fresh.fromName = "New Sender"
+        fresh.subject = "Arrived this morning"
+        fresh.providerID = "msg-overview-fresh"
+        fresh.body = "Signed this morning."
+        let cache = MemoryDeskCache(
+            snapshot: DeskSnapshot(
+                accountEmail: "ada@example.com",
+                lastSyncedAt: Date(timeIntervalSince1970: 100),
+                emails: [stale]
+            )
+        )
+        let sync = MockGoogleSync(result: DeskSnapshot(emails: [fresh]))
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: cache,
+            sync: sync
+        )
+        XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
+        await model.applyUserTurn("Can you pull my latest emails?")
+        XCTAssertEqual(sync.syncCalls, 1, "inbox-overview must sync before listing cache")
+        XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Arrived this morning")
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("New Sender"))
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("Old Sender"))
+        XCTAssertTrue(
+            model.turns.last?.cards.contains { card in
+                if case .email(let item) = card { return item.subject == "Arrived this morning" }
+                return false
+            } == true
+        )
+    }
+
+    func testPersonEmailAskDoesNotInboxSync() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-no-inbox-sync"
+        murray.body = "Walk the lot Saturday at 10."
+        let snapshot = DeskSnapshot(emails: [murray])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies["msg-murray-no-inbox-sync"] = murray.body
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        await model.applyUserTurn("summarize the Murray email")
+        XCTAssertEqual(sync.syncCalls, 0, "person-specific desk turns must not pull the whole inbox")
+        XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot"))
+    }
+
+    func testInboxOverviewOfflineSkipsSyncAndShowsCache() async {
+        var stale = SampleData.syncedEmail()
+        stale.fromName = "Old Sender"
+        stale.subject = "Day-one snapshot"
+        stale.providerID = "msg-overview-offline"
+        let cache = MemoryDeskCache(
+            snapshot: DeskSnapshot(
+                accountEmail: "ada@example.com",
+                lastSyncedAt: Date(timeIntervalSince1970: 100),
+                emails: [stale]
+            )
+        )
+        let sync = MockGoogleSync(result: DeskSnapshot(emails: [SampleData.syncedEmail()]))
+        let model = AppModel(
+            voice: MockVoiceService(label: "test", instant: true),
+            google: .mock(connected: true),
+            cache: cache,
+            sync: sync,
+            isOnline: false
+        )
+        await model.applyUserTurn("what's in my inbox?")
+        XCTAssertEqual(sync.syncCalls, 0)
+        XCTAssertTrue((model.turns.last?.text ?? "").lowercased().contains("last-synced"))
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.subject, "Day-one snapshot")
+        } else {
+            XCTFail("offline inbox-overview must still attach cached cards")
+        }
+    }
+
     func testConnectTimesOutInsteadOfHanging() async {
         let google = GoogleSession(backend: HangingGoogleAuthBackend(), clientIDConfigured: true)
         await google.connect(timeoutSeconds: 0.15)
