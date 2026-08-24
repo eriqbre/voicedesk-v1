@@ -786,7 +786,7 @@ final class ConversationPresenceTests: XCTestCase {
         } else {
             XCTFail("expected Murray card for person-specific summary")
         }
-        XCTAssertNotEqual(murrayEvidence?.resetsFocusedEmail, true)
+        XCTAssertEqual(murrayEvidence?.resetsFocusedEmail, true, "named Murray must yield Steve sticky")
         if case .email(let item) = murrayEvidence?.cards.first {
             XCTAssertFalse(item.isCompactListRow, "single Murray thread stays the full reader")
         }

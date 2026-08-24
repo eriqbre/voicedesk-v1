@@ -189,7 +189,7 @@ public enum VoiceInteractionLog: Sendable {
         }
 
         let intent: String
-        if ConversationPresence.wantsInboxOverview(utterance) || evidence?.resetsFocusedEmail == true {
+        if ConversationPresence.wantsInboxOverview(utterance) {
             intent = "inbox-overview"
         } else if ConversationPresence.wantsCalendarAsk(utterance) {
             intent = "calendar"
