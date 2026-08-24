@@ -168,6 +168,8 @@ tail -n 20 ~/Desktop/projects/voicedesk-v1/.debug/voice-log.jsonl
 
 CI: `swift test --package-path VoiceDeskLogic` loads every `*.jsonl` in that folder and replays via `VoiceTurnReplay` (no network; synthetic `VoiceRegressionDesk`). Desk-owned turns assert intent, sticky, Gmail `q=` / notes, cards, and reply text. General turns assert routing only.
 
+**Dogfood → seeds:** Eriq’s real phrases (when-last email, calendar, weather, sticky follow-ups) promote into `Fixtures/voice-regression` the same way — sanitize to Murray Mitchell / Steve Brown / `*@example.com` only. After a walk, Elon pulls the cloud log and expands those seeds. Do not commit raw cloud lines.
+
 **Never commit Bridget/Eriq PII.** Replace real names, addresses, and mailboxes. `@example.com` only. The suite fails fixtures that still contain personal emails or phone numbers.
 
 ### Slice order
