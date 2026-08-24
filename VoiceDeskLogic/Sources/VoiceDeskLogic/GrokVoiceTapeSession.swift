@@ -101,7 +101,8 @@ enum GrokVoiceTapeSession {
         var failures = GrokVoiceTape.evaluate(
             assistantText: assistant,
             firstAudioDeltaMilliseconds: firstAudioMS,
-            firstAudioCapMilliseconds: milliseconds(firstAudioCap)
+            firstAudioCapMilliseconds: milliseconds(firstAudioCap),
+            family: fixture.family
         )
         if firstAudioMS == nil {
             for error in errors where !error.isEmpty {

@@ -4,6 +4,12 @@ import Foundation
 /// `wss://api.x.ai/v1/realtime?model=grok-voice-latest` with the existing
 /// PCM 24 kHz / `server_vad` / Eve `session.update` contract.
 ///
+/// Live tape talks to Grok with no iOS AppModel claiming the turn. Disconnected
+/// Grok must not invent live calendar/inbox — honest “no live access” is correct
+/// here. Desk-owned families (inbox / Murray / calendar / clarify) stay on Linux
+/// `VoiceTurnReplay` for intent. Live asserts first audio, a general answer, and
+/// no “iOS app handles Gmail” / “the client will jump in” meta.
+///
 /// Local: `XAI_API_KEY=... swift test --package-path VoiceDeskLogic --filter GrokVoiceTape`
 /// Never reads `Secrets.plist`. Missing key skips the live test; it does not fail CI.
 public enum GrokVoiceTape: Sendable {
@@ -80,6 +86,13 @@ public enum GrokVoiceTape: Sendable {
             guard pendingSearchClarify == true else { return [] }
             return replayContext.snapshot.emails
         }
+
+        /// Inbox / person / calendar / clarify are client-owned on a connected phone.
+        /// Live tape has no AppModel, so those families only require first audio + no
+        /// iOS-app / client-jump meta. Intent stays on Linux `VoiceTurnReplay`.
+        public var isDeskOwnedFamily: Bool {
+            GrokVoiceTape.isDeskOwnedFamily(family)
+        }
     }
 
     public enum Failure: Equatable, Sendable, CustomStringConvertible {
@@ -142,17 +155,41 @@ public enum GrokVoiceTape: Sendable {
         return nil
     }
 
+    public static let deskOwnedLiveFamilies: Set<String> = [
+        "inbox-overview",
+        "named-person",
+        "clarify-pick-newest",
+        "calendar-overview"
+    ]
+
+    public static func isDeskOwnedFamily(_ family: String?) -> Bool {
+        guard let family else { return false }
+        return deskOwnedLiveFamilies.contains(family)
+    }
+
     /// Reuses `ConversationPresence` desk-refusal / handoff detectors.
+    /// Product path after a local desk fetch. Live disconnected tape uses
+    /// `isLiveMetaHandoff` for desk-owned families instead.
     public static func isDeskRefusal(_ raw: String) -> Bool {
         ConversationPresence.isGrokDeskRefusal(raw)
             || ConversationPresence.isGrokDeskHandoff(raw)
             || ConversationPresence.isGrokDeskMeta(raw)
     }
 
+    /// Forbidden live Grok meta. Honest disconnected “no live calendar / inbox /
+    /// Murray” is correct at this layer — the tape has no AppModel claiming the turn.
+    public static func isLiveMetaHandoff(_ raw: String) -> Bool {
+        if ConversationPresence.isGrokDeskHandoff(raw) { return true }
+        let lower = raw.lowercased()
+        return lower.contains("client will jump")
+            || lower.contains("the client will jump in")
+    }
+
     public static func evaluate(
         assistantText: String,
         firstAudioDeltaMilliseconds: Int?,
-        firstAudioCapMilliseconds: Int = 12_000
+        firstAudioCapMilliseconds: Int = 12_000,
+        family: String? = nil
     ) -> [Failure] {
         var failures: [Failure] = []
         if let firstAudioDeltaMilliseconds {
@@ -162,7 +199,11 @@ public enum GrokVoiceTape: Sendable {
         } else {
             failures.append(.noFirstAudio)
         }
-        if isDeskRefusal(assistantText) {
+        if isDeskOwnedFamily(family) {
+            if isLiveMetaHandoff(assistantText) {
+                failures.append(.deskRefusal)
+            }
+        } else if isDeskRefusal(assistantText) {
             failures.append(.deskRefusal)
         }
         return failures

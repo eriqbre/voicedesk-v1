@@ -4,9 +4,14 @@ import XCTest
 /// Live Grok speech tape. Skips unless `XAI_API_KEY` or `VOICEDESK_XAI_API_KEY` is set.
 /// Never fails CI for a missing key. Never reads `Secrets.plist`.
 ///
+/// Desk-owned live turns (inbox / Murray / calendar / clarify) only require first
+/// audio and no iOS-app / client-jump meta. Honest disconnected “no live
+/// calendar/inbox” is correct — this tape has no AppModel. Intent stays on
+/// Linux `VoiceTurnReplay`.
+///
 ///     XAI_API_KEY=... swift test --package-path VoiceDeskLogic --filter GrokVoiceTape
 final class GrokVoiceTapeLiveTests: XCTestCase {
-    func testLiveTapeDogfoodPhrasesSpeakWithoutDeskRefusal() async throws {
+    func testLiveTapeDogfoodPhrasesSpeak() async throws {
         guard let apiKey = GrokVoiceTape.apiKeyFromEnvironment() else {
             throw XCTSkip("XAI_API_KEY / VOICEDESK_XAI_API_KEY not set — live tape skipped")
         }
@@ -32,7 +37,14 @@ final class GrokVoiceTapeLiveTests: XCTestCase {
                 "\(fixture.id): \(result.failures.map(\.description).joined(separator: "; ")) assistant=\(result.assistantText) errors=\(result.errors) audioMS=\(result.firstAudioDeltaMilliseconds as Any)"
             )
             XCTAssertNotNil(result.firstAudioDeltaMilliseconds, fixture.id)
-            XCTAssertFalse(GrokVoiceTape.isDeskRefusal(result.assistantText), fixture.id)
+            XCTAssertFalse(GrokVoiceTape.isLiveMetaHandoff(result.assistantText), fixture.id)
+            if fixture.family == "general" {
+                XCTAssertFalse(GrokVoiceTape.isDeskRefusal(result.assistantText), fixture.id)
+                XCTAssertFalse(
+                    result.assistantText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    "\(fixture.id): general must answer"
+                )
+            }
         }
     }
 }

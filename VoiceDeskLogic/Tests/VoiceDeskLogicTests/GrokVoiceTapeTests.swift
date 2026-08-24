@@ -52,6 +52,8 @@ final class GrokVoiceTapeTests: XCTestCase {
         XCTAssertEqual(Set(live.map(\.family)).count, 5, "live subset must hit every family")
         XCTAssertLessThan(live.count, fixtures.count)
         XCTAssertTrue(live.allSatisfy(\.runLive))
+        XCTAssertEqual(live.filter { $0.family == "general" }.count, 1)
+        XCTAssertTrue(live.filter { $0.family != "general" }.allSatisfy(\.isDeskOwnedFamily))
     }
 
     func testSynonymFamiliesReplayExpectedIntent() throws {
@@ -142,6 +144,14 @@ final class GrokVoiceTapeTests: XCTestCase {
             []
         )
         XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: "John Wick came out in 2014.",
+                firstAudioDeltaMilliseconds: 420,
+                family: "general"
+            ),
+            []
+        )
+        XCTAssertEqual(
             GrokVoiceTape.evaluate(assistantText: "John Wick came out in 2014.", firstAudioDeltaMilliseconds: nil),
             [.noFirstAudio]
         )
@@ -170,6 +180,98 @@ final class GrokVoiceTapeTests: XCTestCase {
         )
     }
 
+    func testLiveEvaluateAllowsHonestDisconnectedDesk() {
+        let calendarHonest =
+            "I don't have live access to your calendar, so I can't pull what's actually scheduled."
+        let murrayHonest = "I don't have the full thread on Murray."
+        let inboxHonest = "I don't have live access to your inbox yet — that's the sample desk."
+        let iosMeta = "I'll stay quiet — the iOS app handles Gmail."
+        let clientJump = "The client will jump in for that."
+
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: calendarHonest,
+                firstAudioDeltaMilliseconds: 913,
+                family: "calendar-overview"
+            ),
+            []
+        )
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: murrayHonest,
+                firstAudioDeltaMilliseconds: 791,
+                family: "named-person"
+            ),
+            []
+        )
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: inboxHonest,
+                firstAudioDeltaMilliseconds: 853,
+                family: "inbox-overview"
+            ),
+            []
+        )
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: "the last one — that's Murray's walk-through.",
+                firstAudioDeltaMilliseconds: 824,
+                family: "clarify-pick-newest"
+            ),
+            []
+        )
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: calendarHonest,
+                firstAudioDeltaMilliseconds: nil,
+                family: "calendar-overview"
+            ),
+            [.noFirstAudio]
+        )
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: iosMeta,
+                firstAudioDeltaMilliseconds: 400,
+                family: "calendar-overview"
+            ),
+            [.deskRefusal]
+        )
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: clientJump,
+                firstAudioDeltaMilliseconds: 400,
+                family: "inbox-overview"
+            ),
+            [.deskRefusal]
+        )
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: "I’ll let the app handle that.",
+                firstAudioDeltaMilliseconds: 400,
+                family: "named-person"
+            ),
+            [.deskRefusal]
+        )
+        XCTAssertEqual(
+            GrokVoiceTape.evaluate(
+                assistantText: calendarHonest,
+                firstAudioDeltaMilliseconds: 400,
+                family: "general"
+            ),
+            [.deskRefusal]
+        )
+        XCTAssertTrue(GrokVoiceTape.isDeskRefusal(calendarHonest))
+        XCTAssertFalse(GrokVoiceTape.isLiveMetaHandoff(calendarHonest))
+        XCTAssertFalse(GrokVoiceTape.isLiveMetaHandoff(murrayHonest))
+        XCTAssertTrue(GrokVoiceTape.isLiveMetaHandoff(iosMeta))
+        XCTAssertTrue(GrokVoiceTape.isLiveMetaHandoff(clientJump))
+        XCTAssertTrue(GrokVoiceTape.isDeskOwnedFamily("calendar-overview"))
+        XCTAssertTrue(GrokVoiceTape.isDeskOwnedFamily("inbox-overview"))
+        XCTAssertTrue(GrokVoiceTape.isDeskOwnedFamily("named-person"))
+        XCTAssertTrue(GrokVoiceTape.isDeskOwnedFamily("clarify-pick-newest"))
+        XCTAssertFalse(GrokVoiceTape.isDeskOwnedFamily("general"))
+    }
+
     func testDeskRefusalReusesConversationPresenceDetectors() {
         XCTAssertTrue(GrokVoiceTape.isDeskRefusal("I’ll let the app handle that."))
         XCTAssertTrue(GrokVoiceTape.isDeskRefusal("I'll stay quiet — the iOS app handles Gmail."))
@@ -180,6 +282,10 @@ final class GrokVoiceTapeTests: XCTestCase {
         XCTAssertFalse(GrokVoiceTape.isDeskRefusal("John Wick was released in 2014."))
         XCTAssertTrue(GrokVoiceTape.isDeskRefusal("I don't have the full thread on Murray."))
         XCTAssertTrue(GrokVoiceTape.isDeskRefusal("I can't pull what's actually scheduled."))
+        XCTAssertTrue(GrokVoiceTape.isLiveMetaHandoff("I'll stay quiet — the iOS app handles Gmail."))
+        XCTAssertTrue(GrokVoiceTape.isLiveMetaHandoff("the client will jump in"))
+        XCTAssertFalse(GrokVoiceTape.isLiveMetaHandoff("I don't have live access to your calendar."))
+        XCTAssertFalse(GrokVoiceTape.isLiveMetaHandoff("I can't pull what's actually scheduled."))
     }
 
     func testPCM16WAVAndRawLoadAt24kMono() throws {
