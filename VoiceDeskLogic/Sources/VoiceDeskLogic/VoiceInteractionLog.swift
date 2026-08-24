@@ -168,6 +168,15 @@ public enum VoiceInteractionLog: Sendable {
             notes.append(evidence?.shouldSearchGmail == true ? "cache miss" : "named query")
         } else if evidence != nil, evidence?.shouldSearchGmail != true {
             notes.append("synced cache / list")
+            // Cache hit still records the planned q= so fixtures can assert from:murray
+            // (and dogfood can see “When was Murray's…” did not become from:("was murray")).
+            if ConversationPresence.looksLikeMailAsk(utterance)
+                || ConversationPresence.hasDeskMailIntent(utterance),
+               let planned = GmailSearchQuery.query(from: utterance),
+               planned.lowercased().contains("from:") {
+                searchQuery = planned
+                notes.append("named query \(planned)")
+            }
         }
         if let sender = evidence?.focusedEmail?.fromName, evidence?.resetsFocusedEmail != true {
             focusedPerson = sender

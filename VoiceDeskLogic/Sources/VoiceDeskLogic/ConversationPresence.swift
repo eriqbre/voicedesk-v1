@@ -808,8 +808,16 @@ public enum ConversationPresence {
     }
 
     /// Spoken while the client actually calls Gmail. Never a capability claim.
-    public static let gmailSearchingBeat = "Searching Gmail…"
+    /// Stored / spoken-skip text stays static; the UI animates `gmailSearchingStem` + dots.
+    public static let gmailSearchingStem = "Searching Gmail"
+    public static let gmailSearchingBeat = gmailSearchingStem + "…"
     public static let gmailSearchPendingReply = gmailSearchingBeat
+    public static let thinkingStatusStem = "Thinking"
+    public static let thinkingStatusBeat = thinkingStatusStem + "…"
+
+    public static func isGmailSearchingBeat(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines) == gmailSearchingBeat
+    }
 
     public static let gmailSearchEmptyReply =
         "I searched Gmail and didn’t find that. I’m not inventing it."

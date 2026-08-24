@@ -105,7 +105,13 @@ struct TurnView: View {
     var body: some View {
         VStack(alignment: turn.role == .user ? .trailing : .leading, spacing: 10) {
             if !turn.text.isEmpty {
-                Text(turn.text)
+                Group {
+                    if turn.role == .assistant, ConversationPresence.isGmailSearchingBeat(turn.text) {
+                        AnimatedStatusDotsText(stem: ConversationPresence.gmailSearchingStem)
+                    } else {
+                        Text(turn.text)
+                    }
+                }
                     .font(.body)
                     .foregroundStyle(turn.role == .user ? Color.white : Palette.ink)
                     .padding(.horizontal, 14)
@@ -265,7 +271,13 @@ struct VoiceBar: View {
                             : .easeOut(duration: 0.2),
                         value: listeningPulse
                     )
-                    Text(micLabel)
+                    Group {
+                        if !model.voice.needsCredentials, model.voice.state == .thinking {
+                            AnimatedStatusDotsText(stem: ConversationPresence.thinkingStatusStem)
+                        } else {
+                            Text(micLabel)
+                        }
+                    }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Palette.ink)
                 }
@@ -323,8 +335,22 @@ struct VoiceBar: View {
         switch model.voice.state {
         case .idle: return "Tap to talk"
         case .listening: return "Listening…"
-        case .thinking: return "Thinking…"
+        case .thinking: return ConversationPresence.thinkingStatusBeat
         case .speaking: return "Speaking… tap to stop"
+        }
+    }
+}
+
+/// Cycles `.` → `..` → `...` while Searching Gmail / Thinking is on screen.
+/// Leaves the tree (and stops) when search ends, speak starts, or the session cancels.
+private struct AnimatedStatusDotsText: View {
+    let stem: String
+    var period: TimeInterval = StatusEllipsis.interval
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: period, paused: false)) { context in
+            let tick = Int(context.date.timeIntervalSinceReferenceDate / period)
+            Text(StatusEllipsis.display(stem: stem, tick: tick))
         }
     }
 }
