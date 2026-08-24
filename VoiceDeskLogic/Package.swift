@@ -16,7 +16,8 @@ let package = Package(
             name: "VoiceDeskLogicTests",
             dependencies: ["VoiceDeskLogic"],
             resources: [
-                .copy("Fixtures/voice-regression")
+                .copy("Fixtures/voice-regression"),
+                .copy("Fixtures/grok-voice-tape")
             ]
         )
     ]

@@ -247,6 +247,80 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertTrue(reply.lowercased().contains("thread") || reply.lowercased().contains("earlier"))
     }
 
+    func testWhenWasMurraysLastEmailSentMatchesMurrayNotWasMurrayQuery() {
+        let ask = "When was Murray's last email sent?"
+        XCTAssertTrue(ConversationPresence.hasDeskMailIntent(ask))
+        XCTAssertTrue(ConversationPresence.looksLikeMailAsk(ask))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask))
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:murray")
+        XCTAssertFalse((GmailSearchQuery.query(from: ask) ?? "").contains("was murray"))
+
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [VoiceRegressionDesk.murray, VoiceRegressionDesk.steve])
+        )
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card for when-was last email")
+        }
+        XCTAssertFalse((evidence?.gmailQuery ?? "").lowercased().contains("was murray"))
+        XCTAssertFalse((evidence?.gmailQuery ?? "").contains("from:(\"was murray\")"))
+
+        let empty = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: .empty)
+        )
+        XCTAssertEqual(empty?.shouldSearchGmail, true)
+        XCTAssertEqual(empty?.gmailQuery, "from:murray")
+        XCTAssertFalse((empty?.gmailQuery ?? "").contains("was murray"))
+
+        let contrast = "When did I last get an email from Murray?"
+        XCTAssertTrue(GmailSearchQuery.query(from: contrast)?.contains("from:murray") == true)
+        let contrastEvidence = ConversationPresence.deskEvidence(for: contrast, context: context)
+        if case .email(let item) = contrastEvidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card for when-did-I-last-get")
+        }
+    }
+
+    func testHowAboutMurraysLatestEmailMatchesMurrayNotHowMurrayQuery() {
+        let ask = "Okay, perfect. How about Murray's latest email?"
+        XCTAssertTrue(ConversationPresence.hasDeskMailIntent(ask))
+        XCTAssertTrue(ConversationPresence.looksLikeMailAsk(ask))
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask))
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:murray")
+        XCTAssertFalse((GmailSearchQuery.query(from: ask) ?? "").lowercased().contains("how murray"))
+
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [VoiceRegressionDesk.murray, VoiceRegressionDesk.steve])
+        )
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+        } else {
+            XCTFail("expected Murray card for how-about latest email")
+        }
+        XCTAssertFalse((evidence?.gmailQuery ?? "").lowercased().contains("how murray"))
+        XCTAssertFalse((evidence?.gmailQuery ?? "").contains("from:(\"how murray\")"))
+
+        let empty = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: .empty)
+        )
+        XCTAssertEqual(empty?.shouldSearchGmail, true)
+        XCTAssertEqual(empty?.gmailQuery, "from:murray")
+        XCTAssertFalse((empty?.gmailQuery ?? "").lowercased().contains("how murray"))
+        XCTAssertEqual(empty?.text, ConversationPresence.gmailSearchingBeat)
+        XCTAssertTrue(ConversationPresence.isGmailSearchingBeat(empty?.text ?? ""))
+        XCTAssertFalse(ConversationPresence.isGmailSearchingBeat(ConversationPresence.gmailSearchEmptyReply))
+    }
+
     func testCacheMissSpecificEmailRequestsGmailSearch() {
         let context = DeskContext(isConnected: true, snapshot: .empty)
         let evidence = ConversationPresence.deskEvidence(
@@ -394,6 +468,77 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse((evidence?.text ?? "").lowercased().contains("i can search"))
     }
 
+    func testMurraySummaryAfterGreenacreInboxIsMurrayNotInboxZero() {
+        let ask = "Give me a summary of Murray's last email."
+        XCTAssertTrue(ConversationPresence.wantsFullThread(ask))
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:murray")
+        let context = VoiceRegressionDesk.greenacreFirst
+        XCTAssertEqual(context.snapshot.emails.first?.fromName, "Greenacre Properties, Inc.")
+        XCTAssertEqual(
+            ConversationPresence.matchingEmail(for: ask, in: context.snapshot.emails)?.fromName,
+            "Murray Mitchell"
+        )
+        let overview = ConversationPresence.deskEvidence(
+            for: "Just show me my latest emails.",
+            context: context,
+            focusedEmail: VoiceRegressionDesk.greenacre
+        )
+        XCTAssertEqual(overview?.resetsFocusedEmail, true)
+        XCTAssertNil(overview?.focusedEmail)
+
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context, focusedEmail: nil)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertEqual(evidence?.resetsFocusedEmail, false)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertEqual(item.subject, "Closing / notarization")
+        } else {
+            XCTFail("expected Murray card after inbox overview, not inbox[0]")
+        }
+        XCTAssertFalse((evidence?.text ?? "").contains("Greenacre"))
+        XCTAssertEqual(evidence?.focusedEmail?.fromName, "Murray Mitchell")
+    }
+
+    func testLaurenSummaryClearsGreenacreStickyAndMatchesLaren() {
+        let ask = "Give me a summary of Lauren's latest, latest email."
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:lauren")
+        XCTAssertTrue(
+            GmailSearchQuery.namedSenderMismatches(VoiceRegressionDesk.greenacre, ask: ask)
+        )
+        XCTAssertFalse(
+            GmailSearchQuery.namedSenderMismatches(VoiceRegressionDesk.laren, ask: ask)
+        )
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: VoiceRegressionDesk.greenacreFirst,
+            focusedEmail: VoiceRegressionDesk.greenacre
+        )
+        XCTAssertEqual(evidence?.resetsFocusedEmail, true)
+        XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Laren Cole")
+        } else {
+            XCTFail("expected Laren card, not sticky Greenacre")
+        }
+        XCTAssertEqual(evidence?.focusedEmail?.fromName, "Laren Cole")
+        XCTAssertFalse((evidence?.text ?? "").contains("Greenacre"))
+    }
+
+    func testNamedMurrayMissDoesNotSubstituteGreenacre() {
+        let ask = "Give me a summary of Murray's last email."
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: VoiceRegressionDesk.greenacreOnly,
+            focusedEmail: VoiceRegressionDesk.greenacre
+        )
+        XCTAssertEqual(evidence?.shouldSearchGmail, true)
+        XCTAssertEqual(evidence?.gmailQuery, "from:murray")
+        XCTAssertEqual(evidence?.resetsFocusedEmail, true)
+        XCTAssertTrue(evidence?.cards.isEmpty == true)
+        XCTAssertNil(evidence?.focusedEmail)
+        XCTAssertEqual(evidence?.text, ConversationPresence.gmailSearchingBeat)
+    }
+
     func testCalendarReservationDoesNotSearchGmail() {
         let context = DeskContext(isConnected: true, snapshot: .empty)
         let evidence = ConversationPresence.deskEvidence(
@@ -404,6 +549,51 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertNotEqual(evidence?.shouldSearchGmail, true)
         XCTAssertEqual(evidence?.text, ConversationPresence.calendarMissReply)
         assertNotFakeSearchCapability(evidence?.text ?? "")
+    }
+
+    func testLatestOnMyCalendarIsOverviewNotMiss() {
+        let event = CalendarItem(
+            title: "Massimo showing",
+            whenLabel: "Today 3:00 PM",
+            location: "1842 Beach Drive",
+            relatedPeople: ["Massimo Ricci"]
+        )
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(events: [event])
+        )
+        for ask in [
+            "What's the latest on my calendar?",
+            "whats the latest on my calendar",
+            "What's on my calendar this week",
+            "latest on my calendar"
+        ] {
+            XCTAssertTrue(ConversationPresence.wantsCalendarAsk(ask), ask)
+            XCTAssertTrue(ConversationPresence.wantsCalendarOverview(ask), ask)
+            XCTAssertFalse(ConversationPresence.wantsCalendarDetails(ask), ask)
+            XCTAssertFalse(ConversationPresence.wantsInboxOverview(ask), ask)
+            XCTAssertFalse(GmailSearchQuery.hasSenderPattern(ask), ask)
+            let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+            XCTAssertEqual(evidence?.topic, .calendar, ask)
+            XCTAssertNotEqual(evidence?.text, ConversationPresence.calendarMissReply, ask)
+            XCTAssertTrue((evidence?.text ?? "").contains("Massimo showing"), ask)
+            XCTAssertEqual(evidence?.cards.count, 1, ask)
+            if case .calendar(let item) = evidence?.cards.first {
+                XCTAssertEqual(item.title, "Massimo showing")
+            } else {
+                XCTFail("expected calendar card for \(ask)")
+            }
+        }
+    }
+
+    func testLatestOnMyCalendarEmptySnapshotIsHonestOverview() {
+        let context = DeskContext(isConnected: true, snapshot: .empty)
+        let ask = "What's the latest on my calendar?"
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+        XCTAssertEqual(evidence?.topic, .calendar)
+        XCTAssertNotEqual(evidence?.text, ConversationPresence.calendarMissReply)
+        XCTAssertTrue((evidence?.text ?? "").lowercased().contains("not inventing"))
+        XCTAssertTrue(evidence?.cards.isEmpty == true)
     }
 
     func testConnectedInboxUsesCacheNotSampleDesk() {
@@ -551,7 +741,9 @@ final class ConversationPresenceTests: XCTestCase {
             "what's in my inbox",
             "latest emails",
             "recent emails",
-            "see my latest emails"
+            "see my latest emails",
+            "Can you pull my latest emails?",
+            "pull my latest emails"
         ] {
             XCTAssertTrue(ConversationPresence.wantsInboxOverview(ask), ask)
             XCTAssertFalse(ConversationPresence.wantsFullThread(ask), ask)
@@ -577,8 +769,15 @@ final class ConversationPresenceTests: XCTestCase {
             )
             let reply = evidence?.text ?? ""
             XCTAssertTrue(reply.contains("Murray Mitchell") || reply.contains("Steve Brown"), ask)
-            XCTAssertTrue(reply.contains("Closing") || reply.contains("Inspection") || reply.lowercased().contains("recent inbox"), ask)
-            XCTAssertFalse(reply.contains("Need you to notarize the closing package") && !reply.contains("Steve"), "must not be a single Murray thread summary: \(ask)")
+            XCTAssertTrue(reply.contains("Closing") || reply.contains("Inspection"), ask)
+            XCTAssertTrue(InboxGlance.isMultiline(reply) || reply.contains("\n"), "glance must not mash emails onto one line: \(ask) → \(reply)")
+            XCTAssertFalse(reply.contains("Need you to notarize the closing package"), "must not recite the Murray body: \(ask)")
+            XCTAssertFalse(reply.localizedCaseInsensitiveContains("please do not reply"), ask)
+            XCTAssertEqual(evidence?.shouldGlanceInbox, true, ask)
+            let onScreen = InboxGlance.onScreenText(compactCardCount: evidence?.cards.count ?? 0)
+            XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(onScreen), "\(ask) on-screen: \(onScreen)")
+            XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), ask)
+            XCTAssertEqual(DeskReplySpeech.textToSpeak(reply, lastSpoken: nil), reply, ask)
         }
 
         let murrayAsk = "summarize the Murray email"
@@ -594,7 +793,7 @@ final class ConversationPresenceTests: XCTestCase {
         } else {
             XCTFail("expected Murray card for person-specific summary")
         }
-        XCTAssertNotEqual(murrayEvidence?.resetsFocusedEmail, true)
+        XCTAssertEqual(murrayEvidence?.resetsFocusedEmail, true, "named Murray must yield Steve sticky")
         if case .email(let item) = murrayEvidence?.cards.first {
             XCTAssertFalse(item.isCompactListRow, "single Murray thread stays the full reader")
         }
@@ -647,6 +846,8 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertTrue(ConversationPresence.isGrokDeskRefusal("I’ll let the app handle that."))
         XCTAssertFalse(ConversationPresence.isGrokDeskHandoff("Murray wrote: Need you to notarize today."))
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta("Here’s the recent inbox. Murray Mitchell: Closing / notarization."))
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(InboxGlance.heuristic([VoiceRegressionDesk.murray, VoiceRegressionDesk.steve])))
+        XCTAssertTrue(ConversationPresence.isGrokDeskHandoff("I’ll stay quiet — the iOS app handles Gmail."))
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta(ConversationPresence.gmailSearchingBeat))
     }
 

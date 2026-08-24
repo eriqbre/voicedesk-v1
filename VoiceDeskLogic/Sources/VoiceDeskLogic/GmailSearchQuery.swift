@@ -44,13 +44,26 @@ public enum GmailSearchQuery: Sendable {
         "seeing", "cards", "card", "where", "last", "first", "give",
         "gave", "got", "asked", "ask", "could", "would", "should",
         "of", "in", "on", "up", "out", "into", "over", "than", "then",
-        "most", "recent", "by", "who", "whom"
+        "most", "recent", "by", "who", "whom",
+        // Question / auxiliary words. Never a first name before “X’s last email”.
+        "when", "was", "were", "how", "why",
+        // Conversational filler before “how about X’s latest email”.
+        "okay", "ok", "perfect", "alright",
+        // Restarts / um-uh / yeah-that leftovers. “wait, Murray— yeah, Murray’s”
+        // must stay from:murray, not from:("yeah murray").
+        "yeah", "yes", "yep", "yup", "wait", "um", "uh", "sure", "please",
+        "mm", "hmm", "mhm",
+        // Calendar overview words. “What’s the latest on my calendar?” is not from:calendar.
+        "calendar", "schedule", "week", "upcoming", "meetings"
     ]
 
     /// Sender-name match required before we attach a card for a named ask.
     public static let senderAttachThreshold = 80
     public static let subjectAttachThreshold = 25
     public static let closeScoreGap = 25
+    /// One-edit names (Lauren / Laren) still attach when that sender is present.
+    public static let senderFuzzyMaxEdits = 1
+    public static let senderFuzzyMinLength = 4
 
     /// `nil` when the ask has no searchable tokens (e.g. “summarize the full thread”).
     public static func query(from raw: String) -> String? {
@@ -105,6 +118,10 @@ public enum GmailSearchQuery: Sendable {
             rememberPhrase(phrase)
         }
 
+        if let aboutName = nameAfterHowOrWhatAbout(in: raw) {
+            rememberPhrase(aboutName)
+        }
+
         if compactLetters(raw).contains("showingtime") {
             rememberPhrase("showing time")
         }
@@ -150,8 +167,11 @@ public enum GmailSearchQuery: Sendable {
             if let match = regex.firstMatch(in: raw, range: ns),
                let possRange = Range(match.range(at: 1), in: raw) {
                 let possessive = String(raw[possRange])
-                let before = letterTokens(in: String(raw[..<possRange.lowerBound])).last
-                if let before, !stop.contains(sanitize(before)) {
+                // Immediate word only — “Steve Brown's” keeps the pair.
+                // letterTokens would skip “of”/“was” and glue “quick”/“when”
+                // into from:("quick murray") / from:("was murray").
+                let before = immediateLetterWord(before: possRange.lowerBound, in: raw)
+                if let before, isPossessiveNamePrefix(before) {
                     rememberPhrase("\(before) \(possessive)")
                 } else {
                     rememberSender(possessive)
@@ -178,6 +198,17 @@ public enum GmailSearchQuery: Sendable {
         return !plan.senders.isEmpty || plan.phrases.contains(where: { $0.contains(" ") })
     }
 
+    /// True when the ask names a sender and this email is not that sender.
+    public static func namedSenderMismatches(_ email: EmailItem?, ask: String) -> Bool {
+        guard hasSenderPattern(ask), let email, let plan = plan(from: ask) else { return false }
+        switch pick([email], plan: plan) {
+        case .none:
+            return true
+        case .one, .several:
+            return false
+        }
+    }
+
     public static func score(_ email: EmailItem, ask: String) -> Int {
         guard let plan = plan(from: ask) else { return 0 }
         return score(email, plan: plan)
@@ -202,6 +233,7 @@ public enum GmailSearchQuery: Sendable {
             if fromHay.contains(sender) { total += 100 }
             if fromCompact.contains(sender) { total += 80 }
             if email.fromEmail.lowercased().contains(sender) { total += 90 }
+            if fuzzySenderHit(sender, in: fromHay, compact: fromCompact) { total += 90 }
         }
         for token in plan.subjectTokens {
             if subjectHay.contains(token) { total += 30 }
@@ -320,6 +352,46 @@ public enum GmailSearchQuery: Sendable {
         return variants
     }
 
+    /// Word immediately before `end` (no skip-over of “of” / “was”).
+    private static func immediateLetterWord(before end: String.Index, in raw: String) -> String? {
+        var word = ""
+        for ch in raw[..<end].reversed() {
+            if ch.isLetter {
+                word.insert(ch, at: word.startIndex)
+            } else if !word.isEmpty {
+                break
+            }
+        }
+        return word.isEmpty ? nil : word
+    }
+
+    /// True when the token before “X’s” is a real given name, not “was” / “of” / “about”.
+    private static func isPossessiveNamePrefix(_ raw: String) -> Bool {
+        let token = sanitize(raw)
+        return token.count >= 3 && !stop.contains(token)
+    }
+
+    /// “How about Murray’s…” / “what about Steve” — skip filler, take the name.
+    private static func nameAfterHowOrWhatAbout(in raw: String) -> String? {
+        let lower = raw.lowercased()
+        guard let regex = try? NSRegularExpression(pattern: #"\b(?:how|what)\s+about\s+(.+)$"#),
+              let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+              let range = Range(match.range(at: 1), in: lower)
+        else { return nil }
+        var words: [String] = []
+        for piece in lower[range].split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
+            let token = sanitize(String(piece))
+            guard token.count >= 2 else { continue }
+            if stop.contains(token) {
+                if !words.isEmpty { break }
+                continue
+            }
+            words.append(token)
+            if words.count >= 2 { break }
+        }
+        return words.isEmpty ? nil : words.joined(separator: " ")
+    }
+
     private static func sanitize(_ raw: String) -> String {
         raw.lowercased()
             .replacingOccurrences(of: "'s", with: "")
@@ -354,6 +426,50 @@ public enum GmailSearchQuery: Sendable {
             }
         }
         return nil
+    }
+
+    /// Lauren↔Laren and similar one-edit first names. Does not match Greenacre for murray/lauren.
+    public static func fuzzySenderHit(_ sender: String, in fromHay: String, compact fromCompact: String) -> Bool {
+        let needle = compactLetters(sender)
+        guard needle.count >= senderFuzzyMinLength else { return false }
+        if fromHay.contains(sender) || fromCompact.contains(needle) { return false }
+        var words: [String] = []
+        var current = ""
+        for ch in fromHay.lowercased() {
+            if ch.isLetter {
+                current.append(ch)
+            } else if !current.isEmpty {
+                words.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { words.append(current) }
+        if let local = fromHay.split(separator: "@").first {
+            let localLetters = compactLetters(String(local))
+            if !localLetters.isEmpty { words.append(localLetters) }
+        }
+        return words.contains { word in
+            word.count >= senderFuzzyMinLength && editDistance(word, needle) <= senderFuzzyMaxEdits
+        }
+    }
+
+    static func editDistance(_ a: String, _ b: String) -> Int {
+        let left = Array(a)
+        let right = Array(b)
+        if left.isEmpty { return right.count }
+        if right.isEmpty { return left.count }
+        if abs(left.count - right.count) > senderFuzzyMaxEdits { return senderFuzzyMaxEdits + 1 }
+        var previous = Array(0...right.count)
+        var current = Array(repeating: 0, count: right.count + 1)
+        for i in 1...left.count {
+            current[0] = i
+            for j in 1...right.count {
+                let cost = left[i - 1] == right[j - 1] ? 0 : 1
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+            }
+            previous = current
+        }
+        return previous[right.count]
     }
 
     private static func phraseHit(_ email: EmailItem, plan: GmailSearchPlan) -> Bool {

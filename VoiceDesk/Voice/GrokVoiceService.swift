@@ -35,6 +35,10 @@ final class GrokVoiceService: VoiceServicing {
     private var verbatim = VerbatimSpeakGate()
     private var restoreAudioSuppressAfterVerbatim = false
     private var instructions = GrokRealtime.presenceInstructions
+    /// In-flight `connectAndConfigure` so warmup and first tap share one handshake.
+    private var connectingTask: Task<Void, Error>?
+    /// True once the live socket opened during this process lifetime.
+    private var didConnectThisLaunch = false
 
     var state: VoiceState { session.state }
 
@@ -48,6 +52,18 @@ final class GrokVoiceService: VoiceServicing {
             guard let self, self.audio.isRunning else { return false }
             self.audio.playPCM16(pcm)
             return true
+        }
+    }
+
+    func warmUp() async {
+        userWantsVoiceOff = false
+        isTearingDown = false
+        let granted = await AVAudioApplication.requestRecordPermission()
+        guard granted else { return }
+        do {
+            try await ensureReadyForFirstListen()
+        } catch {
+            // First tap waits / retries. Stay idle so we do not swallow a turn.
         }
     }
 
@@ -70,7 +86,7 @@ final class GrokVoiceService: VoiceServicing {
         }
 
         do {
-            try await connectAndConfigure()
+            try await ensureReadyForFirstListen()
         } catch {
             if session.state != .idle {
                 eventHandler?(.failed(error.localizedDescription))
@@ -166,7 +182,69 @@ final class GrokVoiceService: VoiceServicing {
         teardown(sendCancel: true)
     }
 
+    private func ensureReadyForFirstListen() async throws {
+        var alreadyRetried = false
+        while true {
+            let ready = FirstListenPolicy.isReady(
+                socketConnected: client.isConnected,
+                audioSessionReady: audio.isRunning
+            )
+            if FirstListenPolicy.beforeListen(isReady: ready) == .waitForReady {
+                try await connectIfNeeded()
+                await retryAudioIfNeeded()
+            }
+
+            let readyAfter = FirstListenPolicy.isReady(
+                socketConnected: client.isConnected,
+                audioSessionReady: audio.isRunning
+            )
+            if readyAfter { return }
+
+            let next = FirstListenPolicy.afterEmptyListen(
+                didConnectThisLaunch: didConnectThisLaunch,
+                alreadyRetried: alreadyRetried
+            )
+            guard next == .retryConnectThenListen else {
+                if client.isConnected { return }
+                throw GrokVoiceError.connectFailed("Session not ready")
+            }
+            alreadyRetried = true
+            client.disconnect()
+            audio.stop()
+        }
+    }
+
+    private func connectIfNeeded() async throws {
+        if client.isConnected {
+            startAudioIfNeeded()
+            return
+        }
+        if let connectingTask {
+            try await connectingTask.value
+            startAudioIfNeeded()
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { throw GrokVoiceError.connectFailed("Released") }
+            try await self.connectAndConfigure()
+        }
+        connectingTask = task
+        defer { connectingTask = nil }
+        try await task.value
+    }
+
+    private func retryAudioIfNeeded() async {
+        startAudioIfNeeded()
+        if audio.isRunning { return }
+        try? await Task.sleep(for: .milliseconds(200))
+        startAudioIfNeeded()
+    }
+
     private func connectAndConfigure() async throws {
+        if client.isConnected {
+            startAudioIfNeeded()
+            return
+        }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             readyContinuation = continuation
             client.connect(apiKey: apiKey, model: model)
@@ -270,6 +348,7 @@ final class GrokVoiceService: VoiceServicing {
 
 extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     func grokWebSocketDidOpen() {
+        didConnectThisLaunch = true
         sendSessionUpdate()
         startAudioIfNeeded()
     }

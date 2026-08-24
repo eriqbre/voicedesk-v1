@@ -146,7 +146,8 @@ public enum VoiceInteractionLog: Sendable {
         utterance: String,
         evidence: ConversationPresence.DeskEvidence?,
         pendingSearchClarify: Bool = false,
-        hadFocusedEmail: Bool = false
+        hadFocusedEmail: Bool = false,
+        hasClarifyMatches: Bool = false
     ) -> VoiceTurnClassification {
         var notes: [String] = []
         var sticky: VoiceStickyState = .none
@@ -154,10 +155,14 @@ public enum VoiceInteractionLog: Sendable {
         var searchQuery: String?
 
         if pendingSearchClarify { notes.append("pending clarify") }
-        if evidence?.resetsFocusedEmail == true {
+        let attached = evidence?.focusedEmail
+        let namedMismatch = GmailSearchQuery.namedSenderMismatches(attached, ask: utterance)
+            || (hadFocusedEmail && evidence?.resetsFocusedEmail == true)
+            || (hadFocusedEmail && attached == nil && GmailSearchQuery.hasSenderPattern(utterance))
+        if evidence?.resetsFocusedEmail == true || namedMismatch {
             sticky = .cleared
             notes.append("sticky cleared")
-        } else if hadFocusedEmail, let focused = evidence?.focusedEmail, evidence?.resetsFocusedEmail != true {
+        } else if hadFocusedEmail, let focused = attached, evidence?.resetsFocusedEmail != true {
             sticky = .reused
             focusedPerson = focused.fromName
             notes.append("sticky reused (\(focused.fromName))")
@@ -168,14 +173,28 @@ public enum VoiceInteractionLog: Sendable {
             notes.append(evidence?.shouldSearchGmail == true ? "cache miss" : "named query")
         } else if evidence != nil, evidence?.shouldSearchGmail != true {
             notes.append("synced cache / list")
+            // Cache hit still records the planned q= so fixtures can assert from:murray
+            // (and dogfood can see “When was Murray's…” did not become from:("was murray")).
+            if ConversationPresence.looksLikeMailAsk(utterance)
+                || ConversationPresence.hasDeskMailIntent(utterance),
+               let planned = GmailSearchQuery.query(from: utterance),
+               planned.lowercased().contains("from:") {
+                searchQuery = planned
+                notes.append("named query \(planned)")
+            }
         }
-        if let sender = evidence?.focusedEmail?.fromName, evidence?.resetsFocusedEmail != true {
+        if let sender = attached?.fromName,
+           !GmailSearchQuery.namedSenderMismatches(attached, ask: utterance) {
             focusedPerson = sender
             notes.append("sender \(sender)")
         }
 
+        if pendingSearchClarify, ConversationPresence.isClarifyPick(utterance) {
+            notes.append("clarify pick")
+        }
+
         let intent: String
-        if ConversationPresence.wantsInboxOverview(utterance) || evidence?.resetsFocusedEmail == true {
+        if ConversationPresence.wantsInboxOverview(utterance) {
             intent = "inbox-overview"
         } else if ConversationPresence.wantsCalendarAsk(utterance) {
             intent = "calendar"
@@ -191,9 +210,15 @@ public enum VoiceInteractionLog: Sendable {
             intent = "desk-thread"
         } else if ConversationPresence.wantsEmailFollowUp(utterance) {
             intent = "desk-follow-up"
+        } else if pendingSearchClarify, ConversationPresence.isClarifyPick(utterance) {
+            intent = "desk-person"
         } else if evidence?.focusedEmail != nil || ConversationPresence.looksLikeMailAsk(utterance) {
             intent = "desk-person"
-        } else if ConversationPresence.ownsConnectedDeskTurn(utterance) {
+        } else if ConversationPresence.ownsConnectedDeskTurn(
+            utterance,
+            pendingSearchClarify: pendingSearchClarify,
+            hasClarifyMatches: hasClarifyMatches
+        ) {
             intent = "desk-person"
         } else {
             intent = "general"

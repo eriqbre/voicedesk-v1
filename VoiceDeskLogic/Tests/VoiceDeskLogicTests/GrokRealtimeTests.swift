@@ -116,6 +116,26 @@ final class GrokRealtimeTests: XCTestCase {
         )
     }
 
+    func testCommitAudioJSONMatchesVoiceAgentWire() {
+        XCTAssertEqual(GrokRealtime.commitAudioJSON(), #"{"type":"input_audio_buffer.commit"}"#)
+        XCTAssertEqual(GrokRealtime.commitAudioObject()["type"] as? String, "input_audio_buffer.commit")
+        XCTAssertEqual(GrokRealtime.commitAudioObject().count, 1)
+    }
+
+    func testPCMAppendChunksAre100msAt24k() {
+        XCTAssertEqual(GrokRealtime.pcmAppendChunkByteCount(milliseconds: 100), 4_800)
+        let pcm = Data(repeating: 0, count: 10_000)
+        let chunks = GrokRealtime.pcmAppendChunks(pcm, milliseconds: 100)
+        XCTAssertEqual(chunks.count, 3)
+        XCTAssertEqual(chunks[0].count, 4_800)
+        XCTAssertEqual(chunks[1].count, 4_800)
+        XCTAssertEqual(chunks[2].count, 400)
+        XCTAssertEqual(
+            GrokVoiceTape.appendJSONChunks(pcm: Data(repeating: 1, count: 4), milliseconds: 100).first,
+            GrokRealtime.appendAudioJSON(base64: Data(repeating: 1, count: 4).base64EncodedString())
+        )
+    }
+
     func testParsesUserAndAssistantTranscriptEvents() {
         XCTAssertEqual(
             GrokRealtime.parse(
@@ -215,14 +235,30 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
     }
 
-    func testCancelAndTextTurnPayloads() {
+    func testCancelAndTextTurnPayloads() throws {
         XCTAssertEqual(GrokRealtime.responseCancelObject()["type"] as? String, "response.cancel")
         XCTAssertEqual(GrokRealtime.clearBufferObject()["type"] as? String, "input_audio_buffer.clear")
 
         let item = GrokRealtime.textItemObject("Hello")
         XCTAssertEqual(item["type"] as? String, "conversation.item.create")
+        let nested = try XCTUnwrap(item["item"] as? [String: Any])
+        XCTAssertEqual(nested["type"] as? String, "message")
+        XCTAssertEqual(nested["role"] as? String, "user")
+        let content = try XCTUnwrap(nested["content"] as? [[String: Any]])
+        XCTAssertEqual(content.first?["type"] as? String, "input_text")
+        XCTAssertEqual(content.first?["text"] as? String, "Hello")
+
         let response = GrokRealtime.responseCreateObject()
         XCTAssertEqual(response["type"] as? String, "response.create")
+        let responseBody = try XCTUnwrap(response["response"] as? [String: Any])
+        XCTAssertEqual(responseBody["modalities"] as? [String], ["text", "audio"])
+
+        let itemData = try JSONSerialization.data(withJSONObject: item)
+        let itemRoundTrip = try XCTUnwrap(JSONSerialization.jsonObject(with: itemData) as? [String: Any])
+        XCTAssertEqual(itemRoundTrip["type"] as? String, "conversation.item.create")
+        let createData = try JSONSerialization.data(withJSONObject: response)
+        let createRoundTrip = try XCTUnwrap(JSONSerialization.jsonObject(with: createData) as? [String: Any])
+        XCTAssertEqual(createRoundTrip["type"] as? String, "response.create")
     }
 
     private func intValue(_ value: Any?) -> Int? {

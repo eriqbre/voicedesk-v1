@@ -47,24 +47,31 @@ public enum VoiceTurnReplay: Sendable {
         utterance: String,
         context: DeskContext,
         focusedEmail: EmailItem? = nil,
-        pendingSearchClarify: Bool = false
+        pendingSearchClarify: Bool = false,
+        clarifyMatches: [EmailItem] = []
     ) -> Result {
         let evidence = ConversationPresence.deskEvidence(
             for: utterance,
             context: context,
             focusedEmail: focusedEmail,
-            pendingSearchClarify: pendingSearchClarify
+            pendingSearchClarify: pendingSearchClarify,
+            clarifyMatches: clarifyMatches
         )
         let classified = VoiceInteractionLog.classify(
             utterance: utterance,
             evidence: evidence,
             pendingSearchClarify: pendingSearchClarify,
-            hadFocusedEmail: focusedEmail != nil
+            hadFocusedEmail: focusedEmail != nil,
+            hasClarifyMatches: !clarifyMatches.isEmpty
         )
         return Result(
             intent: classified.intent,
             notes: classified.notes,
-            ownsDeskTurn: ConversationPresence.ownsConnectedDeskTurn(utterance),
+            ownsDeskTurn: ConversationPresence.ownsConnectedDeskTurn(
+                utterance,
+                pendingSearchClarify: pendingSearchClarify,
+                hasClarifyMatches: !clarifyMatches.isEmpty
+            ),
             looksLikeMailAsk: ConversationPresence.looksLikeMailAsk(utterance),
             evidence: evidence,
             cardLabels: VoiceInteractionLog.cardLabels(evidence?.cards ?? []),
@@ -82,7 +89,7 @@ public enum VoiceTurnReplay: Sendable {
         } else if fixture.connected == false {
             context = .disconnected
         } else {
-            context = VoiceRegressionDesk.connected
+            context = VoiceRegressionDesk.desk(preset: fixture.deskPreset)
         }
         let focused: EmailItem?
         if fixture.hadFocusedEmail == true {
@@ -90,11 +97,16 @@ public enum VoiceTurnReplay: Sendable {
         } else {
             focused = nil
         }
+        let pendingClarify = fixture.pendingSearchClarify ?? false
+        // After “I found a few matches. Which one?” replay the compact cards as clarify matches
+        // so “the last one” / “the latest” pick newest Murray — not live Grok.
+        let matches = pendingClarify ? context.snapshot.emails : []
         return play(
             utterance: fixture.userTranscript,
             context: context,
             focusedEmail: focused,
-            pendingSearchClarify: fixture.pendingSearchClarify ?? false
+            pendingSearchClarify: pendingClarify,
+            clarifyMatches: matches
         )
     }
 }
