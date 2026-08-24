@@ -39,8 +39,8 @@ final class EchoTranscriptGateTests: XCTestCase {
             "point one",
             "point 1",
             "dot one",
-            "build 2",
-            "build two",
+            "build 3",
+            "build three",
             "build 1",
             "build one",
             "voice desk",
@@ -100,7 +100,7 @@ final class EchoTranscriptGateTests: XCTestCase {
 
         XCTAssertEqual(gate.decide("zero").intent, "dropped")
         XCTAssertEqual(gate.decide("point one").intent, "dropped")
-        XCTAssertEqual(gate.decide("build 2").intent, "dropped")
+        XCTAssertEqual(gate.decide("build 3").intent, "dropped")
         XCTAssertNil(gate.decide("zero").plan)
 
         let calendar = gate.decide("what's on my calendar", context: VoiceRegressionDesk.connected)
@@ -119,7 +119,7 @@ final class EchoTranscriptGateTests: XCTestCase {
         gate.finishSpeaking()
 
         XCTAssertTrue(EchoTranscriptGate.isLeftoverEcho("zero", of: spokenVersion))
-        XCTAssertTrue(EchoTranscriptGate.isLeftoverEcho("build 2", of: spokenVersion))
+        XCTAssertTrue(EchoTranscriptGate.isLeftoverEcho("build 3", of: spokenVersion))
         XCTAssertTrue(EchoTranscriptGate.isLeftoverEcho("build 1", of: spokenVersion))
         XCTAssertFalse(EchoTranscriptGate.isLeftoverEcho("zero emails today", of: spokenVersion))
         XCTAssertFalse(EchoTranscriptGate.isLeftoverEcho("build me a summary of Murray", of: spokenVersion))
@@ -135,7 +135,7 @@ final class EchoTranscriptGateTests: XCTestCase {
     }
 
     func testSpokenVersionLineAvoidsForcingZeroIntoTTS() {
-        XCTAssertEqual(spokenVersion, "VoiceDesk point 1, build 2.")
+        XCTAssertEqual(spokenVersion, "VoiceDesk point 1, build 3.")
         XCTAssertFalse(spokenVersion.contains("0.1"))
         XCTAssertFalse(spokenVersion.lowercased().split { !$0.isLetter && !$0.isNumber }.contains("zero"))
         XCTAssertEqual(BuildIdentity.fixture.spokenSHALine, "VoiceDesk 1fa0a0e.")
