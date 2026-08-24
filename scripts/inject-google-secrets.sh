@@ -1,11 +1,13 @@
 #!/bin/sh
 # Writes Config/Generated/GoogleSecrets.xcconfig from local Secrets.plist / env.
+# Also bakes GIT_SHA / GIT_BRANCH from `git -C "$SRCROOT"` when that tree is a
+# repo — never invents a SHA. Empty values become "unknown SHA" at speak time.
 # Used as a scheme Pre-action and as an Xcode Run Script whose ONLY output
 # is that xcconfig — never the built app Info.plist.
-# Config/VoiceDesk.xcconfig #include?s the file so $(GOOGLE_*) substitute.
+# Config/VoiceDesk.xcconfig #include?s the file so $(GOOGLE_*) and $(GIT_*) substitute.
 # DEVELOPMENT_TEAM is optional: written only when Secrets.plist / env has one.
 # Missing team is not an error — Xcode Signing UI can supply it for device runs.
-# Never prints secret values.
+# Never prints secret values. Never writes DEVELOPMENT_TEAM unless Secrets/env has one.
 # Manual: ./scripts/inject-google-secrets.sh
 
 set -eu
@@ -99,6 +101,38 @@ if is_placeholder "$REVERSED"; then
     REVERSED="$(derive_reversed "$CLIENT")"
 fi
 
+git_identity_lines() {
+    sha=""
+    branch=""
+    if command -v git >/dev/null 2>&1 \
+        && git -C "$SRCROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        raw="$(trim "$(git -C "$SRCROOT" rev-parse --short=7 HEAD 2>/dev/null || true)")"
+        case "$raw" in
+            *[!0-9a-fA-F]*|"")
+                ;;
+            *)
+                if [ "${#raw}" -ge 4 ] && [ "${#raw}" -le 12 ]; then
+                    sha="$(printf '%s' "$raw" | tr 'A-F' 'a-f')"
+                fi
+                ;;
+        esac
+        br="$(trim "$(git -C "$SRCROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)")"
+        if [ -n "$br" ] && [ "$br" != "HEAD" ]; then
+            branch="$(printf '%s' "$br" | tr -cd 'A-Za-z0-9._/-')"
+        fi
+    fi
+    if [ -n "$sha" ]; then
+        echo "GIT_SHA = ${sha}"
+    else
+        echo "GIT_SHA ="
+    fi
+    if [ -n "$branch" ]; then
+        echo "GIT_BRANCH = ${branch}"
+    else
+        echo "GIT_BRANCH ="
+    fi
+}
+
 mkdir -p "$GENERATED_DIR"
 if ! is_placeholder "$CLIENT"; then
     {
@@ -112,6 +146,7 @@ if ! is_placeholder "$CLIENT"; then
         if [ -n "$TEAM" ]; then
             echo "DEVELOPMENT_TEAM = ${TEAM}"
         fi
+        git_identity_lines
     } > "$XCCONFIG"
     echo "note: inject-google-secrets: wrote Config/Generated/GoogleSecrets.xcconfig from Secrets.plist"
 else
@@ -122,6 +157,7 @@ else
         if [ -n "$TEAM" ]; then
             echo "DEVELOPMENT_TEAM = ${TEAM}"
         fi
+        git_identity_lines
     } > "$XCCONFIG"
     echo "note: inject-google-secrets: no GOOGLE_CLIENT_ID in Secrets.plist; leaving Google keys empty"
 fi
