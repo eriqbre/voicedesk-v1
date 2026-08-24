@@ -114,6 +114,8 @@ final class GrokVoiceTapeTests: XCTestCase {
         XCTAssertTrue(ConversationPresence.isGrokDeskHandoff("I’ll let the app handle that."))
         XCTAssertFalse(GrokVoiceTape.isDeskRefusal("Murray wrote: Need you to notarize today."))
         XCTAssertFalse(GrokVoiceTape.isDeskRefusal("John Wick was released in 2014."))
+        XCTAssertTrue(GrokVoiceTape.isDeskRefusal("I don't have the full thread on Murray."))
+        XCTAssertTrue(GrokVoiceTape.isDeskRefusal("I can't pull what's actually scheduled."))
     }
 
     func testPCM16WAVAndRawLoadAt24kMono() throws {

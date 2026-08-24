@@ -14,12 +14,17 @@ final class GrokVoiceTapeLiveTests: XCTestCase {
         let fixtures = try GrokVoiceTape.loadFixtures(from: directory)
         XCTAssertFalse(fixtures.isEmpty)
 
+        continueAfterFailure = true
         for fixture in fixtures {
             var pcm: Data?
             if let url = GrokVoiceTape.resolvePCMURL(fixture: fixture, directory: directory) {
                 pcm = try GrokVoiceTape.loadPCM16LE24kMono(from: url)
             }
             let result = await GrokVoiceTape.run(fixture: fixture, pcm: pcm, apiKey: apiKey)
+            let audio = result.firstAudioDeltaMilliseconds.map(String.init) ?? "none"
+            print(
+                "TAPE \(fixture.id) pass=\(result.passed) audioMS=\(audio) user=\(result.userTranscript ?? "") assistant=\(result.assistantText)"
+            )
             XCTAssertTrue(
                 result.passed,
                 "\(fixture.id): \(result.failures.map(\.description).joined(separator: "; ")) assistant=\(result.assistantText) errors=\(result.errors) audioMS=\(result.firstAudioDeltaMilliseconds as Any)"
