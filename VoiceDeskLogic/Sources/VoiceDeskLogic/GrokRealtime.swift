@@ -160,6 +160,47 @@ public enum GrokRealtime {
         #"{"type":"input_audio_buffer.append","audio":"\#(base64)"}"#
     }
 
+    /// docs.x.ai: commit the input buffer as a user message.
+    /// Available when `turn_detection` is null; with `server_vad` the server
+    /// also auto-commits on `speech_stopped`. Same wire either way.
+    public static func commitAudioJSON() -> String {
+        #"{"type":"input_audio_buffer.commit"}"#
+    }
+
+    public static func commitAudioObject() -> [String: Any] {
+        ["type": "input_audio_buffer.commit"]
+    }
+
+    /// 16-bit mono PCM bytes for one append slice. 24 kHz × 2 bytes × ms / 1000.
+    public static func pcmAppendChunkByteCount(milliseconds: Int = 100) -> Int {
+        let frames = sampleRate * max(milliseconds, 1) / 1000
+        return frames * 2
+    }
+
+    /// Split PCM16 LE into ~100 ms append frames (even byte length).
+    public static func pcmAppendChunks(_ pcm: Data, milliseconds: Int = 100) -> [Data] {
+        let chunk = pcmAppendChunkByteCount(milliseconds: milliseconds)
+        guard chunk > 0, !pcm.isEmpty else { return [] }
+        var aligned = pcm
+        if aligned.count % 2 != 0 {
+            aligned.removeLast()
+        }
+        var slices: [Data] = []
+        var offset = 0
+        while offset < aligned.count {
+            let end = min(offset + chunk, aligned.count)
+            var slice = aligned.subdata(in: offset..<end)
+            if slice.count % 2 != 0 {
+                slice.removeLast()
+            }
+            if !slice.isEmpty {
+                slices.append(slice)
+            }
+            offset = end
+        }
+        return slices
+    }
+
     public static func responseCancelObject() -> [String: Any] {
         ["type": "response.cancel"]
     }
