@@ -51,6 +51,8 @@ final class AppModel {
     private var lastSearchAsk: String?
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
+    /// Drop Eve's own TTS leftovers. Never mutes the mic.
+    private var echoGate = EchoTranscriptGate()
     private var lastUserUtterance = ""
     private var lastUserSource = "text"
     private var hadFocusedEmailAtTurnStart = false
@@ -165,6 +167,11 @@ final class AppModel {
     }
 
     func voiceBecame(_ state: VoiceState) {
+        if state == .speaking {
+            echoGate.markSpeaking()
+        } else {
+            echoGate.finishSpeaking()
+        }
         voiceListeningVisual = state == .listening
         guard state == .idle, waitingToOfferConnectAfterTalk else { return }
         waitingToOfferConnectAfterTalk = false
@@ -188,6 +195,7 @@ final class AppModel {
         case .listening, .speaking, .thinking:
             VoiceEarcon.listenEnded()
             voiceListeningVisual = false
+            echoGate.cancelSpeaking()
             voice.cancel()
             liveAssistantID = nil
             cancelPendingDraftsFromVoice()
@@ -341,6 +349,9 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
+            if echoGate.acceptUserTranscript(event.text, voiceState: voice.state) == nil {
+                return
+            }
             if !event.isFinal {
                 preemptGrokIfDeskTurn(event.text)
                 return
@@ -1007,7 +1018,11 @@ final class AppModel {
             return
         }
         lastSpokenDeskReply = spoken
+        echoGate.beginSpeaking(spoken)
         await voice.speak(spoken)
+        if voice.state != .speaking {
+            echoGate.finishSpeaking()
+        }
     }
 
     private func rememberUserTurn(_ text: String, source: String) {
