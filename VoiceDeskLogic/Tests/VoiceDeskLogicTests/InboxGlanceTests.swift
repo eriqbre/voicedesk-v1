@@ -224,6 +224,50 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(InboxGlance.repeatsGlanceLines(bubble), bubble)
     }
 
+    /// Single-email card: speak the AI summary, do not reprint it in the bubble.
+    func testSingleEmailCardHidesSpokenSummaryOnScreen() {
+        let email = VoiceRegressionDesk.murray
+        let request = EmailSummaryRequest.from(email, includeEarlier: false)
+        let spoken = EmailSummary.heuristic(request)
+        XCTAssertFalse(spoken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, spoken)
+        XCTAssertTrue(spoken.contains("Murray") || spoken.contains("notarize") || spoken.count > 40, spoken)
+
+        let onScreen = InboxGlance.onScreenTextHidingSpokenSummary()
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(onScreen),
+            "single-email bubble must be empty or a short lead-in, not the summary: \(onScreen)"
+        )
+        XCTAssertEqual(onScreen, InboxGlance.onScreenText(compactCardCount: 1))
+        XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), onScreen)
+        XCTAssertNotEqual(onScreen, spoken)
+        XCTAssertFalse(onScreen.contains("Murray"), onScreen)
+        XCTAssertFalse(onScreen.contains("notarize"), onScreen)
+
+        XCTAssertEqual(DeskReplySpeech.textToSpeak(spoken, lastSpoken: nil), spoken)
+        XCTAssertNil(DeskReplySpeech.textToSpeak(onScreen, lastSpoken: nil))
+
+        XCTAssertFalse(
+            InboxGlance.isShortOnScreenLeadIn(ConversationPresence.gmailSearchSeveralReply),
+            "clarify lead-in must stay visible: \(ConversationPresence.gmailSearchSeveralReply)"
+        )
+        XCTAssertEqual(
+            ConversationPresence.gmailSearchSeveralReply,
+            "I found a few matches. Which one?"
+        )
+        XCTAssertFalse(InboxGlance.isShortOnScreenLeadIn(ConversationPresence.gmailSearchEmptyReply))
+        XCTAssertFalse(InboxGlance.isShortOnScreenLeadIn(ConversationPresence.gmailSearchFailedReply))
+        XCTAssertFalse(InboxGlance.isShortOnScreenLeadIn(ConversationPresence.connectHowToReply))
+        XCTAssertFalse(
+            InboxGlance.isShortOnScreenLeadIn(
+                ConversationPresence.emailBodySyncFailedReply(email)
+            )
+        )
+
+        let inboxOnScreen = InboxGlance.onScreenText(compactCardCount: 3)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(inboxOnScreen), inboxOnScreen)
+        XCTAssertEqual(inboxOnScreen, onScreen)
+    }
+
     private static let newestClarifyPhrases = [
         "The last one.",
         "the last one",

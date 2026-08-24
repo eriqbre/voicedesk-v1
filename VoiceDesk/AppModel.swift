@@ -17,6 +17,9 @@ final class AppModel {
     var deskSnapshot = DeskSnapshot.empty
     var isOnline = true
     var isSyncing = false
+    /// First-load restore/sync chip. Not a chat turn. Never spoken.
+    var launchSyncPhase: LaunchSyncPhase = .idle
+    var launchStatusHold: Duration = .milliseconds(Int(LaunchSyncStatus.holdSeconds * 1000))
 
     let voice: VoiceBox
     let google: GoogleSession
@@ -91,6 +94,7 @@ final class AppModel {
         self.emailSummarizer = emailSummarizer ?? HeuristicEmailSummarizer()
         self.isOnline = isOnline
         self.hasCompletedPlaybook = self.playbook.hasCompleted
+        // First paint: local cache only. Google restore + sync run after first frame.
         self.deskSnapshot = self.cache.load()
         self.voice.transcriptHandler = { [weak self] event in
             self?.handleLiveTranscript(event)
@@ -935,7 +939,11 @@ final class AppModel {
             EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
         )
         scrubGrokDeskRefusals()
-        appendAssistant(reply, cards: [.email(email.presented(as: .full))])
+        // Card is the visual. Eve still speaks `reply`; do not reprint it in the bubble.
+        appendAssistant(
+            InboxGlance.onScreenTextHidingSpokenSummary(),
+            cards: [.email(email.presented(as: .full))]
+        )
         await speakDeskReply(reply)
     }
 
@@ -1071,7 +1079,16 @@ final class AppModel {
         )
     }
 
+    /// After the first ConversationScreen frame. Cache was already loaded in `init`.
+    /// Google restore + inbox refresh + live Grok warmup must not block first paint.
+    func prepareAfterFirstPaint() async {
+        async let restore: Void = restoreGoogleIfNeeded()
+        async let warmup: Void = voice.warmUp()
+        _ = await (restore, warmup)
+    }
+
     func restoreGoogleIfNeeded() async {
+        launchSyncPhase = .restoringGoogle
         await google.restoreSession()
         if google.isConnected {
             deskSnapshot = cache.load()
@@ -1080,17 +1097,28 @@ final class AppModel {
                 isOnline: isOnline,
                 lastSyncedAt: deskSnapshot.lastSyncedAt
             ) {
-                await syncDesk()
+                await syncDesk(announceLaunch: true)
+            } else {
+                launchSyncPhase = .idle
             }
             refreshPresence()
             refreshGoogleCards()
+        } else {
+            launchSyncPhase = .idle
         }
     }
 
-    func syncDesk() async {
-        guard google.isConnected, let token = google.accessToken else { return }
+    func syncDesk(announceLaunch: Bool = false) async {
+        guard google.isConnected, let token = google.accessToken else {
+            if announceLaunch { launchSyncPhase = .idle }
+            return
+        }
         isSyncing = true
         defer { isSyncing = false }
+        if announceLaunch {
+            launchSyncPhase = .syncingInbox
+        }
+        let cachedIDs = Set(deskSnapshot.emails.compactMap(\.providerID).filter { !$0.isEmpty })
         do {
             let next = try await sync.sync(
                 token: token,
@@ -1100,6 +1128,13 @@ final class AppModel {
             deskSnapshot = next
             cache.save(next)
             refreshPresence()
+            if announceLaunch {
+                launchSyncPhase = LaunchSyncStatus.phaseAfterInboxIDs(
+                    next.emails.compactMap(\.providerID),
+                    cachedProviderIDs: cachedIDs
+                )
+                await finishLaunchStatus(success: true)
+            }
         } catch {
             var cached = cache.load()
             cached.lastError = error.localizedDescription
@@ -1109,7 +1144,18 @@ final class AppModel {
             } else if !isOnline {
                 appendAssistant("You’re offline and I don’t have a cached inbox yet.")
             }
+            if announceLaunch {
+                await finishLaunchStatus(success: false)
+            }
         }
+    }
+
+    private func finishLaunchStatus(success: Bool) async {
+        launchSyncPhase = success ? .inboxUpToDate : .refreshFailed
+        if launchStatusHold > .zero {
+            try? await Task.sleep(for: launchStatusHold)
+        }
+        launchSyncPhase = .idle
     }
 
     private func refreshPresence() {

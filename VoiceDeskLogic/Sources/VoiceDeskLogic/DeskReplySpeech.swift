@@ -7,6 +7,7 @@ public enum DeskReplySpeech: Sendable {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if ConversationPresence.isStatusBeat(trimmed) { return nil }
+        if LaunchSyncStatus.isSilent(trimmed) { return nil }
         if let lastSpoken, trimmed == lastSpoken { return nil }
         if EmailSummary.isConnectInstruction(trimmed) { return trimmed }
         let cleaned = EmailSummary.scrubUIChrome(trimmed)

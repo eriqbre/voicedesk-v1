@@ -207,6 +207,23 @@ struct VoiceBar: View {
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 10) {
+            if let stem = LaunchSyncStatus.stem(for: model.launchSyncPhase) {
+                Group {
+                    if LaunchSyncStatus.animatesDots(model.launchSyncPhase) {
+                        AnimatedStatusDotsText(stem: stem)
+                    } else {
+                        Text(stem)
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.ink)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Palette.accentSoft, in: Capsule())
+                .accessibilityIdentifier("launch.sync.status")
+                .accessibilityLabel(stem)
+            }
+
             HStack(spacing: 10) {
                 TextField("Or say it here", text: $model.composerText, axis: .vertical)
                     .textFieldStyle(.plain)

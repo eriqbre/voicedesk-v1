@@ -54,6 +54,46 @@ final class GoogleSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testLaunchFirstSnapshotDoesNotRequireAwaitingSync() throws {
+        XCTAssertFalse(
+            GoogleSyncPolicy.firstPaintRequiresAwaitingSync,
+            "first frame must come from cache / local state, not await syncDesk"
+        )
+        XCTAssertTrue(
+            GoogleSyncPolicy.shouldRefreshOnRestore(
+                isConnected: true,
+                isOnline: true,
+                lastSyncedAt: Date(timeIntervalSince1970: 100)
+            ),
+            "connected + online restore must still refresh after first paint"
+        )
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoiceDeskLaunch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let cache = FileDeskCache(directory: folder)
+        let saved = DeskSnapshot(
+            accountEmail: "ada@example.com",
+            lastSyncedAt: Date(timeIntervalSince1970: 50),
+            emails: [SampleData.syncedEmail()]
+        )
+        cache.save(saved)
+
+        let firstPaint = GoogleSyncPolicy.snapshotForFirstPaint(from: cache)
+        XCTAssertEqual(firstPaint.accountEmail, "ada@example.com")
+        XCTAssertEqual(firstPaint.emails.first?.subject, "Inspection questions")
+        XCTAssertEqual(firstPaint.lastSyncedAt, Date(timeIntervalSince1970: 50))
+        XCTAssertTrue(
+            GoogleSyncPolicy.shouldRefreshOnRestore(
+                isConnected: true,
+                isOnline: true,
+                lastSyncedAt: firstPaint.lastSyncedAt
+            )
+        )
+    }
+
     func testCacheAgeNoteUsesWholeSeconds() {
         let last = Date(timeIntervalSince1970: 1_000)
         let now = Date(timeIntervalSince1970: 1_045)

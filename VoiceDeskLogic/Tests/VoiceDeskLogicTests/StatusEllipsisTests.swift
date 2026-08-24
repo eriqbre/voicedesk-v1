@@ -29,5 +29,9 @@ final class StatusEllipsisTests: XCTestCase {
         XCTAssertTrue(ConversationPresence.isThinkingBeat(ConversationPresence.thinkingStatusBeat))
         XCTAssertTrue(ConversationPresence.isStatusBeat(ConversationPresence.thinkingStatusBeat))
         XCTAssertNil(DeskReplySpeech.textToSpeak(ConversationPresence.thinkingStatusBeat, lastSpoken: nil))
+        XCTAssertEqual(
+            StatusEllipsis.display(stem: LaunchSyncStatus.syncingStem, tick: 2),
+            "Syncing inbox..."
+        )
     }
 }

@@ -156,15 +156,20 @@ final class AppModelTests: XCTestCase {
         email.providerID = "msg-murray"
         let sync = MockGoogleSync(result: DeskSnapshot(emails: [email]))
         sync.bodies["msg-murray"] = "Walk the lot Saturday at 10."
+        let voice = MockVoiceService(label: "test", instant: true)
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: voice,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [email])),
             sync: sync
         )
         await model.applyUserTurn("pull up details on Murray's email")
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot Saturday"))
-        XCTAssertFalse(EmailSummary.containsUIChrome(model.turns.last?.text ?? ""))
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            model.turns.last?.text ?? ""
+        )
+        XCTAssertTrue(voice.spoken.contains { $0.contains("Walk the lot Saturday") })
+        XCTAssertFalse(voice.spoken.contains { EmailSummary.containsUIChrome($0) })
         XCTAssertTrue(model.deskSnapshot.emails.first?.hasFullBody == true)
         XCTAssertEqual(model.deskSnapshot.emails.first?.body, "Walk the lot Saturday at 10.")
         XCTAssertFalse((model.turns.last?.text ?? "").lowercased().contains("gmail"))
@@ -200,8 +205,9 @@ final class AppModelTests: XCTestCase {
         let sync = MockGoogleSync(result: DeskSnapshot(emails: [email]))
         sync.failuresRemaining = 1
         sync.bodies["msg-murray"] = "Walk the lot Saturday at 10."
+        let voice = MockVoiceService(label: "test", instant: true)
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: voice,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [email])),
             sync: sync
@@ -209,8 +215,9 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("summarize Murray's email")
         XCTAssertEqual(sync.fetchCalls, 2)
         XCTAssertEqual(model.deskSnapshot.emails.first?.body, "Walk the lot Saturday at 10.")
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot Saturday"))
-        XCTAssertFalse(EmailSummary.containsUIChrome(model.turns.last?.text ?? ""))
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
+        XCTAssertTrue(voice.spoken.contains { $0.contains("Walk the lot Saturday") })
+        XCTAssertFalse(voice.spoken.contains { EmailSummary.containsUIChrome($0) })
     }
 
     func testCalendarReservationDetailsOpensCalendarCard() async {
@@ -469,14 +476,18 @@ final class AppModelTests: XCTestCase {
         } else {
             XCTFail("expected newest Murray card")
         }
-        let reply = model.turns.last?.text ?? ""
         XCTAssertTrue(
-            reply.localizedCaseInsensitiveContains("lot")
-                || reply.localizedCaseInsensitiveContains("buyer")
-                || reply.localizedCaseInsensitiveContains("meet"),
-            reply
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            model.turns.last?.text ?? ""
         )
-        XCTAssertEqual(fake.spoken.last, reply)
+        let spoken = fake.spoken.last ?? ""
+        XCTAssertTrue(
+            spoken.localizedCaseInsensitiveContains("lot")
+                || spoken.localizedCaseInsensitiveContains("buyer")
+                || spoken.localizedCaseInsensitiveContains("meet"),
+            spoken
+        )
+        XCTAssertNotEqual(fake.spoken.last, ConversationPresence.gmailSearchSeveralReply)
     }
 
     func testMarieLastEmailDoesNotAndLastToken() async {
@@ -742,7 +753,7 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("full summary of Murray’s latest email")
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Need you to notarize"))
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
         XCTAssertTrue(fake.spoken.contains { $0.contains("Need you to notarize") })
     }
 
@@ -764,9 +775,10 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("summarize the Murray email")
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
         XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("let the app handle") })
-        let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.contains("Murray Mitchell") || reply.contains("Need you to notarize"), reply)
-        XCTAssertEqual(fake.spoken.last, reply)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
+        let spoken = fake.spoken.last ?? ""
+        XCTAssertTrue(spoken.contains("Murray Mitchell") || spoken.contains("Need you to notarize"), spoken)
+        XCTAssertNotEqual(spoken, model.turns.last?.text)
         XCTAssertFalse(fake.spoken.contains { $0.localizedCaseInsensitiveContains("let the app handle") })
         fake.emitAssistant("I'll have the app look that up.", isFinal: true)
         XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("look that up") })
@@ -838,16 +850,17 @@ final class AppModelTests: XCTestCase {
             sync: sync
         )
         await model.applyUserTurn("summarize the Murray email")
-        let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.localizedCaseInsensitiveContains("notarize"), reply)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
+        let spoken = fake.spoken.last ?? ""
+        XCTAssertTrue(spoken.localizedCaseInsensitiveContains("notarize"), spoken)
         XCTAssertTrue(
-            reply.localizedCaseInsensitiveContains("Thursday")
-                || reply.localizedCaseInsensitiveContains("Beach Drive")
-                || reply.localizedCaseInsensitiveContains("buyer"),
-            reply
+            spoken.localizedCaseInsensitiveContains("Thursday")
+                || spoken.localizedCaseInsensitiveContains("Beach Drive")
+                || spoken.localizedCaseInsensitiveContains("buyer"),
+            spoken
         )
-        XCTAssertFalse(EmailSummary.containsUIChrome(reply), reply)
-        XCTAssertEqual(fake.spoken.last, reply)
+        XCTAssertFalse(EmailSummary.containsUIChrome(spoken), spoken)
+        XCTAssertEqual(fake.spoken.last, spoken)
         XCTAssertEqual(model.conversationScrollTarget, model.turns.last?.id)
         XCTAssertEqual(model.conversationScrollAnchor, .top)
     }
@@ -896,10 +909,10 @@ final class AppModelTests: XCTestCase {
 
         await model.applyUserTurn("summarize that email from John Madison")
         XCTAssertEqual(fake.spoken.count, 2, "desk-person follow-up must Eve-speak")
-        XCTAssertEqual(fake.spoken.last, model.turns.last?.text)
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("John Madison")
-                      || (model.turns.last?.text ?? "").contains("Beach Drive")
-                      || (model.turns.last?.text ?? "").contains("talk numbers"))
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
+        XCTAssertTrue((fake.spoken.last ?? "").contains("John Madison")
+                      || (fake.spoken.last ?? "").contains("Beach Drive")
+                      || (fake.spoken.last ?? "").contains("talk numbers"))
         if case .email(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.fromName, "John Madison")
             XCTAssertFalse(item.isCompactListRow)
@@ -1153,10 +1166,13 @@ final class GoogleSliceTests: XCTestCase {
             cache: cache,
             sync: sync
         )
+        model.launchStatusHold = .zero
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
         XCTAssertFalse(model.google.isConnected)
 
         await model.restoreGoogleIfNeeded()
+        XCTAssertEqual(model.launchSyncPhase, .idle)
+        XCTAssertFalse(model.turns.contains { LaunchSyncStatus.isSilent($0.text) })
         XCTAssertTrue(model.google.isConnected)
         XCTAssertEqual(sync.syncCalls, 1, "restore must hit Gmail even when cache already has accountEmail")
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Arrived this morning")
@@ -1182,7 +1198,10 @@ final class GoogleSliceTests: XCTestCase {
             sync: sync,
             isOnline: false
         )
+        model.launchStatusHold = .zero
         await model.restoreGoogleIfNeeded()
+        XCTAssertEqual(model.launchSyncPhase, .idle)
+        XCTAssertFalse(model.turns.contains { LaunchSyncStatus.isSilent($0.text) })
         XCTAssertEqual(sync.syncCalls, 0)
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
     }
@@ -1234,15 +1253,17 @@ final class GoogleSliceTests: XCTestCase {
         let snapshot = DeskSnapshot(emails: [murray])
         let sync = MockGoogleSync(result: snapshot)
         sync.bodies["msg-murray-no-inbox-sync"] = murray.body
+        let voice = MockVoiceService(label: "test", instant: true)
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: voice,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: sync
         )
         await model.applyUserTurn("summarize the Murray email")
         XCTAssertEqual(sync.syncCalls, 0, "person-specific desk turns must not pull the whole inbox")
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Walk the lot"))
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
+        XCTAssertTrue(voice.spoken.contains { $0.contains("Walk the lot") })
     }
 
     func testInboxOverviewOfflineSkipsSyncAndShowsCache() async {
@@ -1373,8 +1394,9 @@ final class GoogleSliceTests: XCTestCase {
         sync.bodies[greenacre.providerID!] = greenacre.body
         sync.bodies[murray.providerID!] = murray.body
         sync.bodies[laren.providerID!] = laren.body
+        let voice = MockVoiceService(label: "test", instant: true)
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: voice,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: sync
@@ -1391,9 +1413,9 @@ final class GoogleSliceTests: XCTestCase {
 
         await model.applyUserTurn("Give me a summary of Murray's last email.")
         XCTAssertEqual(sync.searchQueries.filter { $0.contains("murray") }.count, 0, "Murray was in cache")
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Murray Mitchell")
-                      || (model.turns.last?.text ?? "").contains("notarize"), model.turns.last?.text ?? "")
-        XCTAssertFalse((model.turns.last?.text ?? "").contains("Greenacre"))
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
+        XCTAssertTrue(voice.spoken.contains { $0.contains("Murray Mitchell") || $0.contains("notarize") })
+        XCTAssertFalse(voice.spoken.contains { $0.contains("Greenacre") && !$0.contains("Murray") })
         if case .email(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.fromName, "Murray Mitchell")
         } else {
@@ -1401,9 +1423,9 @@ final class GoogleSliceTests: XCTestCase {
         }
 
         await model.applyUserTurn("Give me a summary of Lauren's latest, latest email.")
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Greenacre"))
-        XCTAssertFalse((model.turns.last?.text ?? "").contains("Murray Mitchell")
-                       && !(model.turns.last?.text ?? "").contains("Laren"), model.turns.last?.text ?? "")
+        XCTAssertTrue(voice.spoken.contains { $0.contains("Laren") || $0.contains("walk-through") || $0.contains("Thursday") })
         if case .email(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.fromName, "Laren Cole")
         } else {
