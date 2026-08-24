@@ -52,6 +52,10 @@ final class AppModel {
     var expandEarlierEpoch: Int = 0
     /// Last known listening visual — used for the off earcon, not Grok.
     private var voiceListeningVisual = false
+    /// firstAudio notes from the last `applyLoadedEmail` (heuristic, not xAI).
+    private var pendingDeskSpeakNotes: [String] = []
+    /// True when this turn loaded the body via Gmail fetch (not a cached body).
+    private var lastEmailLoadFetchedBody = false
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -829,12 +833,14 @@ final class AppModel {
     }
 
     private func revealEmailBody(_ email: EmailItem) async {
+        lastEmailLoadFetchedBody = false
         guard google.isConnected, let token = google.accessToken, let id = email.providerID, !id.isEmpty else {
             await applyLoadedEmail(email)
             return
         }
         do {
             let full = try await sync.fetchMessage(token: token, messageID: id, now: Date())
+            lastEmailLoadFetchedBody = true
             await applyLoadedEmail(full)
         } catch {
             refreshEmailCards(email)
@@ -859,12 +865,35 @@ final class AppModel {
         }
         let includeEarlier = pendingThreadSummary
         pendingThreadSummary = false
-        let reply = await emailSummarizer.summarize(
-            EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
+        let request = EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
+        let plan = DeskEmailSpeakPlan.afterBodyAvailable(
+            request,
+            didFetchBody: lastEmailLoadFetchedBody
         )
+        lastEmailLoadFetchedBody = false
+        pendingDeskSpeakNotes = plan.voiceLogNotes
         scrubGrokDeskRefusals()
-        appendAssistant(reply, cards: [.email(email.presented(as: .full))])
-        await speakDeskReply(reply)
+        appendAssistant(plan.spokenText, cards: [.email(email.presented(as: .full))])
+        await speakDeskReply(plan.spokenText)
+        kickBackgroundEmailPolish(request: request, spoken: plan.spokenText)
+    }
+
+    /// Cloud polish after firstAudio. Never speaks the digest a second time.
+    private func kickBackgroundEmailPolish(request: EmailSummaryRequest, spoken: String) {
+        let summarizer = emailSummarizer
+        Task { @MainActor [weak self] in
+            let polished = await summarizer.summarize(request)
+            guard let self else { return }
+            if let upgrade = DeskEmailSpeakPlan.cardTextUpgrade(spoken: spoken, polished: polished) {
+                self.upgradeAssistantDigestIfCurrent(from: spoken, to: upgrade)
+            }
+        }
+    }
+
+    private func upgradeAssistantDigestIfCurrent(from spoken: String, to polished: String) {
+        guard let index = turns.lastIndex(where: { $0.role == .assistant }) else { return }
+        guard turns[index].text == spoken else { return }
+        turns[index].text = polished
     }
 
     private func speakDeskReplyLater(_ text: String) {
@@ -920,7 +949,8 @@ final class AppModel {
             pendingSearchClarify: pendingClarifyAtTurnStart,
             hadFocusedEmail: hadFocusedEmailAtTurnStart
         )
-        var notes = classified.notes + extraNotes
+        var notes = classified.notes + extraNotes + pendingDeskSpeakNotes
+        pendingDeskSpeakNotes = []
         if intentHint == "cancel" { notes.append("user stop") }
         var errors: [String] = []
         if let error = voice.lastError, !error.isEmpty {
