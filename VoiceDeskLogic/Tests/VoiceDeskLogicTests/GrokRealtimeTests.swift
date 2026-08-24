@@ -217,7 +217,7 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
 
         let verbatimSession = GrokRealtime.verbatimSpeakSessionUpdateObject(
-            text: "VoiceDesk point 1, build 3."
+            text: "VoiceDesk point 1, build 4."
         )
         let verbatimTurn = try XCTUnwrap(
             (verbatimSession["session"] as? [String: Any])?["turn_detection"] as? [String: Any]
@@ -227,7 +227,7 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertEqual(verbatimTurn["create_response"] as? Bool, false)
         XCTAssertTrue(
             (verbatimSession["session"] as? [String: Any])?["instructions"] as? String
-                == GrokRealtime.verbatimSpeakInstructions(text: "VoiceDesk point 1, build 3.")
+                == GrokRealtime.verbatimSpeakInstructions(text: "VoiceDesk point 1, build 4.")
         )
     }
 

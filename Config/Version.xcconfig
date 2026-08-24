@@ -3,4 +3,4 @@
 // CURRENT_PROJECT_VERSION always increases and is never reused (Apple CFBundleVersion).
 // Patch = same-capability fix. Minor = new capability. Never a four-part marketing string.
 MARKETING_VERSION = 0.1.0
-CURRENT_PROJECT_VERSION = 3
+CURRENT_PROJECT_VERSION = 4

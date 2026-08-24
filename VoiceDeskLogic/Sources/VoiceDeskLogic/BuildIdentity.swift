@@ -18,7 +18,7 @@ public struct BuildIdentity: Equatable, Sendable {
     /// Test-only. Not a claim that this binary was built from that commit.
     public static let fixture = BuildIdentity(
         marketing: "0.1.0",
-        build: "3",
+        build: "4",
         shortSHA: "1fa0a0e",
         branch: "cursor/cards-only-email-first-tap-9c2c"
     )
@@ -45,7 +45,7 @@ public struct BuildIdentity: Equatable, Sendable {
         )
     }
 
-    /// Default spoken desk reply. `"VoiceDesk point 1, build 3."` for 0.x, or unknown — never a guessed version.
+    /// Default spoken desk reply. `"VoiceDesk point 1, build 4."` for 0.x, or unknown — never a guessed version.
     public var spokenLine: String {
         guard let spokenMarketing, !build.isEmpty else {
             return Self.unknownSpokenLine
