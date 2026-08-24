@@ -53,6 +53,8 @@ final class AppModel {
     private var lastSpokenDeskReply: String?
     /// Drop Eve's own TTS leftovers. Never mutes the mic.
     private var echoGate = EchoTranscriptGate()
+    /// ASR early-final of a lone “what’s” / “what” — hold, don’t send to Grok.
+    private var earlyFinal = EarlyFinalHold()
     private var lastUserUtterance = ""
     private var lastUserSource = "text"
     private var hadFocusedEmailAtTurnStart = false
@@ -196,6 +198,7 @@ final class AppModel {
             VoiceEarcon.listenEnded()
             voiceListeningVisual = false
             echoGate.cancelSpeaking()
+            earlyFinal.reset()
             voice.cancel()
             liveAssistantID = nil
             cancelPendingDraftsFromVoice()
@@ -353,10 +356,22 @@ final class AppModel {
                 return
             }
             if !event.isFinal {
+                if EarlyFinalHold.shouldHold(event.text) {
+                    claimLocalAssistantReply()
+                    return
+                }
+                if let held = earlyFinal.heldPrefix {
+                    preemptGrokIfDeskTurn(EarlyFinalHold.stitch(held, onto: event.text))
+                    return
+                }
                 preemptGrokIfDeskTurn(event.text)
                 return
             }
-            handleLiveUser(event.text, itemID: event.itemID)
+            guard let accepted = earlyFinal.accept(event.text, context: deskContext) else {
+                claimLocalAssistantReply()
+                return
+            }
+            handleLiveUser(accepted, itemID: event.itemID)
         case .assistant:
             upsertLiveAssistant(event.text, isFinal: event.isFinal)
         }

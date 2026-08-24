@@ -46,6 +46,7 @@ final class EchoTranscriptGateTests: XCTestCase {
             "voice desk",
             "VoiceDesk",
             "voicedesk",
+            "voice",
         ]
         for echo in echoes {
             let decision = gate.decide(echo, context: VoiceRegressionDesk.connected)
