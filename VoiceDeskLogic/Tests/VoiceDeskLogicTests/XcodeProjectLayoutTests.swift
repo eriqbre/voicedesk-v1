@@ -43,7 +43,7 @@ final class XcodeProjectLayoutTests: XCTestCase {
     func testVersionXcconfigIsSourceOfTruth() throws {
         let version = try XCTUnwrap(repoFile("Config/Version.xcconfig"))
         XCTAssertTrue(version.contains("MARKETING_VERSION = 0.1.0"))
-        XCTAssertTrue(version.contains("CURRENT_PROJECT_VERSION = 1"))
+        XCTAssertTrue(version.contains("CURRENT_PROJECT_VERSION = 2"))
         XCTAssertFalse(version.contains("0.1.1.32"))
         XCTAssertTrue(version.contains("0.x.y = dogfood only"))
         XCTAssertTrue(version.contains("1.0.0 = first build anyone else may have"))

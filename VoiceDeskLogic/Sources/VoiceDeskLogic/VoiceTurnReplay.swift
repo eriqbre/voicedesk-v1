@@ -49,7 +49,8 @@ public enum VoiceTurnReplay: Sendable {
         focusedEmail: EmailItem? = nil,
         pendingSearchClarify: Bool = false,
         clarifyMatches: [EmailItem] = [],
-        pendingSenderRefine: Bool = false
+        pendingSenderRefine: Bool = false,
+        priorSearchAsk: String? = nil
     ) -> Result {
         let evidence = ConversationPresence.deskEvidence(
             for: utterance,
@@ -57,7 +58,8 @@ public enum VoiceTurnReplay: Sendable {
             focusedEmail: focusedEmail,
             pendingSearchClarify: pendingSearchClarify,
             clarifyMatches: clarifyMatches,
-            pendingSenderRefine: pendingSenderRefine
+            pendingSenderRefine: pendingSenderRefine,
+            priorSearchAsk: priorSearchAsk
         )
         let classified = VoiceInteractionLog.classify(
             utterance: utterance,
@@ -113,7 +115,8 @@ public enum VoiceTurnReplay: Sendable {
             focusedEmail: focused,
             pendingSearchClarify: pendingClarify,
             clarifyMatches: matches,
-            pendingSenderRefine: pendingRefine
+            pendingSenderRefine: pendingRefine,
+            priorSearchAsk: fixture.priorSearchAsk
         )
     }
 }

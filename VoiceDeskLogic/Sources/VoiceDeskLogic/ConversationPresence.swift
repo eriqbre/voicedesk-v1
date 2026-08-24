@@ -343,13 +343,16 @@ public enum ConversationPresence {
         return false
     }
 
-    /// After “I found a few matches. Which one?” — recency / ordinal, not live Grok.
+    /// After “I found a few matches. Which one?” — recency / ordinal / topic, not live Grok.
     ///
     /// Selection family (add the next dogfood phrase here, then add a fixture):
     /// - **newest** (`sentAtLabel`): last / the last one / latest / the latest /
     ///   most recent / the most recent one / newest / the newest / that one / that /
     ///   this one / the top one / the last email
     /// - **ordinal** (offered-card order): the first / the second / the third / number one
+    /// - **topic repeat** after a named/topic search: the one regarding X /
+    ///   regarding X / the Fleeman one / the disclosures one / how about the one
+    ///   regarding X. “that one” is newest among cards that still match the prior topic.
     /// - **short leftover default** (pending clarify only): filler-only or ≤2 tokens
     ///   with no interrogative — e.g. “mm hmm”, “ok that”, “yeah that” → newest.
     ///   “What’s for dinner?” stays with Grok. Named sender / inbox-overview / calendar
@@ -361,6 +364,7 @@ public enum ConversationPresence {
     public enum ClarifyPickKind: Equatable, Sendable {
         case newest
         case ordinal(Int)
+        case topic
     }
 
     public static func clarifyPickKind(_ raw: String) -> ClarifyPickKind? {
@@ -386,20 +390,78 @@ public enum ConversationPresence {
              "number three", "the number three":
             return .ordinal(2)
         default:
+            if hasTopicClarifyShape(raw) { return .topic }
             return shortClarifyDefaultKind(normalized)
         }
     }
 
-    public static func pickClarifiedEmail(ask: String, candidates: [EmailItem]) -> EmailItem? {
-        guard !candidates.isEmpty, let kind = clarifyPickKind(ask) else { return nil }
-        let ranked = EmailRecency.newestFirst(candidates)
+    /// “The one regarding Fleeman Road” / “the Fleeman one” / bare “Fleeman”.
+    public static func hasTopicClarifyShape(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, ["dinner", "weather"]) { return false }
+        if contains(lower, ["what", "whats", "who", "where", "when", "why"]),
+           !contains(lower, ["regarding", "the one"]) {
+            return false
+        }
+        if let plan = GmailSearchQuery.plan(from: raw), !plan.subjectTokens.isEmpty {
+            return true
+        }
+        if !GmailSearchQuery.topicAfterTheOne(in: raw).isEmpty { return true }
+        let leftover = clarifyTopicTokens(from: raw)
+        return leftover.contains { $0.count >= 5 }
+    }
+
+    public static func pickClarifiedEmail(
+        ask: String,
+        candidates: [EmailItem],
+        priorAsk: String? = nil
+    ) -> EmailItem? {
+        guard !candidates.isEmpty else { return nil }
+        let pool = topicNarrowedClarifyCandidates(ask: ask, priorAsk: priorAsk, candidates: candidates)
+        if pool.count == 1 { return pool[0] }
+        guard let kind = clarifyPickKind(ask) else { return nil }
+        let ranked = EmailRecency.newestFirst(pool)
         switch kind {
-        case .newest:
+        case .newest, .topic:
             return ranked.first
         case .ordinal(let index):
             guard candidates.indices.contains(index) else { return nil }
             return candidates[index]
         }
+    }
+
+    /// After a named/topic search, drop cards that do not match the follow-up or prior topic.
+    public static func topicNarrowedClarifyCandidates(
+        ask: String,
+        priorAsk: String?,
+        candidates: [EmailItem]
+    ) -> [EmailItem] {
+        let tokens = clarifyTopicTokens(from: ask, priorAsk: priorAsk)
+        guard !tokens.isEmpty else { return candidates }
+        let narrowed = candidates.filter { GmailSearchQuery.topicHit($0, tokens: tokens) }
+        return narrowed.isEmpty ? candidates : narrowed
+    }
+
+    public static func clarifyTopicTokens(from ask: String, priorAsk: String? = nil) -> [String] {
+        if let plan = GmailSearchQuery.plan(from: ask), !plan.subjectTokens.isEmpty {
+            return plan.subjectTokens
+        }
+        let theOne = GmailSearchQuery.topicAfterTheOne(in: ask)
+        if !theOne.isEmpty { return theOne }
+        let reserved: Set<String> = [
+            "last", "latest", "first", "second", "third", "newest", "top",
+            "other", "same", "next", "previous", "most", "recent",
+            "one", "ones", "that", "this"
+        ]
+        let leftover = GmailSearchQuery.letterTokens(in: ask).filter { !reserved.contains($0) }
+        if leftover.contains(where: { $0.count >= 5 }) {
+            return leftover
+        }
+        if let priorAsk, let plan = GmailSearchQuery.plan(from: priorAsk), !plan.subjectTokens.isEmpty {
+            return plan.subjectTokens
+        }
+        return leftover
     }
 
     /// Spoken leftovers after “Which one?” — filler-only or two tokens, no question word.
@@ -453,6 +515,10 @@ public enum ConversationPresence {
             "let voicedesk handle",
             "the app will handle",
             "the app can handle",
+            "the client will handle",
+            "client will handle",
+            "the client will jump",
+            "client will jump",
             "i'll let the app",
             "i’ll let the app",
             "i will let the app",
@@ -537,6 +603,11 @@ public enum ConversationPresence {
         // “Lauren wrote regarding Fleeman Road” — no “email” word required.
         if GmailSearchQuery.hasSenderPattern(raw),
            contains(lower, ["wrote", "written", "regarding", "looking for the one"]) {
+            return true
+        }
+        // “The one regarding Fleeman Road” / “regarding Fleeman” — desk topic pick.
+        if contains(lower, ["regarding", "the one regarding", "looking for the one"]),
+           GmailSearchQuery.plan(from: raw)?.subjectTokens.isEmpty == false {
             return true
         }
         return false
@@ -665,7 +736,8 @@ public enum ConversationPresence {
         focusedEmail: EmailItem? = nil,
         pendingSearchClarify: Bool = false,
         clarifyMatches: [EmailItem] = [],
-        pendingSenderRefine: Bool = false
+        pendingSenderRefine: Bool = false,
+        priorSearchAsk: String? = nil
     ) -> DeskEvidence? {
         if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
             return nil
@@ -729,7 +801,8 @@ public enum ConversationPresence {
         if pendingSenderRefine, isClarifyPick(raw) {
             if let picked = pickClarifiedEmail(
                 ask: raw,
-                candidates: clarifyMatches.isEmpty ? [focusedEmail].compactMap { $0 } : clarifyMatches
+                candidates: clarifyMatches.isEmpty ? [focusedEmail].compactMap { $0 } : clarifyMatches,
+                priorAsk: priorSearchAsk
             ) ?? focusedEmail {
                 if wantsFullThread(raw) {
                     return threadEvidence(picked)
@@ -742,7 +815,8 @@ public enum ConversationPresence {
             if isClarifyPick(raw) {
                 if let picked = pickClarifiedEmail(
                     ask: raw,
-                    candidates: clarifyMatches.isEmpty ? [focusedEmail].compactMap { $0 } : clarifyMatches
+                    candidates: clarifyMatches.isEmpty ? [focusedEmail].compactMap { $0 } : clarifyMatches,
+                    priorAsk: priorSearchAsk
                 ) {
                     if wantsFullThread(raw) {
                         return threadEvidence(picked)
@@ -754,6 +828,20 @@ public enum ConversationPresence {
                     text: clarifyMatches.isEmpty ? emailNeedMoreReply : gmailSearchSeveralReply,
                     cards: EmailItem.listCards(clarifyMatches)
                 )
+            }
+            // Named + topic leftover (“the one Lauren wrote regarding Fleeman”) still
+            // picks among offered cards — never live Grok / “the client will handle”.
+            if !clarifyMatches.isEmpty,
+               GmailSearchQuery.plan(from: raw)?.subjectTokens.isEmpty == false,
+               let picked = pickClarifiedEmail(
+                    ask: raw,
+                    candidates: clarifyMatches,
+                    priorAsk: priorSearchAsk
+               ) {
+                if wantsFullThread(raw) {
+                    return threadEvidence(picked)
+                }
+                return emailEvidence(picked)
             }
             // Brand-as-sender is for “Who’s it from?” (no cards yet). After “Which one?”
             // with compact cards, a new question is not a Gmail search.
