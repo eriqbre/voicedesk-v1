@@ -46,8 +46,10 @@ final class VoiceRegressionReplayTests: XCTestCase {
                     }
                     if namedLauren, !replay.shouldSearchGmail {
                         XCTAssertTrue(
-                            replay.cardLabels.contains { $0.contains("Laren Cole") || $0.contains("Lauren") },
-                            "\(ask): \(replay.cardLabels)"
+                            replay.cardLabels.contains {
+                                $0.contains("Laren") || $0.contains("Lauren")
+                            } || replay.reply.contains("Which one"),
+                            "\(ask): \(replay.cardLabels) \(replay.reply)"
                         )
                     }
                     let stickyName = (fixture.stickyFromName ?? "").lowercased()
@@ -238,6 +240,44 @@ final class VoiceRegressionReplayTests: XCTestCase {
             XCTAssertTrue(replay.notes.contains("clarify pick"), "\(phrase) → \(replay.notes)")
             XCTAssertFalse(replay.notes.contains("live Grok"), "\(phrase) → \(replay.notes)")
         }
+    }
+
+    func testDogfoodLaurenEricUtterancesStayDesk() {
+        let lauren = VoiceTurnReplay.play(
+            utterance: "What's the latest email from Lauren?",
+            context: VoiceRegressionDesk.laurenSeveral
+        )
+        XCTAssertTrue(lauren.ownsDeskTurn)
+        XCTAssertNotEqual(lauren.intent, "general")
+        XCTAssertTrue(lauren.cardLabels.contains { $0.contains("Alex & Laren") })
+        XCTAssertTrue(lauren.cardLabels.contains { $0.contains("Laren Jansen") })
+        XCTAssertEqual(lauren.reply, ConversationPresence.gmailSearchSeveralReply)
+
+        let refine = VoiceTurnReplay.play(
+            utterance: "No. Not that one. I'm looking for the one that Lauren wrote regarding Fleeman Road.",
+            context: VoiceRegressionDesk.laurenSeveral,
+            focusedEmail: VoiceRegressionDesk.alexAndLaren
+        )
+        XCTAssertTrue(refine.ownsDeskTurn)
+        XCTAssertNotEqual(refine.intent, "general")
+        XCTAssertTrue(refine.cardLabels.contains { $0.contains("Laren Jansen") })
+        XCTAssertFalse(refine.cardLabels.contains { $0.contains("Family Fun Day") })
+
+        let yeah = VoiceTurnReplay.play(
+            utterance: "Yeah",
+            context: VoiceRegressionDesk.laurenSeveral,
+            focusedEmail: VoiceRegressionDesk.larenJansen,
+            pendingSenderRefine: true
+        )
+        XCTAssertTrue(yeah.ownsDeskTurn)
+        XCTAssertNotEqual(yeah.intent, "general")
+
+        let eric = VoiceTurnReplay.play(
+            utterance: "When was Eric's last email?",
+            context: VoiceRegressionDesk.ericWithGross
+        )
+        XCTAssertEqual(eric.evidence?.focusedEmail?.fromName, "Eric Gross")
+        XCTAssertFalse(eric.cardLabels.contains { $0.contains("Eriq Cole") })
     }
 
     func testDidJohnTriviaDoesNotBuildFromJohn() {

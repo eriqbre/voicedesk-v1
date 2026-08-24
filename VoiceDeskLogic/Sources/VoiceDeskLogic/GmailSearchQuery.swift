@@ -6,17 +6,21 @@ public struct GmailSearchPlan: Equatable, Sendable {
     public var senders: [String]
     public var phrases: [String]
     public var subjectTokens: [String]
+    /// When false (default), Eric must not fuzzy-match mailbox-owner Eriq.
+    public var allowOwnerFuzzy: Bool
 
     public init(
         variants: [String],
         senders: [String] = [],
         phrases: [String] = [],
-        subjectTokens: [String] = []
+        subjectTokens: [String] = [],
+        allowOwnerFuzzy: Bool = false
     ) {
         self.variants = variants
         self.senders = senders
         self.phrases = phrases
         self.subjectTokens = subjectTokens
+        self.allowOwnerFuzzy = allowOwnerFuzzy
     }
 
     public var primary: String? { variants.first }
@@ -26,6 +30,35 @@ public enum GmailSearchPick: Equatable, Sendable {
     case none
     case one(EmailItem)
     case several([EmailItem])
+    /// Fuzzy hit landed only on the mailbox owner (Eric→Eriq). Do not attach silently.
+    case selfOnly(EmailItem)
+}
+
+/// Connected mailbox. Used so Eric does not silently become Eriq.
+public struct MailboxOwner: Equatable, Sendable {
+    public var email: String
+
+    public init(email: String) {
+        self.email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public var localPart: String {
+        String(email.split(separator: "@").first ?? "").lowercased()
+    }
+
+    public func owns(_ item: EmailItem) -> Bool {
+        let from = item.fromEmail.lowercased()
+        if from.isEmpty { return false }
+        if from == email.lowercased() { return true }
+        let fromLocal = String(from.split(separator: "@").first ?? "")
+        return !fromLocal.isEmpty && fromLocal == localPart
+    }
+
+    public static func from(email raw: String?) -> MailboxOwner? {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return MailboxOwner(email: trimmed)
+    }
 }
 
 /// Builds a Gmail `q=` string from a spoken ask. Pure — Linux-testable.
@@ -148,6 +181,19 @@ public enum GmailSearchQuery: Sendable {
             }
         }
 
+        // Topic after regarding / about — “Lauren wrote regarding Fleeman Road”.
+        // Skip “how/what about <name>”; that is a sender, already captured.
+        if nameAfterHowOrWhatAbout(in: raw) == nil,
+           let regex = try? NSRegularExpression(pattern: #"\b(?:regarding|about)\s+(.+)$"#) {
+            let lower = raw.lowercased()
+            if let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+               let range = Range(match.range(at: 1), in: lower) {
+                for token in letterTokens(in: String(lower[range])) {
+                    rememberSubject(token)
+                }
+            }
+        }
+
         if let regex = try? NSRegularExpression(pattern: #"\bre:\s*([A-Za-z].+)$"#) {
             let lower = raw.lowercased()
             if let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
@@ -160,9 +206,12 @@ public enum GmailSearchQuery: Sendable {
 
         if let regex = try? NSRegularExpression(pattern: #"\b([A-Za-z]{3,})['’]s\b"#) {
             let ns = NSRange(raw.startIndex..., in: raw)
-            if let match = regex.firstMatch(in: raw, range: ns),
-               let possRange = Range(match.range(at: 1), in: raw) {
+            for match in regex.matches(in: raw, range: ns) {
+                guard let possRange = Range(match.range(at: 1), in: raw) else { continue }
                 let possessive = String(raw[possRange])
+                // “What's the latest email from Lauren?” is not What as a sender,
+                // and must not turn Lauren into a leftover subject (`from:lauren lauren`).
+                guard isPossessiveNamePrefix(possessive) else { continue }
                 // Immediate word only — “Steve Brown's” keeps the pair.
                 // letterTokens would skip “of”/“was” and glue “quick”/“when”
                 // into from:("quick murray") / from:("was murray").
@@ -176,6 +225,7 @@ public enum GmailSearchQuery: Sendable {
                 for token in after.prefix(2) {
                     rememberSubject(token)
                 }
+                break
             }
         }
 
@@ -185,8 +235,20 @@ public enum GmailSearchQuery: Sendable {
             variants: variants,
             senders: senders,
             phrases: phrases,
-            subjectTokens: subjects
+            subjectTokens: subjects,
+            allowOwnerFuzzy: isSelfAsk(raw)
         )
+    }
+
+    /// “my email” / “I sent” — only then may Eric map to mailbox-owner Eriq.
+    public static func isSelfAsk(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        let keys = [
+            "my email", "my last email", "my latest email", "my own email",
+            "i sent", "i emailed", "i wrote", "i mailed",
+            "email i sent", "mail i sent", "i last sent"
+        ]
+        return keys.contains { lower.contains($0) }
     }
 
     public static func hasSenderPattern(_ raw: String) -> Bool {
@@ -195,22 +257,26 @@ public enum GmailSearchQuery: Sendable {
     }
 
     /// True when the ask names a sender and this email is not that sender.
-    public static func namedSenderMismatches(_ email: EmailItem?, ask: String) -> Bool {
+    public static func namedSenderMismatches(
+        _ email: EmailItem?,
+        ask: String,
+        owner: MailboxOwner? = nil
+    ) -> Bool {
         guard hasSenderPattern(ask), let email, let plan = plan(from: ask) else { return false }
-        switch pick([email], plan: plan) {
-        case .none:
+        switch pick([email], plan: plan, owner: owner) {
+        case .none, .selfOnly:
             return true
         case .one, .several:
             return false
         }
     }
 
-    public static func score(_ email: EmailItem, ask: String) -> Int {
+    public static func score(_ email: EmailItem, ask: String, owner: MailboxOwner? = nil) -> Int {
         guard let plan = plan(from: ask) else { return 0 }
-        return score(email, plan: plan)
+        return score(email, plan: plan, owner: owner)
     }
 
-    public static func score(_ email: EmailItem, plan: GmailSearchPlan) -> Int {
+    public static func score(_ email: EmailItem, plan: GmailSearchPlan, owner: MailboxOwner? = nil) -> Int {
         var total = 0
         let fromHay = "\(email.fromName) \(email.fromEmail)".lowercased()
         let fromCompact = compactLetters(fromHay)
@@ -229,7 +295,12 @@ public enum GmailSearchQuery: Sendable {
             if fromHay.contains(sender) { total += 100 }
             if fromCompact.contains(sender) { total += 80 }
             if email.fromEmail.lowercased().contains(sender) { total += 90 }
-            if fuzzySenderHit(sender, in: fromHay, compact: fromCompact) { total += 90 }
+            if fuzzySenderHit(sender, in: fromHay, compact: fromCompact) {
+                if shouldSuppressOwnerFuzzy(email, plan: plan, owner: owner) {
+                    continue
+                }
+                total += 90
+            }
         }
         for token in plan.subjectTokens {
             if subjectHay.contains(token) { total += 30 }
@@ -239,32 +310,79 @@ public enum GmailSearchQuery: Sendable {
         return total
     }
 
-    public static func pick(_ emails: [EmailItem], ask: String) -> GmailSearchPick {
-        guard let plan = plan(from: ask) else { return emails.isEmpty ? .none : .none }
-        return pick(emails, plan: plan)
+    public static func pick(
+        _ emails: [EmailItem],
+        ask: String,
+        owner: MailboxOwner? = nil
+    ) -> GmailSearchPick {
+        guard let plan = plan(from: ask) else { return .none }
+        return pick(emails, plan: plan, owner: owner)
     }
 
-    public static func pick(_ emails: [EmailItem], plan: GmailSearchPlan) -> GmailSearchPick {
+    public static func pick(
+        _ emails: [EmailItem],
+        plan: GmailSearchPlan,
+        owner: MailboxOwner? = nil
+    ) -> GmailSearchPick {
         let threshold = plan.senders.isEmpty && plan.phrases.isEmpty
             ? subjectAttachThreshold
             : senderAttachThreshold
         let needsPhrase = plan.phrases.contains(where: { $0.contains(" ") })
-        let ranked = emails
-            .map { (email: $0, score: score($0, plan: plan)) }
-            .sorted { $0.score > $1.score }
-        let strong = ranked.filter { item in
-            guard item.score >= threshold else { return false }
-            if needsPhrase {
-                return phraseHit(item.email, plan: plan)
-            }
+
+        func isStrong(_ email: EmailItem, score value: Int) -> Bool {
+            guard value >= threshold else { return false }
+            if needsPhrase { return phraseHit(email, plan: plan) }
             return true
         }
-        guard let best = strong.first else { return .none }
-        let close = strong.filter { best.score - $0.score < closeScoreGap }
-        if close.count == 1 {
+
+        var ranked = emails.map { (email: $0, score: score($0, plan: plan, owner: owner)) }
+        if !plan.subjectTokens.isEmpty {
+            let withTopic = ranked.filter { subjectHit($0.email, plan: plan) && isStrong($0.email, score: $0.score) }
+            if !withTopic.isEmpty {
+                ranked = withTopic
+            } else {
+                ranked = ranked.filter { isStrong($0.email, score: $0.score) }
+            }
+        } else {
+            ranked = ranked.filter { isStrong($0.email, score: $0.score) }
+        }
+        ranked.sort { $0.score > $1.score }
+
+        if ranked.isEmpty {
+            return selfOnlyIfOwnerFuzzy(in: emails, plan: plan, owner: owner)
+        }
+
+        let groups = Dictionary(grouping: ranked, by: { senderIdentity($0.email) })
+        if groups.count > 1 {
+            let representatives = groups.values.compactMap { group in
+                EmailRecency.newest(group.map(\.email))
+            }
+            return .several(Array(EmailRecency.newestFirst(representatives).prefix(3)))
+        }
+
+        let only = groups.values.first ?? []
+        if plan.subjectTokens.isEmpty, let newest = EmailRecency.newest(only.map(\.email)) {
+            return .one(newest)
+        }
+        if let best = only.max(by: { $0.score < $1.score }) {
             return .one(best.email)
         }
-        return .several(Array(close.prefix(3).map(\.email)))
+        return .none
+    }
+
+    public static func subjectHit(_ email: EmailItem, plan: GmailSearchPlan) -> Bool {
+        let subjectHay = email.subject.lowercased()
+        let previewHay = email.preview.lowercased()
+        let bodyHay = (email.body ?? "").lowercased()
+        return plan.subjectTokens.contains { token in
+            subjectHay.contains(token) || previewHay.contains(token) || bodyHay.contains(token)
+        }
+    }
+
+    public static func senderIdentity(_ email: EmailItem) -> String {
+        let from = email.fromEmail.lowercased()
+        if !from.isEmpty { return from }
+        return email.fromName.lowercased()
     }
 
     /// Mock / test helper: subset of Gmail `q=` (quoted phrases, `from:`, top-level `OR`).
@@ -422,6 +540,49 @@ public enum GmailSearchQuery: Sendable {
             }
         }
         return nil
+    }
+
+    public static func shouldSuppressOwnerFuzzy(
+        _ email: EmailItem,
+        plan: GmailSearchPlan,
+        owner: MailboxOwner?
+    ) -> Bool {
+        guard let owner, owner.owns(email) else { return false }
+        if plan.allowOwnerFuzzy { return false }
+        if spokenSenderMatchesOwner(plan, owner: owner) { return false }
+        return true
+    }
+
+    private static func spokenSenderMatchesOwner(_ plan: GmailSearchPlan, owner: MailboxOwner) -> Bool {
+        let local = owner.localPart
+        guard local.count >= 3 else { return false }
+        if plan.senders.contains(local) { return true }
+        return plan.phrases.contains { phrase in
+            phrase.split(separator: " ").map(String.init).contains(local)
+        }
+    }
+
+    private static func selfOnlyIfOwnerFuzzy(
+        in emails: [EmailItem],
+        plan: GmailSearchPlan,
+        owner: MailboxOwner?
+    ) -> GmailSearchPick {
+        guard let owner, !plan.allowOwnerFuzzy, !spokenSenderMatchesOwner(plan, owner: owner) else {
+            return .none
+        }
+        let ownerHits = emails.filter { item in
+            owner.owns(item) && ownerFuzzyWouldHit(item, plan: plan)
+        }
+        guard let newest = EmailRecency.newest(ownerHits) else { return .none }
+        return .selfOnly(newest)
+    }
+
+    private static func ownerFuzzyWouldHit(_ email: EmailItem, plan: GmailSearchPlan) -> Bool {
+        let fromHay = "\(email.fromName) \(email.fromEmail)".lowercased()
+        let fromCompact = compactLetters(fromHay)
+        return plan.senders.contains { sender in
+            fuzzySenderHit(sender, in: fromHay, compact: fromCompact)
+        }
     }
 
     /// Lauren↔Laren and similar one-edit first names. Does not match Greenacre for murray/lauren.

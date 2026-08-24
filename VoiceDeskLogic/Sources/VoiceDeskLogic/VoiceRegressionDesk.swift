@@ -79,6 +79,56 @@ public enum VoiceRegressionDesk: Sendable {
         filterTag: "Inbox"
     )
 
+    /// Joint “Alex & Laren” — newer than Laren Jansen. Must not win a Lauren ask silently.
+    public static let alexAndLaren = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000007")!,
+        providerID: "fixture-alex-laren",
+        fromName: "Alex & Laren",
+        fromEmail: "alex.laren@example.com",
+        sentAtLabel: "Today 3:00 PM",
+        subject: "Family Fun Day",
+        preview: "Picnic this Saturday?",
+        body: "Picnic this Saturday at the park.",
+        filterTag: "Inbox"
+    )
+
+    public static let larenJansen = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000008")!,
+        providerID: "fixture-laren-jansen",
+        fromName: "Laren Jansen",
+        fromEmail: "laren.jansen@example.com",
+        sentAtLabel: "Today 11:00 AM",
+        subject: "Fleeman Road disclosures",
+        preview: "Disclosures for Fleeman Road are attached.",
+        body: "Disclosures for the Fleeman Road listing are attached.",
+        filterTag: "Inbox"
+    )
+
+    public static let ericGross = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000009")!,
+        providerID: "fixture-eric-gross",
+        fromName: "Eric Gross",
+        fromEmail: "eric.gross@example.com",
+        sentAtLabel: "Today 1:00 PM",
+        subject: "Offer update",
+        preview: "Buyer is ready to sign.",
+        body: "Buyer is ready to sign the offer.",
+        filterTag: "Inbox"
+    )
+
+    /// Mailbox-owner self mail. Eric must not silently become this Eriq.
+    public static let eriqSelf = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-00000000000A")!,
+        providerID: "fixture-eriq-self",
+        fromName: "Eriq Cole",
+        fromEmail: "eriq@example.com",
+        sentAtLabel: "Today 4:00 PM",
+        subject: "Re: listing notes",
+        preview: "Sending myself the punch list.",
+        body: "Sending myself the punch list.",
+        filterTag: "Inbox"
+    )
+
     public static var snapshot: DeskSnapshot {
         DeskSnapshot(accountEmail: "agent@example.com", emails: [murray, steve])
     }
@@ -96,6 +146,19 @@ public enum VoiceRegressionDesk: Sendable {
         DeskSnapshot(accountEmail: "agent@example.com", emails: murraySeveralMatches)
     }
 
+    /// Alex & Laren is newer; Laren Jansen has Fleeman. Distinct people.
+    public static var laurenSeveralSnapshot: DeskSnapshot {
+        DeskSnapshot(accountEmail: "agent@example.com", emails: [alexAndLaren, larenJansen, greenacre])
+    }
+
+    public static var ericWithGrossSnapshot: DeskSnapshot {
+        DeskSnapshot(accountEmail: "eriq@example.com", emails: [eriqSelf, ericGross])
+    }
+
+    public static var ericSelfOnlySnapshot: DeskSnapshot {
+        DeskSnapshot(accountEmail: "eriq@example.com", emails: [eriqSelf])
+    }
+
     public static var connected: DeskContext {
         DeskContext(isConnected: true, snapshot: snapshot)
     }
@@ -106,6 +169,26 @@ public enum VoiceRegressionDesk: Sendable {
 
     public static var greenacreOnly: DeskContext {
         DeskContext(isConnected: true, snapshot: greenacreOnlySnapshot)
+    }
+
+    public static var laurenSeveral: DeskContext {
+        DeskContext(isConnected: true, snapshot: laurenSeveralSnapshot)
+    }
+
+    public static var ericWithGross: DeskContext {
+        DeskContext(
+            isConnected: true,
+            snapshot: ericWithGrossSnapshot,
+            auth: GoogleAuthSnapshot.reduce(.signedOut, .connectSucceeded(email: "eriq@example.com"))
+        )
+    }
+
+    public static var ericSelfOnly: DeskContext {
+        DeskContext(
+            isConnected: true,
+            snapshot: ericSelfOnlySnapshot,
+            auth: GoogleAuthSnapshot.reduce(.signedOut, .connectSucceeded(email: "eriq@example.com"))
+        )
     }
 
     public static func sticky(named raw: String?) -> EmailItem? {
@@ -119,6 +202,14 @@ public enum VoiceRegressionDesk: Sendable {
             return greenacre
         case "laren", "lauren", "laren cole", "lauren cole":
             return laren
+        case "alex", "alex & laren", "alex and laren":
+            return alexAndLaren
+        case "laren jansen", "jansen":
+            return larenJansen
+        case "eric", "eric gross":
+            return ericGross
+        case "eriq", "eriq cole":
+            return eriqSelf
         default:
             return nil
         }
@@ -132,6 +223,12 @@ public enum VoiceRegressionDesk: Sendable {
             return greenacreOnly
         case "murray-several":
             return DeskContext(isConnected: true, snapshot: murraySeveralSnapshot)
+        case "lauren-several":
+            return laurenSeveral
+        case "eric-with-gross":
+            return ericWithGross
+        case "eric-self-only":
+            return ericSelfOnly
         default:
             return connected
         }

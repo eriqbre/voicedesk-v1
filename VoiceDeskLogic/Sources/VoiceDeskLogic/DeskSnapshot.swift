@@ -68,6 +68,10 @@ public struct DeskContext: Equatable, Sendable {
 
     public static let disconnected = DeskContext()
 
+    public var mailboxOwner: MailboxOwner? {
+        MailboxOwner.from(email: auth.email ?? snapshot.accountEmail)
+    }
+
     public var connectItem: ConnectGoogleItem {
         ConnectGoogleItem(
             isConnected: isConnected,

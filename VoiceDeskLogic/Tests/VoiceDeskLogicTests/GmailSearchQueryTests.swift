@@ -284,6 +284,94 @@ final class GmailSearchQueryTests: XCTestCase {
         XCTAssertEqual(GmailSearchQuery.editDistance("lauren", "laren"), 1)
     }
 
+    func testLatestEmailFromLaurenDoesNotSilentlyPickJointAlexAndLaren() {
+        let ask = "What's the latest email from Lauren?"
+        let plan = GmailSearchQuery.plan(from: ask)
+        XCTAssertEqual(plan?.primary, "from:lauren", plan?.primary ?? "nil")
+        XCTAssertFalse(plan?.subjectTokens.contains("lauren") == true, "\(plan?.subjectTokens ?? [])")
+        for variant in plan?.variants ?? [] {
+            XCTAssertFalse(variant.contains("from:lauren lauren"), variant)
+        }
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:lauren")
+        switch GmailSearchQuery.pick(
+            [VoiceRegressionDesk.alexAndLaren, VoiceRegressionDesk.larenJansen],
+            ask: ask
+        ) {
+        case .several(let list):
+            let names = Set(list.map(\.fromName))
+            XCTAssertTrue(names.contains("Alex & Laren"), "\(names)")
+            XCTAssertTrue(names.contains("Laren Jansen"), "\(names)")
+            XCTAssertFalse(list.contains { $0.fromName == "Alex & Laren" } && list.count == 1)
+        default:
+            XCTFail("expected clarify across distinct Lauren/Laren senders")
+        }
+        XCTAssertNil(
+            ConversationPresence.matchingEmail(
+                for: ask,
+                in: [VoiceRegressionDesk.alexAndLaren, VoiceRegressionDesk.larenJansen]
+            ),
+            "must not silently take newest-of-fuzzy"
+        )
+    }
+
+    func testFleemanTopicConstrainsLaurenToLarenJansen() {
+        let ask = "No. Not that one. I'm looking for the one that Lauren wrote regarding Fleeman Road."
+        let plan = GmailSearchQuery.plan(from: ask)
+        XCTAssertTrue(plan?.senders.contains("lauren") == true, "\(plan?.senders ?? [])")
+        XCTAssertTrue(plan?.subjectTokens.contains("fleeman") == true, "\(plan?.subjectTokens ?? [])")
+        XCTAssertTrue(plan?.subjectTokens.contains("road") == true, "\(plan?.subjectTokens ?? [])")
+        XCTAssertEqual(plan?.primary, "from:lauren fleeman road", plan?.primary ?? "nil")
+        XCTAssertEqual(
+            GmailSearchQuery.pick(
+                [VoiceRegressionDesk.alexAndLaren, VoiceRegressionDesk.larenJansen],
+                ask: ask
+            ),
+            .one(VoiceRegressionDesk.larenJansen)
+        )
+    }
+
+    func testEricDoesNotFuzzyMapToMailboxOwnerEriq() {
+        let ask = "When was Eric's last email?"
+        XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:eric")
+        let owner = MailboxOwner(email: "eriq@example.com")
+        XCTAssertEqual(GmailSearchQuery.editDistance("eric", "eriq"), 1)
+        XCTAssertEqual(
+            GmailSearchQuery.pick(
+                [VoiceRegressionDesk.eriqSelf, VoiceRegressionDesk.ericGross],
+                ask: ask,
+                owner: owner
+            ),
+            .one(VoiceRegressionDesk.ericGross)
+        )
+        switch GmailSearchQuery.pick(
+            [VoiceRegressionDesk.eriqSelf],
+            ask: ask,
+            owner: owner
+        ) {
+        case .selfOnly(let email):
+            XCTAssertEqual(email.fromEmail, "eriq@example.com")
+        default:
+            XCTFail("only self fuzzy hit must clarify, not attach")
+        }
+        XCTAssertEqual(
+            GmailSearchQuery.pick(
+                [VoiceRegressionDesk.eriqSelf],
+                ask: "When was Eriq's last email?",
+                owner: owner
+            ),
+            .one(VoiceRegressionDesk.eriqSelf)
+        )
+        XCTAssertTrue(GmailSearchQuery.isSelfAsk("When was the email I sent?"))
+        XCTAssertEqual(
+            GmailSearchQuery.pick(
+                [VoiceRegressionDesk.eriqSelf],
+                ask: "When was Eric's last email I sent?",
+                owner: owner
+            ),
+            .one(VoiceRegressionDesk.eriqSelf)
+        )
+    }
+
     func testFromMarieQueryMatchesMarieNotWaterfront() {
         let query = GmailSearchQuery.query(from: marieAsk) ?? ""
         XCTAssertTrue(GmailSearchQuery.matches(Self.marieEmail, gmailQuery: query))
