@@ -49,6 +49,8 @@ public struct DeskEmailSpeakPlan: Equatable, Sendable {
         guard !cleaned.isEmpty, !EmailSummary.containsUIChrome(cleaned) else {
             return nil
         }
+        let hasLetters = cleaned.unicodeScalars.contains { CharacterSet.letters.contains($0) }
+        guard hasLetters else { return nil }
         guard cleaned != spoken else {
             return nil
         }
