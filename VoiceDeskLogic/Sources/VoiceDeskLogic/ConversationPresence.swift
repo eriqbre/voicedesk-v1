@@ -41,6 +41,7 @@ public enum ConversationPresence {
         case google
         case calendar
         case task
+        case version
         case general
     }
 
@@ -48,7 +49,7 @@ public enum ConversationPresence {
         public let topic: Topic
         public let text: String
 
-        public var attachesCards: Bool { topic != .general }
+        public var attachesCards: Bool { topic != .general && topic != .version }
 
         public init(topic: Topic, text: String) {
             self.topic = topic
@@ -74,6 +75,10 @@ public enum ConversationPresence {
 
         if wantsConnectGoogle(text) {
             return Plan(topic: .google, text: googleReply(context: context))
+        }
+
+        if wantsVersionAsk(text) {
+            return Plan(topic: .version, text: BuildIdentity.unknown.spokenLine)
         }
 
         if wantsInbox(text) {
@@ -146,7 +151,7 @@ public enum ConversationPresence {
             return [.statute(SampleData.statute())]
         case .google:
             return [.connectGoogle(context.connectItem)]
-        case .general:
+        case .version, .general:
             return []
         }
     }
@@ -296,7 +301,7 @@ public enum ConversationPresence {
            GmailSearchQuery.plan(from: raw, treatAsBrand: true) != nil {
             return true
         }
-        return looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw)
+        return looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) || wantsVersionAsk(raw)
     }
 
     /// After “I found a few matches. Which one?” — recency / ordinal, not live Grok.
@@ -321,7 +326,7 @@ public enum ConversationPresence {
 
     public static func clarifyPickKind(_ raw: String) -> ClarifyPickKind? {
         if GmailSearchQuery.hasSenderPattern(raw) { return nil }
-        if wantsInboxOverview(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) { return nil }
+        if wantsInboxOverview(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) || wantsVersionAsk(raw) { return nil }
         let normalized = normalizeClarifyPick(raw)
         switch normalized {
         case "the most recent one", "the most recent", "most recent one", "most recent",
@@ -451,7 +456,7 @@ public enum ConversationPresence {
     }
 
     public static func looksLikeMailAsk(_ raw: String) -> Bool {
-        if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
+        if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) || wantsVersionAsk(raw) {
             return false
         }
         if wantsCalendarDetails(raw), !contains(raw.lowercased(), ["email", "mail", "note", "message", "thread"]) {
@@ -496,6 +501,53 @@ public enum ConversationPresence {
         if wantsCalendarOverview(raw) { return true }
         return contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
             || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
+    }
+
+    /// Local build identity — not live Grok, not calendar.
+    /// “What’s on the phone” is version. “What’s on my calendar” stays calendar.
+    public static func wantsVersionAsk(_ raw: String) -> Bool {
+        if wantsCalendarAsk(raw) || wantsTaskAsk(raw) { return false }
+        if hasDeskMailIntent(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, [
+            "on the phone",
+            "on this phone",
+            "on my phone"
+        ]) {
+            return true
+        }
+        if contains(lower, [
+            "what version",
+            "which version",
+            "what's the version",
+            "whats the version",
+            "what build",
+            "which build",
+            "what's the build",
+            "whats the build",
+            "what sha",
+            "which sha",
+            "what's the sha",
+            "whats the sha",
+            "git sha",
+            "git hash"
+        ]) {
+            return true
+        }
+        if contains(lower, ["version", "sha"]) && contains(lower, ["what", "whats", "which"]) {
+            return true
+        }
+        return lower.contains("build")
+            && contains(lower, ["this", "we on", "am i on", "are we"])
+    }
+
+    private static func versionEvidence() -> DeskEvidence {
+        DeskEvidence(
+            topic: .version,
+            text: BuildIdentity.unknown.spokenLine,
+            cards: [],
+            resetsFocusedEmail: true
+        )
     }
 
     /// List / digest of upcoming events — not a named reservation or “that event”.
@@ -544,6 +596,10 @@ public enum ConversationPresence {
     ) -> DeskEvidence? {
         if wantsDeskPreview(raw) || wantsConnectGoogle(raw) || isJustTalk(raw) {
             return nil
+        }
+
+        if wantsVersionAsk(raw) {
+            return versionEvidence()
         }
 
         if wantsCalendarAsk(raw) {

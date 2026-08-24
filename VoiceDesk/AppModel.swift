@@ -30,6 +30,7 @@ final class AppModel {
     /// Main-actor `GoogleSyncing` — never hop this existential off `@MainActor`.
     let sync: any GoogleSyncing
     let emailSummarizer: any EmailSummarizing
+    let buildIdentity: BuildIdentity
 
     private var liveAssistantID: UUID?
     private var pendingDeskTopic: ConversationPresence.Topic?
@@ -82,7 +83,8 @@ final class AppModel {
         cache: DeskCaching? = nil,
         sync: (any GoogleSyncing)? = nil,
         isOnline: Bool = true,
-        emailSummarizer: (any EmailSummarizing)? = nil
+        emailSummarizer: (any EmailSummarizing)? = nil,
+        buildIdentity: BuildIdentity? = nil
     ) {
         self.voice = VoiceBox(service: voice ?? VoiceRuntime.makeService())
         self.google = google ?? GoogleSession.mock()
@@ -92,6 +94,7 @@ final class AppModel {
         self.cache = cache ?? MemoryDeskCache()
         self.sync = sync ?? MockGoogleSync()
         self.emailSummarizer = emailSummarizer ?? HeuristicEmailSummarizer()
+        self.buildIdentity = buildIdentity ?? BuildIdentity(infoDictionary: Bundle.main.infoDictionary)
         self.isOnline = isOnline
         self.hasCompletedPlaybook = self.playbook.hasCompleted
         // First paint: local cache only. Google restore + sync run after first frame.
@@ -611,7 +614,12 @@ final class AppModel {
     /// Interrupt as soon as a partial transcript looks like a connected desk ask.
     private func preemptGrokIfDeskTurn(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, google.isConnected else { return }
+        guard !text.isEmpty else { return }
+        if ConversationPresence.wantsVersionAsk(text) {
+            claimLocalAssistantReply()
+            return
+        }
+        guard google.isConnected else { return }
         if ConversationPresence.ownsConnectedDeskTurn(
             text,
             pendingSearchClarify: pendingSearchClarify,
@@ -766,6 +774,19 @@ final class AppModel {
 
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
         rememberEvidence(evidence)
+        if evidence.topic == .version {
+            let line = buildIdentity.spokenLine
+            appendAssistant(line)
+            await speakDeskReply(line)
+            logVoiceTurn(
+                evidence: evidence,
+                intentHint: "version",
+                reply: line,
+                cards: [],
+                notes: ["local build identity"]
+            )
+            return
+        }
         if evidence.shouldSearchGmail, let query = evidence.gmailQuery, !query.isEmpty {
             await searchGmail(query, plan: evidence.gmailPlan, ask: evidence.searchAsk)
             logVoiceTurn(

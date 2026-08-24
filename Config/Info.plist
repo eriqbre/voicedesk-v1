@@ -17,5 +17,9 @@
 	</array>
 	<key>GIDClientID</key>
 	<string>$(GOOGLE_CLIENT_ID)</string>
+	<key>GIT_SHA</key>
+	<string>$(GIT_SHA)</string>
+	<key>GIT_BRANCH</key>
+	<string>$(GIT_BRANCH)</string>
 </dict>
 </plist>

@@ -279,6 +279,81 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.conversationScrollAnchor, .top)
     }
 
+    func testVersionAskSpeaksFixtureSHAWithoutCardsOrGmail() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray"
+        murray.body = "Walk the lot Saturday at 10."
+        var steve = SampleData.syncedEmail()
+        steve.fromName = "Steve Brown"
+        steve.providerID = "msg-steve"
+        steve.subject = "Inspection note"
+        steve.body = "Punch list is attached."
+        let snapshot = DeskSnapshot(emails: [murray, steve])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        await model.applyUserTurn("Hey, show me Murray's latest email.")
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+
+        await model.applyUserTurn("what's on the phone")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk 1fa0a0e."))
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue(fake.assistantOutputSuppressed)
+
+        await model.applyUserTurn("Can you show it to me?")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertGreaterThanOrEqual(
+            model.turns.last?.cards.count ?? 0,
+            2,
+            "cleared sticky must list inbox, not reopen Murray as the focused thread"
+        )
+    }
+
+    func testWhatsOnMyCalendarStaysCalendarWhenVersionExists() async {
+        let event = CalendarItem(
+            title: "Dinner reservation",
+            whenLabel: "Tonight 7:00 PM",
+            location: "Oak & Stone",
+            relatedPeople: ["Massimo Ricci"]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(events: [event])),
+            buildIdentity: .fixture
+        )
+        await model.applyUserTurn("what's on my calendar")
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+
+        await model.applyUserTurn("what's on the phone")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
+        XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+    }
+
+    func testUnknownBuildIdentityNeverInventsASHA() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            buildIdentity: .unknown
+        )
+        await model.applyUserTurn("what SHA is this")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk, unknown SHA.")
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk, unknown SHA."))
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("1fa0a0e"))
+    }
+
     func testShowMurraysLatestEmailAttachesCardWithoutGrok() async {
         var murray = SampleData.syncedEmail()
         murray.fromName = "Murray Mitchell"

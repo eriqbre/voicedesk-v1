@@ -194,7 +194,9 @@ public enum VoiceInteractionLog: Sendable {
         }
 
         let intent: String
-        if ConversationPresence.wantsInboxOverview(utterance) {
+        if ConversationPresence.wantsVersionAsk(utterance) {
+            intent = "version"
+        } else if ConversationPresence.wantsInboxOverview(utterance) {
             intent = "inbox-overview"
         } else if ConversationPresence.wantsCalendarAsk(utterance) {
             intent = "calendar"
