@@ -24,6 +24,8 @@ final class GrokRealtimeTests: XCTestCase {
 
         let turn = try XCTUnwrap(session["turn_detection"] as? [String: Any])
         XCTAssertEqual(turn["type"] as? String, "server_vad")
+        XCTAssertNil(turn["interrupt_response"], "first-tap / default listen stays server_vad only")
+        XCTAssertNil(turn["create_response"])
 
         let audio = try XCTUnwrap(session["audio"] as? [String: Any])
         let input = try XCTUnwrap((audio["input"] as? [String: Any])?["format"] as? [String: Any])
@@ -175,7 +177,7 @@ final class GrokRealtimeTests: XCTestCase {
         )
     }
 
-    func testLiveSpeakUsesRealtimeWhenConnected() {
+    func testLiveSpeakUsesRealtimeWhenConnected() throws {
         XCTAssertTrue(
             GrokRealtime.shouldSpeakViaRealtime(
                 usesLiveLoop: true,
@@ -213,6 +215,20 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("let the app handle"))
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains(spoken))
         XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
+
+        let verbatimSession = GrokRealtime.verbatimSpeakSessionUpdateObject(
+            text: "VoiceDesk point 1, build 3."
+        )
+        let verbatimTurn = try XCTUnwrap(
+            (verbatimSession["session"] as? [String: Any])?["turn_detection"] as? [String: Any]
+        )
+        XCTAssertEqual(verbatimTurn["type"] as? String, "server_vad")
+        XCTAssertEqual(verbatimTurn["interrupt_response"] as? Bool, false)
+        XCTAssertEqual(verbatimTurn["create_response"] as? Bool, false)
+        XCTAssertTrue(
+            (verbatimSession["session"] as? [String: Any])?["instructions"] as? String
+                == GrokRealtime.verbatimSpeakInstructions(text: "VoiceDesk point 1, build 3.")
+        )
     }
 
     func testCancelAndTextTurnPayloads() {
