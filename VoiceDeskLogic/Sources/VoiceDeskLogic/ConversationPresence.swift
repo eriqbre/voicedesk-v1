@@ -300,6 +300,16 @@ public enum ConversationPresence {
     }
 
     /// After “I found a few matches. Which one?” — recency / ordinal, not live Grok.
+    ///
+    /// Selection family (add the next dogfood phrase here, then add a fixture):
+    /// - **newest** (`sentAtLabel`): last / the last one / latest / the latest /
+    ///   most recent / the most recent one / newest / the newest / that one / that /
+    ///   this one / the top one / the last email
+    /// - **ordinal** (offered-card order): the first / the second / the third / number one
+    /// - **short leftover default** (pending clarify only): filler-only or ≤2 tokens
+    ///   with no interrogative — e.g. “mm hmm”, “ok that”, “yeah that” → newest.
+    ///   “What’s for dinner?” stays with Grok. Named sender / inbox-overview / calendar
+    ///   are never a pick.
     public static func isClarifyPick(_ raw: String) -> Bool {
         clarifyPickKind(raw) != nil
     }
@@ -312,13 +322,15 @@ public enum ConversationPresence {
     public static func clarifyPickKind(_ raw: String) -> ClarifyPickKind? {
         if GmailSearchQuery.hasSenderPattern(raw) { return nil }
         if wantsInboxOverview(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) { return nil }
-        switch normalizeClarifyPick(raw) {
+        let normalized = normalizeClarifyPick(raw)
+        switch normalized {
         case "the most recent one", "the most recent", "most recent one", "most recent",
              "the latest one", "the latest", "latest one", "latest",
              "the newest one", "the newest", "newest one", "newest",
              "the last one", "last one", "the last", "last",
              "that last one", "the last email",
-             "that one", "this one":
+             "that one", "this one", "that", "this",
+             "the top one", "top one", "the top":
             return .newest
         case "the first one", "the first", "first one", "first",
              "number one", "the number one":
@@ -330,7 +342,7 @@ public enum ConversationPresence {
              "number three", "the number three":
             return .ordinal(2)
         default:
-            return nil
+            return shortClarifyDefaultKind(normalized)
         }
     }
 
@@ -346,10 +358,28 @@ public enum ConversationPresence {
         }
     }
 
+    /// Spoken leftovers after “Which one?” — filler-only or two tokens, no question word.
+    /// Defaults to newest so Grok never jumps in with “the client will jump in.”
+    private static func shortClarifyDefaultKind(_ normalized: String) -> ClarifyPickKind? {
+        let words = normalized.split { $0.isWhitespace }.map(String.init)
+        if words.isEmpty { return .newest }
+        let interrogative: Set<String> = [
+            "what", "whats", "who", "where", "when", "why", "how",
+            "dinner", "weather", "which"
+        ]
+        if words.contains(where: { interrogative.contains($0) }) { return nil }
+        if words.count <= 2 { return .newest }
+        return nil
+    }
+
     private static func normalizeClarifyPick(_ raw: String) -> String {
         var lower = raw.lowercased()
         lower = lower.replacingOccurrences(of: #"[^\p{L}\p{N}\s]"#, with: " ", options: .regularExpression)
-        let filler: Set<String> = ["um", "uh", "please", "yeah", "yes", "okay", "ok", "alright", "very", "just"]
+        let filler: Set<String> = [
+            "um", "uh", "please", "yeah", "yes", "yep", "yup", "sure",
+            "okay", "ok", "alright", "very", "just",
+            "mm", "hmm", "mhm", "huh"
+        ]
         let words = lower
             .split { $0.isWhitespace }
             .map(String.init)
@@ -574,7 +604,9 @@ public enum ConversationPresence {
                     cards: EmailItem.listCards(clarifyMatches)
                 )
             }
-            if pendingSearchClarify, context.isConnected,
+            // Brand-as-sender is for “Who’s it from?” (no cards yet). After “Which one?”
+            // with compact cards, a new question is not a Gmail search.
+            if pendingSearchClarify, clarifyMatches.isEmpty, context.isConnected,
                let plan = GmailSearchQuery.plan(from: raw, treatAsBrand: true) {
                 return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
             }

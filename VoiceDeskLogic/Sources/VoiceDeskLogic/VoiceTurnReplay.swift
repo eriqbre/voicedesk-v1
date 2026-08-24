@@ -61,7 +61,8 @@ public enum VoiceTurnReplay: Sendable {
             utterance: utterance,
             evidence: evidence,
             pendingSearchClarify: pendingSearchClarify,
-            hadFocusedEmail: focusedEmail != nil
+            hadFocusedEmail: focusedEmail != nil,
+            hasClarifyMatches: !clarifyMatches.isEmpty
         )
         return Result(
             intent: classified.intent,

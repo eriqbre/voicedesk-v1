@@ -146,7 +146,8 @@ public enum VoiceInteractionLog: Sendable {
         utterance: String,
         evidence: ConversationPresence.DeskEvidence?,
         pendingSearchClarify: Bool = false,
-        hadFocusedEmail: Bool = false
+        hadFocusedEmail: Bool = false,
+        hasClarifyMatches: Bool = false
     ) -> VoiceTurnClassification {
         var notes: [String] = []
         var sticky: VoiceStickyState = .none
@@ -215,7 +216,8 @@ public enum VoiceInteractionLog: Sendable {
             intent = "desk-person"
         } else if ConversationPresence.ownsConnectedDeskTurn(
             utterance,
-            pendingSearchClarify: pendingSearchClarify
+            pendingSearchClarify: pendingSearchClarify,
+            hasClarifyMatches: hasClarifyMatches
         ) {
             intent = "desk-person"
         } else {

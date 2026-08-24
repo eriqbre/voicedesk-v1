@@ -49,6 +49,7 @@ final class AppModel {
     private var focusedPersonAtTurnStart: String?
     private var pendingGeneralVoiceLog = false
     private var pendingClarifyAtTurnStart = false
+    private var hadClarifyMatchesAtTurnStart = false
     private var expandEarlierEmailIDs: Set<UUID> = []
     private var expandEarlierProviderIDs: Set<String> = []
     var expandEarlierEpoch: Int = 0
@@ -956,6 +957,7 @@ final class AppModel {
         hadFocusedEmailAtTurnStart = lastFocusedEmail != nil
         focusedPersonAtTurnStart = lastFocusedEmail?.fromName
         pendingClarifyAtTurnStart = pendingSearchClarify
+        hadClarifyMatchesAtTurnStart = !lastSearchMatches.isEmpty
         pendingGeneralVoiceLog = false
     }
 
@@ -989,7 +991,8 @@ final class AppModel {
             utterance: lastUserUtterance,
             evidence: evidence,
             pendingSearchClarify: pendingClarifyAtTurnStart,
-            hadFocusedEmail: hadFocusedEmailAtTurnStart
+            hadFocusedEmail: hadFocusedEmailAtTurnStart,
+            hasClarifyMatches: hadClarifyMatchesAtTurnStart
         )
         var notes = classified.notes + extraNotes
         if intentHint == "cancel" { notes.append("user stop") }
