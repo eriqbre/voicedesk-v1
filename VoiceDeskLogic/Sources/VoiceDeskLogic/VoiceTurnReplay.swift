@@ -52,8 +52,9 @@ public enum VoiceTurnReplay: Sendable {
         pendingSenderRefine: Bool = false,
         priorSearchAsk: String? = nil
     ) -> Result {
+        let cleaned = EarlyFinalHold.dropLeadingLeftoverStem(utterance)
         let evidence = ConversationPresence.deskEvidence(
-            for: utterance,
+            for: cleaned,
             context: context,
             focusedEmail: focusedEmail,
             pendingSearchClarify: pendingSearchClarify,
@@ -62,7 +63,7 @@ public enum VoiceTurnReplay: Sendable {
             priorSearchAsk: priorSearchAsk
         )
         let classified = VoiceInteractionLog.classify(
-            utterance: utterance,
+            utterance: cleaned,
             evidence: evidence,
             pendingSearchClarify: pendingSearchClarify,
             hadFocusedEmail: focusedEmail != nil,
@@ -73,20 +74,39 @@ public enum VoiceTurnReplay: Sendable {
             intent: classified.intent,
             notes: classified.notes,
             ownsDeskTurn: ConversationPresence.ownsConnectedDeskTurn(
-                utterance,
+                cleaned,
                 pendingSearchClarify: pendingSearchClarify,
                 hasClarifyMatches: !clarifyMatches.isEmpty,
                 hasFocusedEmail: focusedEmail != nil,
                 pendingSenderRefine: pendingSenderRefine
             ),
-            looksLikeMailAsk: ConversationPresence.looksLikeMailAsk(utterance),
+            looksLikeMailAsk: ConversationPresence.looksLikeMailAsk(cleaned),
             evidence: evidence,
             cardLabels: VoiceInteractionLog.cardLabels(evidence?.cards ?? []),
             gmailQuery: evidence?.gmailQuery,
             shouldSearchGmail: evidence?.shouldSearchGmail ?? false,
             stickyCleared: evidence?.resetsFocusedEmail == true,
-            reply: evidence?.text ?? ""
+            reply: spokenReply(evidence: evidence)
         )
+    }
+
+    private static func spokenReply(evidence: ConversationPresence.DeskEvidence?) -> String {
+        guard let evidence else { return "" }
+        if let email = evidence.focusedEmail
+            ?? evidence.cards.compactMap({ card -> EmailItem? in
+                if case .email(let item) = card { return item }
+                return nil
+            }).first,
+           VoiceInteractionLog.cardLabels(evidence.cards).contains(where: { $0.hasPrefix("email:") }) {
+            if DeskReplySpeech.textToSpeak(evidence.text, lastSpoken: nil) != nil {
+                return evidence.text
+            }
+            return DeskReplySpeech.spokenDeskHit(
+                email,
+                includeEarlier: evidence.expandEarlierMessages
+            )
+        }
+        return evidence.text
     }
 
     public static func play(_ fixture: VoiceRegressionFixture, desk: DeskContext? = nil) -> Result {

@@ -349,6 +349,38 @@ final class GmailSearchQueryTests: XCTestCase {
         )
     }
 
+    func testSameSenderEricHitsCollapseToNewestOneNotSeveral() {
+        func eric(_ n: Int, subject: String, label: String) -> EmailItem {
+            EmailItem(
+                providerID: "fixture-eric-\(n)",
+                fromName: "Eric Gross",
+                fromEmail: "eric.gross@example.com",
+                sentAtLabel: label,
+                subject: subject,
+                preview: "Eric thread \(n).",
+                body: "Eric thread \(n).",
+                filterTag: "Inbox"
+            )
+        }
+        let oldest = eric(1, subject: "Lot walk", label: "Mar 1")
+        let middle = eric(2, subject: "Offer", label: "Mar 2")
+        let newest = eric(3, subject: "Follow-up", label: "Today 3:00 PM")
+        let murray = VoiceRegressionDesk.murray
+        let ask = "Can you find the last email by Eric?"
+
+        switch GmailSearchQuery.pick([oldest, middle, newest, murray], ask: ask) {
+        case .one(let email):
+            XCTAssertEqual(email.fromName, "Eric Gross")
+            XCTAssertEqual(email.fromEmail, "eric.gross@example.com")
+            XCTAssertNotEqual(email.fromName, "Murray Mitchell")
+            XCTAssertNotEqual(email.fromName, "Laren Cole")
+        case .several(let emails):
+            XCTFail("same-sender Eric hits must collapse to one card, got \(emails.map(\.subject))")
+        default:
+            XCTFail("Eric ask must attach the newest Eric card")
+        }
+    }
+
     func testEricDoesNotFuzzyMapToMailboxOwnerEriq() {
         let ask = "When was Eric's last email?"
         XCTAssertEqual(GmailSearchQuery.query(from: ask), "from:eric")

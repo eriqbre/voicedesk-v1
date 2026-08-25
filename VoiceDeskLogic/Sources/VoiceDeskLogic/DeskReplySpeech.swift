@@ -13,4 +13,31 @@ public enum DeskReplySpeech: Sendable {
         let cleaned = EmailSummary.scrubUIChrome(trimmed)
         return cleaned.isEmpty ? nil : cleaned
     }
+
+    /// A desk-thread / desk-person card must never be silent.
+    /// Empty, slow, unused, or skipped xAI falls back to the heuristic digest.
+    public static func spokenDeskHit(
+        _ email: EmailItem,
+        xaiSummarize: String? = nil,
+        includeEarlier: Bool = false
+    ) -> String {
+        if let spoken = textToSpeak(xaiSummarize ?? "", lastSpoken: nil) {
+            return spoken
+        }
+        let heuristic = EmailSummary.heuristic(
+            EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
+        )
+        if let spoken = textToSpeak(heuristic, lastSpoken: nil) {
+            return spoken
+        }
+        let who = email.fromName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let subject = email.subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !who.isEmpty, !subject.isEmpty {
+            return "\(who) wrote about \(subject)."
+        }
+        if !who.isEmpty {
+            return "\(who) wrote."
+        }
+        return "I have the email, but I’m not inventing what it says."
+    }
 }

@@ -42,7 +42,9 @@ public struct EarlyFinalHold: Equatable, Sendable {
         at now: Date = Date(),
         window: TimeInterval = defaultWindow
     ) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = Self.dropLeadingLeftoverStem(
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !trimmed.isEmpty else { return nil }
 
         if let heldAt, now.timeIntervalSince(heldAt) > window {
@@ -61,7 +63,7 @@ public struct EarlyFinalHold: Equatable, Sendable {
                 }
                 heldPrefix = nil
                 self.heldAt = nil
-                return combined
+                return Self.dropLeadingLeftoverStem(combined)
             }
             heldPrefix = trimmed
             heldAt = now
@@ -72,7 +74,7 @@ public struct EarlyFinalHold: Equatable, Sendable {
         heldPrefix = nil
         heldAt = nil
 
-        let combined = Self.stitch(held, onto: trimmed)
+        let combined = Self.dropLeadingLeftoverStem(Self.stitch(held, onto: trimmed))
         if Self.isActionableAsk(combined, context: context) {
             return combined
         }
@@ -128,6 +130,17 @@ public struct EarlyFinalHold: Equatable, Sendable {
         return intent != "general"
     }
 
+    /// Drop a leftover hold-stem / echo-stem that prefixes a real desk ask
+    /// in the same final (“What's, give me a summary of …”). Bare leftovers
+    /// still hold. Complete asks that *use* What’s / Zero stay intact.
+    public static func dropLeadingLeftoverStem(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        guard let rest = remainderAfterLeadingLeftover(trimmed) else { return trimmed }
+        guard remainderIsRealDeskAsk(rest) else { return trimmed }
+        return rest
+    }
+
     /// what's / whats / what / when / how's / hm / um / uh — after punctuation strip.
     private static let barePrefixes: Set<String> = [
         "what",
@@ -174,6 +187,37 @@ public struct EarlyFinalHold: Equatable, Sendable {
     private static func startsWithDeskStem(_ raw: String) -> Bool {
         restAfterDeskStem(dropLeadingFillers(wordTokens(raw))) != nil
     }
+
+    private static func remainderAfterLeadingLeftover(_ raw: String) -> String? {
+        guard let regex = leftoverStemPrefixRegex else { return nil }
+        let ns = raw as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        guard let match = regex.firstMatch(in: raw, options: [], range: range),
+              match.range.location == 0,
+              match.range.length > 0,
+              match.range.length < ns.length
+        else { return nil }
+        let rest = ns.substring(from: match.range.length)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return rest.isEmpty ? nil : rest
+    }
+
+    private static func remainderIsRealDeskAsk(_ rest: String) -> Bool {
+        guard !shouldHold(rest) else { return false }
+        let tokens = dropLeadingFillers(wordTokens(rest))
+        if restAfterDeskStem(tokens) != nil {
+            return !isDeskStemWithoutPersonOrTopic(tokens)
+        }
+        if tokens.starts(with: ["how", "about"]) || tokens.starts(with: ["what", "about"]) {
+            return true
+        }
+        return false
+    }
+
+    private static let leftoverStemPrefixRegex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"^(?:what['’`]s|whats|what|voice|hm+|zero|oh)\b[,.\u2026]?\s+"#,
+        options: [.caseInsensitive]
+    )
 
     private static func restAfterDeskStem(_ tokens: [String]) -> [String]? {
         for stem in deskStems where tokens.starts(with: stem) {

@@ -605,6 +605,12 @@ public enum ConversationPresence {
            contains(lower, ["wrote", "written", "regarding", "dealing with", "looking for the one"]) {
             return true
         }
+        // “How about Murray’s latest” — named recency, no “email” word required.
+        if GmailSearchQuery.hasSenderPattern(raw),
+           contains(lower, ["latest", "last"]),
+           raw.range(of: #"[A-Za-z]{3,}['’]s\b"#, options: .regularExpression) != nil {
+            return true
+        }
         // “The one regarding Fleeman Road” / “regarding Fleeman” — desk topic pick.
         if contains(lower, ["regarding", "dealing with", "the one regarding", "looking for the one"]),
            GmailSearchQuery.plan(from: raw)?.subjectTokens.isEmpty == false {
