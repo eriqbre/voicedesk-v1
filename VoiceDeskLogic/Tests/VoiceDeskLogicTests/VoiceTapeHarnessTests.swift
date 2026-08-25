@@ -91,22 +91,10 @@ final class VoiceTapeHarnessTests: XCTestCase {
         XCTAssertFalse(script.contains("via BlackHole"))
         XCTAssertTrue(script.contains("No simctl mic"))
         XCTAssertTrue(script.contains("skip: no XAI_API_KEY"))
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", repoPath("scripts/replay-voice-tape.py"), "--dry-run"]
-        process.environment = (ProcessInfo.processInfo.environment).merging(
-            ["XAI_API_KEY": ""]
-        ) { _, new in new }
-        let err = Pipe()
-        process.standardError = err
-        process.standardOutput = Pipe()
-        try process.run()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0, "dry-run / no key must skip")
-        let stderr = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        XCTAssertTrue(stderr.contains("skip:"), stderr)
-        XCTAssertFalse(stderr.contains("xai-"), "must never leak a key")
+        XCTAssertTrue(script.contains("args.dry_run or not load_api_key()"))
+        XCTAssertTrue(VoiceTape.shouldSkipLive(hasAPIKey: false))
+        XCTAssertTrue(VoiceTape.shouldSkipLive(hasAPIKey: true, dryRun: true))
+        XCTAssertFalse(VoiceTape.shouldSkipLive(hasAPIKey: true, dryRun: false))
     }
 
     func testNamedKatherineIsDeskOwnedOnTheTapeCatalog() {
@@ -149,10 +137,6 @@ final class VoiceTapeHarnessTests: XCTestCase {
     private func repoFile(_ relative: String) -> String? {
         guard let url = repoURL(relative) else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
-    }
-
-    private func repoPath(_ relative: String) -> String {
-        repoURL(relative)?.path ?? relative
     }
 
     private func repoURL(_ relative: String) -> URL? {

@@ -170,6 +170,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Replay voice tapes against live Grok.")
     parser.add_argument("--dry-run", action="store_true", help="Skip the live socket. Exit 0.")
     args = parser.parse_args()
+    # shouldSkipLive: dry-run or missing key → exit 0. Never fail CI.
     if args.dry_run or not load_api_key():
         print("skip: no XAI_API_KEY (or --dry-run). Live Grok loop not run.", file=sys.stderr)
         return 0

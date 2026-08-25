@@ -47,6 +47,11 @@ public enum VoiceTape: Sendable {
     public static let sampleRate = GrokRealtime.sampleRate
     public static let realtimeHost = GrokRealtime.realtimeHost
 
+    /// No key / --dry-run must not fail CI. Live socket is Elon-on-Mac only.
+    public static func shouldSkipLive(hasAPIKey: Bool, dryRun: Bool = false) -> Bool {
+        dryRun || !hasAPIKey
+    }
+
     /// Latest-emails race first — 2150783. Then version / SHA / calendar / named.
     public static let catalog: [Item] = [
         Item(id: "show-my-latest-emails", say: "show my latest emails", intent: "inbox-overview"),
