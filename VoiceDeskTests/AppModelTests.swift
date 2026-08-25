@@ -303,14 +303,14 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 5.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
-        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 4."))
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 5."))
         XCTAssertTrue(fake.sentTurns.isEmpty)
         XCTAssertTrue(fake.assistantOutputSuppressed)
 
         await model.applyUserTurn("Can you show it to me?")
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 5.")
         XCTAssertGreaterThanOrEqual(
             model.turns.last?.cards.count ?? 0,
             2,
@@ -334,10 +334,10 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 5.")
 
         await model.applyUserTurn("what's on the phone")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
+        XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 5.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
     }
 
@@ -362,16 +362,16 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("what's on the phone")
         let afterVersion = model.turns.count
-        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 4."))
+        XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 5."))
 
         fake.emitUser("zero")
         fake.emitUser("point one")
-        fake.emitUser("build 4")
+        fake.emitUser("build 5")
         XCTAssertEqual(model.turns.count, afterVersion, "echo leftovers must not become user turns")
 
         fake.emitUser("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 4.")
+        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 5.")
 
         fake.emitUser("latest email from Lauren")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)

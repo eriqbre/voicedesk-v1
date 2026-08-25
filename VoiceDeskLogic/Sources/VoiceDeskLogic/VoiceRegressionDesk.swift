@@ -104,6 +104,33 @@ public enum VoiceRegressionDesk: Sendable {
         filterTag: "Inbox"
     )
 
+    /// Dogfood 2026-08-25 walk: Murray Mitchell / 302 Georgia Ave closing.
+    /// Subject + first useful line only — do not invent a closing plot.
+    public static let murrayGeorgia = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-00000000000B")!,
+        providerID: "fixture-murray-georgia",
+        fromName: "Murray Mitchell",
+        fromEmail: "murray@example.com",
+        sentAtLabel: "Today 3:30 PM",
+        subject: "Re: 302 GEORGIA AVE, Crystal Beach, FL 34681/CLOSING INFORMATION REQUIRED",
+        preview: "CLOSING INFORMATION REQUIRED",
+        body: "CLOSING INFORMATION REQUIRED for 302 GEORGIA AVE, Crystal Beach, FL 34681.",
+        filterTag: "Inbox"
+    )
+
+    /// Dogfood 2026-08-24 empty-mouth: Sandy Woodcock / “My gut tells me”.
+    public static let sandyGut = EmailItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-00000000000C")!,
+        providerID: "fixture-sandy-gut",
+        fromName: "Sandy Woodcock",
+        fromEmail: "sandy@example.com",
+        sentAtLabel: "Today 2:15 PM",
+        subject: "My gut tells me",
+        preview: "My gut tells me",
+        body: "My gut tells me",
+        filterTag: "Inbox"
+    )
+
     public static let ericGross = EmailItem(
         id: UUID(uuidString: "00000000-0000-4000-8000-000000000009")!,
         providerID: "fixture-eric-gross",
@@ -159,6 +186,15 @@ public enum VoiceRegressionDesk: Sendable {
         DeskSnapshot(accountEmail: "eriq@example.com", emails: [eriqSelf])
     }
 
+    /// Murray 302 + Sandy gut — leftover-stem / empty-speak walk fixtures.
+    public static var leftoverSpeakSnapshot: DeskSnapshot {
+        DeskSnapshot(accountEmail: "agent@example.com", emails: [murrayGeorgia, sandyGut])
+    }
+
+    public static var leftoverSpeak: DeskContext {
+        DeskContext(isConnected: true, snapshot: leftoverSpeakSnapshot)
+    }
+
     public static var connected: DeskContext {
         DeskContext(isConnected: true, snapshot: snapshot)
     }
@@ -196,6 +232,10 @@ public enum VoiceRegressionDesk: Sendable {
         switch key {
         case "", "murray", "murray mitchell":
             return murray
+        case "murray georgia", "302 georgia":
+            return murrayGeorgia
+        case "sandy", "sandy woodcock":
+            return sandyGut
         case "steve", "steve brown":
             return steve
         case "greenacre", "greenacre properties, inc.", "greenacre properties":
@@ -229,6 +269,8 @@ public enum VoiceRegressionDesk: Sendable {
             return ericWithGross
         case "eric-self-only":
             return ericSelfOnly
+        case "leftover-speak":
+            return leftoverSpeak
         default:
             return connected
         }

@@ -493,7 +493,8 @@ final class AppModel {
     }
 
     private func handleUserText(_ raw: String) async {
-        guard let text = userDedupe.accept(text: raw, itemID: nil) else { return }
+        let stripped = EarlyFinalHold.dropLeadingLeftoverStem(raw)
+        guard let text = userDedupe.accept(text: stripped, itemID: nil) else { return }
         rememberUserTurn(text, source: "text")
         completePlaybook()
 
@@ -844,7 +845,7 @@ final class AppModel {
             await searchGmail(query, plan: evidence.gmailPlan, ask: evidence.searchAsk)
             logVoiceTurn(
                 evidence: evidence,
-                reply: turns.last?.text,
+                reply: spokenReplyForLog(fallback: turns.last?.text),
                 cards: turns.last?.cards ?? []
             )
             return
@@ -853,7 +854,7 @@ final class AppModel {
             await revealEmailBody(email)
             logVoiceTurn(
                 evidence: evidence,
-                reply: turns.last?.text,
+                reply: spokenReplyForLog(fallback: turns.last?.text),
                 cards: turns.last?.cards ?? []
             )
             return
@@ -1014,8 +1015,13 @@ final class AppModel {
         }
         let includeEarlier = pendingThreadSummary
         pendingThreadSummary = false
-        let reply = await emailSummarizer.summarize(
+        let xai = await emailSummarizer.summarize(
             EmailSummaryRequest.from(email, includeEarlier: includeEarlier)
+        )
+        let reply = DeskReplySpeech.spokenDeskHit(
+            email,
+            xaiSummarize: xai,
+            includeEarlier: includeEarlier
         )
         scrubGrokDeskRefusals()
         // Card is the visual. Eve still speaks `reply`; do not reprint it in the bubble.
@@ -1028,6 +1034,14 @@ final class AppModel {
 
     private func speakDeskReplyLater(_ text: String) {
         Task { await speakDeskReply(text) }
+    }
+
+    /// Cards-only bubbles are empty. Dogfood `assistantReply` is what Eve spoke.
+    private func spokenReplyForLog(fallback: String?) -> String {
+        if let spoken = lastSpokenDeskReply, !spoken.isEmpty {
+            return spoken
+        }
+        return fallback ?? ""
     }
 
     private func speakDeskReply(_ text: String) async {
