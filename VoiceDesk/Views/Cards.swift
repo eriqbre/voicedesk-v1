@@ -18,7 +18,9 @@ struct ContentCardView: View {
             }
         }
         // Outer ID is what made CI green (91b54e4). CardChrome must stay visual-only.
+        // XCUITest sees this node, not the inner `card.email.full` / `.compact` tap id.
         .accessibilityIdentifier(card.fixtureID)
+        .accessibilityValue(card.emailPresentationState ?? "")
     }
 }
 
@@ -42,64 +44,77 @@ struct EmailCardView: View {
     @Environment(AppModel.self) private var model
     let item: EmailItem
     @State private var showingEarlier = false
-    @State private var expandedFromCompact = false
+    /// Visual expand/collapse. Same local @State the old compact tap used so
+    /// SwiftUI animates height in place. Model presentation is persistence.
+    @State private var showsExpanded: Bool?
 
     private var showsFullReader: Bool {
-        item.cardPresentation == .full || expandedFromCompact
+        showsExpanded ?? (item.cardPresentation == .full)
     }
 
     var body: some View {
-        if showsFullReader {
-            fullReader
-        } else {
-            compactRow
-        }
-    }
-
-    private var compactRow: some View {
         Button {
-            expandedFromCompact = true
-            model.expandCompactEmail(item)
+            withAnimation {
+                showsExpanded = !showsFullReader
+            }
+            model.toggleEmailCard(item)
         } label: {
             CardChrome {
-                HStack(alignment: .top, spacing: 12) {
-                    InitialsMark(initials: item.initials, hue: 0.72)
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(item.fromName)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Palette.ink)
-                                .lineLimit(1)
-                            Spacer(minLength: 8)
-                            Text(item.sentAtLabel)
-                                .font(.caption)
-                                .foregroundStyle(Palette.muted)
-                        }
-                        Text(item.subject)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Palette.ink)
-                            .lineLimit(1)
-                        Text(item.compactSnippet)
-                            .font(.caption)
-                            .foregroundStyle(Palette.ink.opacity(0.75))
-                            .lineLimit(1)
+                Group {
+                    if showsFullReader {
+                        fullReaderContent
+                    } else {
+                        compactRowContent
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.muted)
-                        .padding(.top, 4)
                 }
+                .transition(.identity)
             }
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("card.email.compact")
-        .accessibilityLabel("Email from \(item.fromName). \(item.subject). \(item.compactSnippet)")
-        .accessibilityHint("Opens the full email")
+        .accessibilityLabel(showsFullReader ? emailAccessibilityLabel : compactAccessibilityLabel)
+        .accessibilityValue(showsFullReader ? EmailCardPresentation.full.rawValue : EmailCardPresentation.compact.rawValue)
+        .accessibilityHint(showsFullReader ? "Collapses the email" : "Opens the full email")
+        .onAppear { expandEarlierIfRequested() }
+        .onChange(of: model.expandEarlierEpoch) { _, _ in
+            expandEarlierIfRequested()
+        }
+        .onChange(of: item.earlierMessages.count) { _, _ in
+            expandEarlierIfRequested()
+        }
     }
 
-    private var fullReader: some View {
-        CardChrome {
-            VStack(alignment: .leading, spacing: 12) {
+    private var compactRowContent: some View {
+        HStack(alignment: .top, spacing: 12) {
+            InitialsMark(initials: item.initials, hue: 0.72)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(item.fromName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(item.sentAtLabel)
+                        .font(.caption)
+                        .foregroundStyle(Palette.muted)
+                }
+                Text(item.subject)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(1)
+                Text(item.compactSnippet)
+                    .font(.caption)
+                    .foregroundStyle(Palette.ink.opacity(0.75))
+                    .lineLimit(1)
+            }
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.muted)
+                .padding(.top, 4)
+        }
+    }
+
+    private var fullReaderContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
                     InitialsMark(initials: item.initials, hue: 0.72)
                     VStack(alignment: .leading, spacing: 2) {
@@ -122,6 +137,7 @@ struct EmailCardView: View {
                     .foregroundStyle(Palette.ink)
                 if item.hasFullBody {
                     EmailBodyReader(html: item.htmlBody, plain: item.body, expandsToFit: true)
+                        .allowsHitTesting(false)
                 } else {
                     Text(item.preview)
                         .font(.subheadline)
@@ -174,17 +190,6 @@ struct EmailCardView: View {
                         .font(.caption)
                         .foregroundStyle(Palette.muted)
                 }
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(emailAccessibilityLabel)
-        .accessibilityIdentifier("card.email")
-        .onAppear { expandEarlierIfRequested() }
-        .onChange(of: model.expandEarlierEpoch) { _, _ in
-            expandEarlierIfRequested()
-        }
-        .onChange(of: item.earlierMessages.count) { _, _ in
-            expandEarlierIfRequested()
         }
     }
 
@@ -192,6 +197,10 @@ struct EmailCardView: View {
         if model.expandsEarlierMessages(item), item.hasEarlierMessages {
             showingEarlier = true
         }
+    }
+
+    private var compactAccessibilityLabel: String {
+        "Email from \(item.fromName). \(item.subject). \(item.compactSnippet)"
     }
 
     private var emailAccessibilityLabel: String {

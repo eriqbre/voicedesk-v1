@@ -62,4 +62,44 @@ final class CardInsertionTests: XCTestCase {
             return false
         })
     }
+
+    func testEmailCardTapTogglesCompactAndFull() {
+        let compact = SampleData.email().presented(as: .compact)
+        XCTAssertTrue(compact.isCompactListRow)
+        XCTAssertEqual(compact.cardPresentation.tapIdentifier, "card.email.compact")
+
+        let opened = compact.togglingCardPresentation()
+        XCTAssertFalse(opened.isCompactListRow)
+        XCTAssertEqual(opened.cardPresentation, .full)
+        XCTAssertEqual(opened.cardPresentation.tapIdentifier, "card.email.full")
+        XCTAssertEqual(opened.id, compact.id)
+        XCTAssertEqual(opened.subject, compact.subject)
+
+        let collapsed = opened.togglingCardPresentation()
+        XCTAssertTrue(collapsed.isCompactListRow)
+        XCTAssertEqual(collapsed.cardPresentation, .compact)
+        XCTAssertEqual(collapsed.cardPresentation.tapIdentifier, "card.email.compact")
+        XCTAssertEqual(collapsed.id, compact.id)
+        XCTAssertEqual(ContentCard.email(collapsed).fixtureID, "card.email")
+        XCTAssertEqual(ContentCard.email(opened).fixtureID, "card.email")
+        XCTAssertEqual(ContentCard.email(collapsed).emailPresentationState, "compact")
+        XCTAssertEqual(ContentCard.email(opened).emailPresentationState, "full")
+    }
+
+    func testTourGraphEmailStartsFullButWrapperIDStaysCardEmail() {
+        guard case .email(let item) = TourScript.graphCards().first else {
+            XCTFail("tour graph starts with the sample email")
+            return
+        }
+        XCTAssertEqual(item.cardPresentation, .full)
+        XCTAssertFalse(item.isCompactListRow)
+        XCTAssertEqual(ContentCard.email(item).fixtureID, "card.email")
+        XCTAssertEqual(ContentCard.email(item).emailPresentationState, "full")
+        XCTAssertEqual(item.cardPresentation.tapIdentifier, "card.email.full")
+        XCTAssertNotEqual(
+            item.cardPresentation.tapIdentifier,
+            ContentCard.email(item).fixtureID,
+            "smoke must query card.email; inner tap id is not the wrapper"
+        )
+    }
 }
