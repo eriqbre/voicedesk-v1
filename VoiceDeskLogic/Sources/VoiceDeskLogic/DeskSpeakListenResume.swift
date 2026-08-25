@@ -70,4 +70,45 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
             voiceState: session.state
         )
     }
+
+    /// Walk 2 (2026-08-25 ~12:17 ET): several desk speaks, then calendar.
+    /// Capture must still arm after the last TTS even if the engine reports running.
+    public static func afterSequentialDeskSpeaks(
+        turns: [(ask: String, spoken: String)],
+        nextAsk: String,
+        context: DeskContext,
+        socketConnected: Bool = true,
+        captureRunningAfterSpeak: Bool = true,
+        userWantsVoiceOff: Bool = false
+    ) -> DeskSpeakListenResume {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        var gate = EchoTranscriptGate()
+        var lastAsk = ""
+        for turn in turns {
+            lastAsk = turn.ask
+            session.apply(.listenFinished)
+            session.apply(.speakStarted)
+            gate.beginSpeaking(turn.spoken)
+            gate.finishSpeaking()
+            ListenResumePolicy.applySessionAfterDeskSpeak(&session)
+        }
+        let decision = ListenResumePolicy.afterDeskSpeak(
+            userWantsVoiceOff: userWantsVoiceOff,
+            socketConnected: socketConnected,
+            captureRunning: captureRunningAfterSpeak
+        )
+        let spoken = VoiceTurnReplay.play(utterance: lastAsk, context: context)
+        let next = gate.decide(nextAsk, voiceState: session.state, context: context)
+        let listenArmed = ListenResumePolicy.isListenArmed(state: session.state)
+        return DeskSpeakListenResume(
+            spokenIntent: spoken.intent,
+            listenArmed: listenArmed,
+            captureArmed: listenArmed && ListenResumePolicy.isArmed(decision),
+            decision: decision,
+            nextIntent: next.intent,
+            nextAccepted: !next.isDropped,
+            voiceState: session.state
+        )
+    }
 }

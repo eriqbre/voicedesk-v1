@@ -1,9 +1,10 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// Live walk 2026-08-25 ~12:05–12:09 ET, SHA fa6616e:
-/// desk speaks (inbox-overview, need-more, task miss, calendar) completed,
-/// then the live Grok session went deaf — zero turns after 16:07:51Z.
+/// Live walks 2026-08-25, SHA fa6616e:
+/// 1. ~12:05 ET — inbox / need-more / task miss / calendar → deaf after 16:07:51Z
+/// 2. ~12:17 ET — inbox / Lauren-Fleeman / calendar → deaf after 16:18:08Z
+/// Both end on a completed calendar speak. Deaf is listen-resume, not parse.
 ///
 /// After any local desk speak, listen/capture must be armed again.
 /// Synonym families, not one golden phrase. Intent / state only.
@@ -20,9 +21,24 @@ final class DeskSpeakListenResumeTests: XCTestCase {
 
     static let calendarFamily = [
         "What's on my calendar this week?",
+        "What's on my calendar for the week?",
         "whats on my calendar",
         "what's on my calendar",
         "my calendar this week"
+    ]
+
+    /// Walk 2 ~12:17 ET. Same deaf after calendar. No need-more / task miss.
+    static let walk2InboxFamily = [
+        "Tell me my emails for the day.",
+        "tell me my emails for the day",
+        "Tell me about my emails.",
+        "tell me my emails"
+    ]
+
+    static let walk2LaurenFamily = [
+        "Find that, find that email from Lauren about Fleeman Road.",
+        "find that email from Lauren about Fleeman Road",
+        "Give me a summary of the email from Lauren about Fleeman Road."
     ]
 
     static let needMoreFamily = [
@@ -137,7 +153,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         XCTAssertTrue(walk.nextAccepted)
     }
 
-    func testCaptureAlreadyRunningStaysListening() {
+    func testCaptureAlreadyRunningStillResumesAfterDeskTTS() {
         let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
             ask: "Tell me about my emails.",
             spokenLine: "Five emails in the last sync.",
@@ -147,8 +163,47 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         )
         XCTAssertTrue(walk.listenArmed)
         XCTAssertTrue(walk.captureArmed)
-        XCTAssertEqual(walk.decision, .keepListening)
+        XCTAssertEqual(walk.decision, .resumeCapture)
         XCTAssertTrue(walk.nextAccepted)
+    }
+
+    /// Walk 2 tape: inbox-overview → long Lauren speak → calendar (Massimo’s) → silence.
+    /// Engine still “running” after calendar TTS is the live fail.
+    func testWalk2InboxLaurenCalendarSpeakLeavesListenArmed() {
+        let desk = VoiceRegressionDesk.laurenSeveral
+        for inbox in Self.walk2InboxFamily {
+            XCTAssertEqual(
+                VoiceTurnReplay.play(utterance: inbox, context: desk).intent,
+                "inbox-overview",
+                inbox
+            )
+        }
+        for lauren in Self.walk2LaurenFamily {
+            let replay = VoiceTurnReplay.play(utterance: lauren, context: desk)
+            XCTAssertTrue(["desk-person", "desk-thread"].contains(replay.intent), "\(lauren) → \(replay.intent)")
+            XCTAssertNotEqual(replay.intent, "general", lauren)
+        }
+
+        let walk = DeskSpeakListenResume.afterSequentialDeskSpeaks(
+            turns: [
+                ("Tell me my emails for the day.", "Five emails in the last sync."),
+                (
+                    "Find that, find that email from Lauren about Fleeman Road.",
+                    "Laren Jansen wrote about Fleeman Road disclosures."
+                ),
+                ("What's on my calendar for the week?", "Massimo’s on Thursday.")
+            ],
+            nextAsk: "Tell me about my emails.",
+            context: desk,
+            captureRunningAfterSpeak: true
+        )
+        XCTAssertEqual(walk.spokenIntent, "calendar")
+        XCTAssertTrue(walk.listenArmed, "calendar TTS must leave listen armed")
+        XCTAssertTrue(walk.captureArmed, "must resume capture even if engine reports running")
+        XCTAssertEqual(walk.decision, .resumeCapture)
+        XCTAssertEqual(walk.voiceState, .listening)
+        XCTAssertTrue(walk.nextAccepted)
+        XCTAssertEqual(walk.nextIntent, "inbox-overview")
     }
 
     func testUserStopAfterDeskSpeakDoesNotArm() {

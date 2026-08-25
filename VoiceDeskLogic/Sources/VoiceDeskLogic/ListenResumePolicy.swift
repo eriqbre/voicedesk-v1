@@ -19,14 +19,19 @@ public enum ListenResumeDecision: Equatable, Sendable {
 /// capture. This policy is the arming decision; the iOS service applies it.
 public enum ListenResumePolicy: Sendable {
     /// After Eve finishes a local desk line. User did not tap stop.
+    ///
+    /// Walks 2026-08-25 (fa6616e) both went deaf after a completed calendar
+    /// speak while the app stayed up. The engine can still report running
+    /// after desk TTS while the tap is silent — do not trust `captureRunning`.
     public static func afterDeskSpeak(
         userWantsVoiceOff: Bool,
         socketConnected: Bool,
         captureRunning: Bool
     ) -> ListenResumeDecision {
+        _ = captureRunning
         if userWantsVoiceOff { return .stayIdle }
         if !socketConnected { return .reconnect }
-        return captureRunning ? .keepListening : .resumeCapture
+        return .resumeCapture
     }
 
     /// Socket closed. Reconnect when the live session is still supposed to hear.

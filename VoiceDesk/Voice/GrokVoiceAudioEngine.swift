@@ -14,12 +14,37 @@ final class GrokVoiceAudioEngine {
     )!
 
     var isRunning: Bool { engine?.isRunning ?? false }
+    var hasPendingPlayback: Bool { pendingPlaybackBuffers > 0 }
+
+    /// Fires on the main actor when the last scheduled desk-TTS buffer ends.
+    /// `response.done` is earlier — capture often dies only after playback.
+    var onPlaybackDrained: (() -> Void)?
 
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
+    private var onMicAudio: (@Sendable (String) -> Void)?
+    private var echoCancellation = true
+    private var tapInstalled = false
+    private var pendingPlaybackBuffers = 0
+    private var playbackEpoch = 0
+
+    /// After desk TTS: reinstall the mic tap if the engine is up, otherwise start.
+    /// Do not call `stop()` — its delayed `setActive(false)` kills the next start.
+    @discardableResult
+    func resumeCapture(echoCancellation: Bool, onMicAudio: @escaping @Sendable (String) -> Void) -> [String] {
+        self.echoCancellation = echoCancellation
+        self.onMicAudio = onMicAudio
+        if engine?.isRunning == true {
+            return rearmTap()
+        }
+        discardDeadEngine()
+        return start(echoCancellation: echoCancellation, onMicAudio: onMicAudio)
+    }
 
     @discardableResult
     func start(echoCancellation: Bool, onMicAudio: @escaping @Sendable (String) -> Void) -> [String] {
+        self.echoCancellation = echoCancellation
+        self.onMicAudio = onMicAudio
         var logs: [String] = []
 
         do {
@@ -63,18 +88,8 @@ final class GrokVoiceAudioEngine {
             return logs
         }
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, _ in
-            guard let channel = buffer.floatChannelData?[0] else { return }
-            let count = Int(buffer.frameLength)
-            guard count > 0 else { return }
-            var samples = [Float](repeating: 0, count: count)
-            samples.withUnsafeMutableBufferPointer { dest in
-                guard let base = dest.baseAddress else { return }
-                base.update(from: channel, count: count)
-            }
-            guard let data = Self.int16Data(samples: samples, sourceRate: sourceRate) else { return }
-            onMicAudio(data.base64EncodedString())
-        }
+        installMicTap(on: inputNode, format: inputFormat, sourceRate: sourceRate, onMicAudio: onMicAudio)
+        tapInstalled = true
 
         do {
             engine.prepare()
@@ -93,17 +108,25 @@ final class GrokVoiceAudioEngine {
 
     func stop() {
         guard let engine else { return }
-        engine.inputNode.removeTap(onBus: 0)
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        playbackEpoch += 1
+        pendingPlaybackBuffers = 0
         playerNode?.stop()
         if engine.isRunning { engine.stop() }
         self.engine = nil
         self.playerNode = nil
+        onMicAudio = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
 
     func interruptPlayback() {
+        playbackEpoch += 1
+        pendingPlaybackBuffers = 0
         playerNode?.stop()
         playerNode?.play()
     }
@@ -131,7 +154,73 @@ final class GrokVoiceAudioEngine {
                 floats[index] = Float(src[index]) / Float(Int16.max)
             }
         }
-        playerNode.scheduleBuffer(buffer)
+        let epoch = playbackEpoch
+        pendingPlaybackBuffers += 1
+        playerNode.scheduleBuffer(buffer) { [weak self] in
+            Task { @MainActor in
+                guard let self, epoch == self.playbackEpoch else { return }
+                self.pendingPlaybackBuffers = max(0, self.pendingPlaybackBuffers - 1)
+                if self.pendingPlaybackBuffers == 0 {
+                    self.onPlaybackDrained?()
+                }
+            }
+        }
+    }
+
+    /// Tear down a stopped engine without deactivating the audio session.
+    private func discardDeadEngine() {
+        guard let engine else { return }
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        playbackEpoch += 1
+        pendingPlaybackBuffers = 0
+        playerNode?.stop()
+        self.engine = nil
+        self.playerNode = nil
+    }
+
+    private func rearmTap() -> [String] {
+        guard let engine, let onMicAudio else {
+            return ["Audio tap rearm skipped"]
+        }
+        let inputNode = engine.inputNode
+        if tapInstalled {
+            inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        let sourceRate = inputFormat.sampleRate
+        guard sourceRate > 0 else {
+            return ["Mic input has zero sample rate"]
+        }
+        installMicTap(on: inputNode, format: inputFormat, sourceRate: sourceRate, onMicAudio: onMicAudio)
+        tapInstalled = true
+        if playerNode?.isPlaying != true {
+            playerNode?.play()
+        }
+        return ["Audio tap rearmed", "Audio engine running"]
+    }
+
+    private func installMicTap(
+        on inputNode: AVAudioInputNode,
+        format: AVAudioFormat,
+        sourceRate: Double,
+        onMicAudio: @escaping @Sendable (String) -> Void
+    ) {
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            guard let channel = buffer.floatChannelData?[0] else { return }
+            let count = Int(buffer.frameLength)
+            guard count > 0 else { return }
+            var samples = [Float](repeating: 0, count: count)
+            samples.withUnsafeMutableBufferPointer { dest in
+                guard let base = dest.baseAddress else { return }
+                base.update(from: channel, count: count)
+            }
+            guard let data = Self.int16Data(samples: samples, sourceRate: sourceRate) else { return }
+            onMicAudio(data.base64EncodedString())
+        }
     }
 
     /// Convert already-copied floats. Callers must copy off `AVAudioPCMBuffer` first.

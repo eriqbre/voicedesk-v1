@@ -17,7 +17,8 @@ final class ListenResumePolicyTests: XCTestCase {
                 socketConnected: true,
                 captureRunning: true
             ),
-            .keepListening
+            .resumeCapture,
+            "after desk TTS, isRunning is not proof the tap still hears"
         )
     }
 
