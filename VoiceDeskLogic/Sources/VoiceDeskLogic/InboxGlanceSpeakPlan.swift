@@ -4,7 +4,7 @@ import Foundation
 ///
 /// When the snapshot already has the latest-5, first speak is the heuristic
 /// one-liners. Do not wait on a Gmail list refresh or a model rewrite of those
-/// lines. Pretty AI glance may catch up after first audio — never a second speak.
+/// lines. First word does not need the model, so do not call it.
 public struct InboxGlanceSpeakPlan: Equatable, Sendable {
     public static let localCacheStage = "localCache"
     public static let heuristicStage = "heuristic"
