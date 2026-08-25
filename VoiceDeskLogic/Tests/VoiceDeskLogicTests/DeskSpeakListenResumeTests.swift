@@ -24,7 +24,15 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         "What's on my calendar for the week?",
         "whats on my calendar",
         "what's on my calendar",
-        "my calendar this week"
+        "my calendar this week",
+        "Okay got it. What's on my calendar for the week?"
+    ]
+
+    static let namedSenderFamily = [
+        "It's the email from Katherine.",
+        "it's the email from Katherine",
+        "the email from Katherine",
+        "email from Katherine"
     ]
 
     /// Walk 2 ~12:17 ET. Same deaf after calendar. No need-more / task miss.
@@ -66,6 +74,32 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         VoiceRegressionDesk.connected
     }
 
+    func testListenStaysUnarmedUntilClientTTSReportsDone() {
+        let during = DeskSpeakListenResume.whileClientTTSSpeaking(
+            ask: "What's on my calendar for the week?",
+            spokenLine: "Massimo’s on Thursday.",
+            nextAsk: "Tell me about my emails.",
+            context: connected
+        )
+        XCTAssertFalse(during.ttsFinished)
+        XCTAssertFalse(during.listenArmed)
+        XCTAssertFalse(during.captureArmed)
+        XCTAssertEqual(during.voiceState, .speaking)
+        XCTAssertFalse(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: during.ttsFinished))
+
+        let after = DeskSpeakListenResume.afterCompletedDeskSpeak(
+            ask: "What's on my calendar for the week?",
+            spokenLine: "Massimo’s on Thursday.",
+            nextAsk: "Tell me about my emails.",
+            context: connected
+        )
+        XCTAssertTrue(after.ttsFinished)
+        XCTAssertTrue(after.listenArmed)
+        XCTAssertTrue(after.captureArmed)
+        XCTAssertEqual(after.decision, .resumeCapture)
+        XCTAssertTrue(after.nextAccepted)
+    }
+
     func testInboxOverviewSpeakLeavesListenArmedForNextAsk() {
         for ask in Self.inboxOverviewFamily {
             let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
@@ -82,6 +116,57 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             XCTAssertTrue(walk.nextAccepted, ask)
             XCTAssertEqual(walk.nextIntent, "calendar", ask)
         }
+    }
+
+    func testNamedSenderThenCalendarLeavesListenArmedOnClientTTS() {
+        let desk = VoiceRegressionDesk.massimoCalendar
+        for sender in Self.namedSenderFamily {
+            XCTAssertNotEqual(
+                VoiceTurnReplay.play(utterance: sender, context: desk).intent,
+                "general",
+                "\(sender) must stay desk-owned"
+            )
+            XCTAssertTrue(GmailSearchQuery.hasSenderPattern(sender), sender)
+        }
+        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
+        for calendar in Self.calendarFamily {
+            let walk = DeskSpeakListenResume.afterNamedSenderThenCalendar(
+                senderAsk: "It's the email from Katherine.",
+                calendarAsk: calendar,
+                context: desk
+            )
+            XCTAssertEqual(walk.spokenIntent, "calendar", calendar)
+            XCTAssertTrue(walk.listenArmed, "calendar after named-sender must arm listen: \(calendar)")
+            XCTAssertTrue(walk.captureArmed, calendar)
+            XCTAssertEqual(walk.decision, .resumeCapture, calendar)
+            XCTAssertTrue(walk.nextAccepted, calendar)
+        }
+    }
+
+    func testCalendarAfterNamedSenderClose1000Reconnects() {
+        let desk = VoiceRegressionDesk.massimoCalendar
+        let walk = DeskSpeakListenResume.afterNamedSenderThenCalendar(
+            senderAsk: "It's the email from Katherine.",
+            calendarAsk: "Okay got it. What's on my calendar for the week?",
+            context: desk,
+            liveSessionArmed: true,
+            reportClose: true
+        )
+        XCTAssertEqual(walk.spokenIntent, "calendar")
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertEqual(walk.decision, .reconnect)
+        XCTAssertNotEqual(walk.decision, .stayIdle)
+
+        let stopped = DeskSpeakListenResume.afterNamedSenderThenCalendar(
+            senderAsk: "It's the email from Katherine.",
+            calendarAsk: "Okay got it. What's on my calendar for the week?",
+            context: desk,
+            userWantsVoiceOff: true,
+            liveSessionArmed: true,
+            reportClose: true
+        )
+        XCTAssertEqual(stopped.decision, .stayIdle)
+        XCTAssertFalse(stopped.listenArmed)
     }
 
     func testCalendarSpeakLeavesListenArmedForInboxFollowUp() {

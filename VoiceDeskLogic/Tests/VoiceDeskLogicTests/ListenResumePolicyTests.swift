@@ -2,6 +2,92 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class ListenResumePolicyTests: XCTestCase {
+    func testListenIsNotArmedUntilClientTTSReportsDone() {
+        XCTAssertFalse(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
+        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: true))
+        XCTAssertNil(
+            ListenResumePolicy.afterClientTTS(
+                ttsFinished: false,
+                userWantsVoiceOff: false,
+                socketConnected: true,
+                captureRunning: false
+            ),
+            "do not rearm listen while AVSpeech is still talking"
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterClientTTS(
+                ttsFinished: true,
+                userWantsVoiceOff: false,
+                socketConnected: true,
+                captureRunning: false
+            ),
+            .resumeCapture
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterClientTTS(
+                ttsFinished: false,
+                userWantsVoiceOff: true,
+                socketConnected: true,
+                captureRunning: false
+            ),
+            .stayIdle
+        )
+    }
+
+    func testDeskSpeakUsesClientTTSNotGrokVerbatim() {
+        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
+        XCTAssertFalse(ListenResumePolicy.deskSpeakUsesGrokVerbatim())
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: true,
+                userWantsVoiceOff: false
+            ),
+            "desk lines must not inject a fake Grok turn"
+        )
+    }
+
+    func testClose1000AfterDeskSpeakReconnectsWhenLiveSessionArmed() {
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true
+            )
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: true,
+                closeCode: 1000,
+                voiceState: .idle
+            ),
+            .reconnect,
+            "697147d: close 1000 after a desk line is not user-stop"
+        )
+        XCTAssertNotEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: true,
+                closeCode: 1000,
+                voiceState: .idle
+            ),
+            .stayIdle
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterRealtimeTimeout(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true
+            ),
+            .reconnect
+        )
+        XCTAssertFalse(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: true,
+                liveSessionArmed: true
+            )
+        )
+    }
+
     func testAfterDeskSpeakResumesCaptureWhenSocketOpen() {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
@@ -84,12 +170,21 @@ final class ListenResumePolicyTests: XCTestCase {
                 liveSessionArmed: true
             )
         )
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: false,
+                audioStarted: true
+            ),
+            "audio.start / warmUp is live unless they tapped stop"
+        )
         XCTAssertFalse(
             ListenResumePolicy.sessionShouldStayLive(
                 userWantsVoiceOff: false,
-                liveSessionArmed: false
+                liveSessionArmed: false,
+                audioStarted: false
             ),
-            "warmup / never tapped must not reconnect a 1000"
+            "never opened audio and never tapped must not reconnect a 1000"
         )
         XCTAssertFalse(
             ListenResumePolicy.sessionShouldStayLive(

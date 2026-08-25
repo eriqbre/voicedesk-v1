@@ -4,26 +4,43 @@ import XCTest
 final class EchoTranscriptGateTests: XCTestCase {
     private var spokenVersion: String { BuildIdentity.fixture.spokenLine }
 
-    func testDropsAllUserTranscriptsWhileSpeaking() {
+    func testDropsLeftoverEchoOfDeskTTSNotRealAsks() {
         var gate = EchoTranscriptGate()
         gate.beginSpeaking(spokenVersion)
         XCTAssertTrue(gate.isSpeaking)
 
-        for leftover in ["zero", "point one", "what's on my calendar", "latest email from Lauren"] {
+        for leftover in ["zero", "point one", "build 6"] {
             let decision = gate.decide(leftover, context: VoiceRegressionDesk.connected)
             XCTAssertEqual(decision.intent, "dropped", leftover)
             XCTAssertNil(decision.plan, leftover)
             XCTAssertNil(gate.acceptUserTranscript(leftover), leftover)
         }
+        XCTAssertEqual(
+            gate.decide("what's on my calendar", context: VoiceRegressionDesk.connected).intent,
+            "calendar"
+        )
+        XCTAssertNotEqual(
+            gate.decide("latest email from Lauren", context: VoiceRegressionDesk.greenacreFirst).intent,
+            "dropped"
+        )
     }
 
-    func testVoiceStateSpeakingDropsEvenIfFlagCleared() {
+    func testGrokSpeakingEmptyLastSpokenDoesNotDropRealAsk() {
         let gate = EchoTranscriptGate()
         XCTAssertFalse(gate.isSpeaking)
-        let decision = gate.decide("zero", voiceState: .speaking)
-        XCTAssertEqual(decision.intent, "dropped")
-        XCTAssertNil(decision.plan)
-        XCTAssertNil(gate.acceptUserTranscript("reservation", voiceState: .speaking))
+        XCTAssertTrue(gate.lastSpokenLine.isEmpty)
+        XCTAssertEqual(
+            gate.acceptUserTranscript("show my latest emails", voiceState: .speaking),
+            "show my latest emails"
+        )
+        XCTAssertEqual(
+            gate.decide("show my latest emails", voiceState: .speaking, context: VoiceRegressionDesk.connected).intent,
+            "inbox-overview"
+        )
+        XCTAssertEqual(
+            gate.acceptUserTranscript("reservation", voiceState: .speaking),
+            "reservation"
+        )
     }
 
     func testAfterVersionLineEchoFragmentsHaveDroppedIntentAndNoDeskPlan() {

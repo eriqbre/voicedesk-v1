@@ -1,8 +1,8 @@
 import Foundation
 
-/// Ingress policy for live Grok events. The drop runs **before** any
-/// `response.cancel` / stop-speaking path. A dropped transcript never
-/// becomes a Grok user turn and never stops Eve.
+/// One leftover-only policy, any ingress (Grok socket or AppModel live
+/// transcript / FakeLive emit). Drop leftover of on-device desk TTS.
+/// Never drop because Grok is speaking or `lastSpokenLine` is empty.
 public enum EchoBargeIn: Sendable {
     /// Whether this event may cancel in-flight Eve audio.
     public static func shouldCancelSpeak(

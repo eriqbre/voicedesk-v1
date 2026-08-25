@@ -29,7 +29,6 @@ final class EchoSpeakWalkTests: XCTestCase {
             "build", "built",
             "zero", "oh", "0",
             "one", "1",
-            "two", "2",
         ]
         for synonym in synonyms {
             XCTAssertEqual(
@@ -50,6 +49,10 @@ final class EchoSpeakWalkTests: XCTestCase {
                 synonym
             )
         }
+        XCTAssertNotNil(
+            EchoBargeIn.acceptedUserTranscript("two", gate: gate, voiceState: .speaking),
+            "2 / two is not leftover of point 1 build 6"
+        )
         gate.finishSpeaking()
         XCTAssertEqual(gate.decide("voice").intent, "dropped")
         XCTAssertEqual(gate.decide("point").intent, "dropped")

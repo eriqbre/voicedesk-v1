@@ -51,7 +51,8 @@ final class AppModel {
     private var lastSearchAsk: String?
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
-    /// Drop Eve's own TTS leftovers. Never mutes the mic.
+    /// Leftover of on-device desk TTS only. Same EchoBargeIn policy as
+    /// GrokVoiceService. FakeLive / sim emit hits this ingress, not the socket.
     private var echoGate = EchoTranscriptGate()
     /// ASR early-final of a lone “what’s” / “what” — hold, don’t send to Grok.
     private var earlyFinal = EarlyFinalHold()
@@ -169,11 +170,6 @@ final class AppModel {
     }
 
     func voiceBecame(_ state: VoiceState) {
-        if state == .speaking {
-            echoGate.markSpeaking()
-        } else {
-            echoGate.finishSpeaking()
-        }
         voiceListeningVisual = state == .listening
         guard state == .idle, waitingToOfferConnectAfterTalk else { return }
         waitingToOfferConnectAfterTalk = false
@@ -197,7 +193,6 @@ final class AppModel {
         case .listening, .speaking, .thinking:
             VoiceEarcon.listenEnded()
             voiceListeningVisual = false
-            echoGate.cancelSpeaking()
             earlyFinal.reset()
             voice.cancel()
             liveAssistantID = nil
@@ -273,35 +268,33 @@ final class AppModel {
         }
     }
 
-    func connectGoogle() {
-        Task {
-            await google.connect()
-            refreshGoogleCards()
-            if google.setupNeeded || !google.isConnected {
-                let copy = google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy
-                activity.append(
-                    ActivityEntry(
-                        title: "Google connect",
-                        detail: "Gmail, Calendar, Tasks",
-                        outcome: google.setupNeeded ? "Setup required. Not connected." : (google.snapshot.message ?? "Failed. Not connected.")
-                    )
-                )
-                appendAssistant(copy)
-                return
-            }
-            await syncDesk()
+    func connectGoogle() async {
+        await google.connect()
+        refreshGoogleCards()
+        if google.setupNeeded || !google.isConnected {
+            let copy = google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy
             activity.append(
                 ActivityEntry(
                     title: "Google connect",
-                    detail: google.snapshot.email ?? "Gmail, Calendar, Tasks",
-                    outcome: "Connected. Last-synced reads are cached offline."
+                    detail: "Gmail, Calendar, Tasks",
+                    outcome: google.setupNeeded ? "Setup required. Not connected." : (google.snapshot.message ?? "Failed. Not connected.")
                 )
             )
-            appendAssistant(
-                "Google is connected as \(google.snapshot.email ?? "your account"). Ask what’s in your inbox — I’ll only show synced mail."
-            )
-            await voice.speak("Google is connected.")
+            appendAssistant(copy)
+            return
         }
+        await syncDesk()
+        activity.append(
+            ActivityEntry(
+                title: "Google connect",
+                detail: google.snapshot.email ?? "Gmail, Calendar, Tasks",
+                outcome: "Connected. Last-synced reads are cached offline."
+            )
+        )
+        appendAssistant(
+            "Google is connected as \(google.snapshot.email ?? "your account"). Ask what’s in your inbox — I’ll only show synced mail."
+        )
+        await voice.speak("Google is connected.")
     }
 
     func disconnectGoogle() {
@@ -352,9 +345,9 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            // Drop before barge-in / Grok / desk routing. GrokVoiceService
-            // already applied the same gate on speech_started.
-            if echoGate.acceptUserTranscript(event.text, voiceState: voice.state) == nil {
+            // One policy, any ingress: leftover of lastSpokenLine only.
+            // Never drop because Grok is speaking or lastSpokenLine is empty.
+            if EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate) == nil {
                 return
             }
             if !event.isFinal {
@@ -1062,9 +1055,7 @@ final class AppModel {
         lastSpokenDeskReply = spoken
         echoGate.beginSpeaking(spoken)
         await voice.speak(spoken)
-        if voice.state != .speaking {
-            echoGate.finishSpeaking()
-        }
+        echoGate.finishSpeaking()
     }
 
     private func rememberUserTurn(_ text: String, source: String) {

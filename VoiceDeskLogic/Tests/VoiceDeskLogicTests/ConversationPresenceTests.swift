@@ -524,6 +524,18 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse((evidence?.text ?? "").contains("Greenacre"))
     }
 
+    func testMurraySeveralInCacheAsksWhichOne() {
+        let ask = "Give me a summary of Murray's last email."
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: DeskContext(isConnected: true, snapshot: VoiceRegressionDesk.murraySeveralSnapshot)
+        )
+        XCTAssertEqual(evidence?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertEqual(evidence?.cards.filter { $0.kind == .email }.count, 3)
+        XCTAssertTrue(evidence?.awaitsSearchClarify == true)
+        XCTAssertNil(evidence?.focusedEmail, "must not silently attach newest Murray")
+    }
+
     func testNamedMurrayMissDoesNotSubstituteGreenacre() {
         let ask = "Give me a summary of Murray's last email."
         let evidence = ConversationPresence.deskEvidence(

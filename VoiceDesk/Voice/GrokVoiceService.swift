@@ -32,11 +32,9 @@ final class GrokVoiceService: VoiceServicing {
     private var userWantsVoiceOff = false
     private var dropAssistantTranscript = false
     private var dropAssistantAudio = false
-    private var verbatim = VerbatimSpeakGate()
     /// Same leftover-echo families as AppModel. Lives here so `speech_started`
     /// can drop before `interruptAssistant` — AppModel never sees the cancel.
     private var echoGate = EchoTranscriptGate()
-    private var restoreAudioSuppressAfterVerbatim = false
     private var instructions = GrokRealtime.presenceInstructions
     /// In-flight `connectAndConfigure` so warmup and first tap share one handshake.
     private var connectingTask: Task<Void, Error>?
@@ -45,9 +43,6 @@ final class GrokVoiceService: VoiceServicing {
     /// First Tap to talk armed this live loop. Cleared only on user stop.
     /// Independent of VoiceSession flipping idle after TTS / timeout.
     private var liveSessionArmed = false
-    /// Set when a local desk / verbatim line starts. Cleared after playback
-    /// drains (or immediately when there is no audio left to play).
-    private var pendingListenAfterDeskSpeak = false
 
     var state: VoiceState { session.state }
 
@@ -62,9 +57,6 @@ final class GrokVoiceService: VoiceServicing {
             self.audio.playPCM16(pcm)
             return true
         }
-        audio.onPlaybackDrained = { [weak self] in
-            self?.armListenAfterPlaybackDrained()
-        }
     }
 
     func warmUp() async {
@@ -72,6 +64,7 @@ final class GrokVoiceService: VoiceServicing {
         isTearingDown = false
         let granted = await AVAudioApplication.requestRecordPermission()
         guard granted else { return }
+        liveSessionArmed = true
         do {
             try await ensureReadyForFirstListen()
         } catch {
@@ -113,34 +106,10 @@ final class GrokVoiceService: VoiceServicing {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         echoGate.beginSpeaking(trimmed)
-        if GrokRealtime.shouldSpeakViaRealtime(
-            usesLiveLoop: usesLiveLoop,
-            isConnected: client.isConnected,
-            userWantsVoiceOff: userWantsVoiceOff
-        ) {
-            speakVerbatimViaGrok(trimmed)
-            return
-        }
-        ClientVoiceSpeech.shared.speak(trimmed)
+        apply(.speakStarted)
+        await ClientVoiceSpeech.shared.speak(trimmed)
         echoGate.finishSpeaking()
-        pendingListenAfterDeskSpeak = false
         armListenIfSessionLive(reason: "client tts")
-    }
-
-    /// Eve reads the already-written local desk reply. Never mute this path —
-    /// only leftover Grok handoff audio stays dropped until this response starts.
-    private func speakVerbatimViaGrok(_ text: String) {
-        ClientVoiceSpeech.shared.stop()
-        pendingListenAfterDeskSpeak = true
-        verbatim.begin()
-        restoreAudioSuppressAfterVerbatim = dropAssistantAudio || dropAssistantTranscript
-        // Keep leftover Grok handoff muted until THIS verbatim response.created.
-        dropAssistantAudio = true
-        dropAssistantTranscript = true
-        interruptAssistant(sendCancel: true)
-        client.sendJSON(GrokRealtime.verbatimSpeakSessionUpdateObject(voice: voiceID, text: text))
-        client.sendJSON(GrokRealtime.textItemObject(GrokRealtime.verbatimSpeakUserText(text: text)))
-        client.sendJSON(GrokRealtime.responseCreateObject())
     }
 
     func sendTextTurn(_ text: String) async {
@@ -166,21 +135,11 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {
-        // claimLocalAssistantReply() calls this on every desk turn. Do not
-        // cancel an in-flight Eve SPEAK_VERBATIM — leftover Grok handoff
-        // is already muted, and response.cancel here kills the digest.
-        if verbatim.isSpeaking { return }
         interruptAssistant(sendCancel: true)
     }
 
     func suppressAssistantOutput(_ suppress: Bool) {
         if suppress {
-            // Claim/mute Grok handoff only. An in-flight Eve digest must keep speaking.
-            if verbatim.isSpeaking {
-                dropAssistantTranscript = true
-                dropAssistantAudio = verbatim.awaitingCreated
-                return
-            }
             dropAssistantTranscript = true
             dropAssistantAudio = true
             interruptAssistant(sendCancel: true)
@@ -193,7 +152,6 @@ final class GrokVoiceService: VoiceServicing {
     func cancel() {
         userWantsVoiceOff = true
         liveSessionArmed = false
-        pendingListenAfterDeskSpeak = false
         echoGate.cancelSpeaking()
         teardown(sendCancel: true)
     }
@@ -287,6 +245,9 @@ final class GrokVoiceService: VoiceServicing {
         let logs = audio.start(echoCancellation: true) { base64 in
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
         }
+        if audio.isRunning {
+            liveSessionArmed = true
+        }
         logListenResume(
             note: "audio.start \(logs.joined(separator: "; ")) running=\(audio.isRunning)",
             errors: audio.isRunning ? [] : logs
@@ -307,15 +268,12 @@ final class GrokVoiceService: VoiceServicing {
         )
     }
 
-    /// After a completed desk speak (or a socket recover mid-session): keep
-    /// hearing. Resume capture if the socket is up; reconnect without a new
-    /// first-tap if it closed and the user did not tap stop.
+    /// After on-device desk TTS (or a socket recover): keep hearing.
+    /// Do not send a session.update — desk speak never left listen mode.
+    /// Resume the mic tap if AVSpeech left it silent; reconnect if the
+    /// socket dropped and the user did not tap stop.
     private func armListenIfSessionLive(reason: String) {
         guard !userWantsVoiceOff, !isTearingDown else { return }
-        if verbatim.isSpeaking {
-            logListenResume(note: "after \(reason): skip, verbatim still speaking")
-            return
-        }
         echoGate.finishSpeaking()
         ListenResumePolicy.applySessionAfterDeskSpeak(&session)
         eventHandler?(.state(session.state))
@@ -332,11 +290,9 @@ final class GrokVoiceService: VoiceServicing {
             return
         case .keepListening, .resumeCapture:
             reconnectsUsed = 0
-            sendListenResumeSessionUpdate()
             resumeCaptureAfterDeskSpeak()
         case .reconnect:
             guard !isRecovering else {
-                sendListenResumeSessionUpdate()
                 resumeCaptureAfterDeskSpeak()
                 return
             }
@@ -344,19 +300,11 @@ final class GrokVoiceService: VoiceServicing {
         }
     }
 
-    /// `response.done` is early. Walks 1–2 went deaf after the spoken calendar
-    /// line finished in the speaker — re-arm the tap once playback drains.
-    private func armListenAfterPlaybackDrained() {
-        guard pendingListenAfterDeskSpeak else { return }
-        if verbatim.isSpeaking { return }
-        pendingListenAfterDeskSpeak = false
-        armListenIfSessionLive(reason: "playback drained")
-    }
-
     private var sessionShouldStayLive: Bool {
         ListenResumePolicy.sessionShouldStayLive(
             userWantsVoiceOff: userWantsVoiceOff,
-            liveSessionArmed: liveSessionArmed
+            liveSessionArmed: liveSessionArmed,
+            audioStarted: audio.isRunning || didConnectThisLaunch
         )
     }
 
@@ -376,10 +324,7 @@ final class GrokVoiceService: VoiceServicing {
             gate: echoGate,
             voiceState: session.state
         ) else { return }
-        if verbatim.isSpeaking {
-            verbatim.cancel()
-            echoGate.cancelSpeaking()
-        }
+        echoGate.cancelSpeaking()
         interruptAssistant(sendCancel: true)
     }
 
@@ -449,6 +394,7 @@ final class GrokVoiceService: VoiceServicing {
             }
             reconnectsUsed = 0
             eventHandler?(.recovered)
+            sendListenResumeSessionUpdate()
             armListenIfSessionLive(reason: "socket recover")
             isRecovering = false
         } catch {
@@ -546,17 +492,16 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             // "voice" / "point" / "build" must not stop the version line.
             guard EchoBargeIn.acceptedUserTranscript(
                 trimmed,
-                gate: echoGate,
-                voiceState: session.state
-            ) != nil else { break }
+                gate: echoGate
+            ) != nil else {
+                logListenResume(note: "\(ListenResumeLog.droppedTranscriptNote) leftover-echo")
+                break
+            }
             applyBargeInIfNeeded(event: .userTranscript(text: trimmed, itemID: itemID))
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
             currentResponseID = id
             assistantGate.reset()
-            if verbatim.created(id) {
-                dropAssistantAudio = false
-            }
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
             guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
@@ -571,21 +516,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             }
         case .outputAudioDone:
             break
-        case .responseDone(let doneID):
-            if verbatim.shouldIgnoreDone(eventID: doneID, currentID: currentResponseID) {
-                break
-            }
+        case .responseDone:
             apply(.turnFinished)
-            let finishedID = currentResponseID
             currentResponseID = nil
             audioDeltaCount = 0
             assistantGate.reset()
-            if verbatim.finishDone(eventID: doneID, currentID: finishedID) {
-                dropAssistantAudio = restoreAudioSuppressAfterVerbatim
-                dropAssistantTranscript = restoreAudioSuppressAfterVerbatim
-                armListenIfSessionLive(reason: "desk speak")
-                break
-            }
             eventHandler?(.assistantTranscript("", isFinal: true))
         case .ping(let timestamp):
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))
