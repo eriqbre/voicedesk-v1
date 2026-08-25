@@ -35,6 +35,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             XCTAssertFalse(walk.cardsAttached, "identity stays cards-only: \(ask)")
             XCTAssertTrue(walk.spokenLineCompleted, ask)
             XCTAssertFalse(walk.usesGrokVerbatim, ask)
+            XCTAssertFalse(walk.listenArmedDuringTTS, "listen waits for client TTS done: \(ask)")
             XCTAssertTrue(walk.listenArmedAfterSpeak, ask)
             XCTAssertTrue(walk.close1000StayLive, ask)
             XCTAssertEqual(walk.close1000Decision, .reconnect, ask)
@@ -49,6 +50,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             XCTAssertFalse(walk.cardsAttached, ask)
             XCTAssertTrue(walk.spokenLineCompleted, ask)
             XCTAssertFalse(walk.usesGrokVerbatim, ask)
+            XCTAssertFalse(walk.listenArmedDuringTTS, "listen waits for client TTS done: \(ask)")
             XCTAssertTrue(walk.listenArmedAfterSpeak, ask)
             XCTAssertEqual(walk.close1000Decision, .reconnect, ask)
         }
@@ -59,6 +61,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             ask: "what version are we on",
             userWantsVoiceOff: true
         )
+        XCTAssertFalse(walk.listenArmedDuringTTS)
         XCTAssertFalse(walk.listenArmedAfterSpeak)
         XCTAssertFalse(walk.close1000StayLive)
         XCTAssertEqual(walk.close1000Decision, .stayIdle)
@@ -74,6 +77,9 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
                 snapshot: snapshot
             )
             XCTAssertEqual(walk.spokenIntent, "version", glance)
+            XCTAssertFalse(walk.listenArmedDuringTTS, glance)
+            XCTAssertTrue(walk.listenArmedAfterSpeak, glance)
+            XCTAssertEqual(walk.close1000Decision, .reconnect, glance)
             XCTAssertEqual(walk.glanceIntent, "inbox-overview", glance)
             XCTAssertFalse(walk.glanceWaitsOnGmailList, glance)
             XCTAssertFalse(walk.glanceWaitsOnModel, glance)
@@ -93,12 +99,24 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             XCTAssertFalse(replay.onScreen.contains("Massimo"), ask)
             XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
 
+            let during = DeskSpeakListenResume.whileClientTTSSpeaking(
+                ask: ask,
+                spokenLine: replay.reply,
+                nextAsk: "Tell me about my emails.",
+                context: desk
+            )
+            XCTAssertFalse(during.ttsFinished, ask)
+            XCTAssertFalse(during.listenArmed, "listen waits for client TTS done: \(ask)")
+            XCTAssertFalse(during.captureArmed, ask)
+            XCTAssertEqual(during.voiceState, .speaking, ask)
+
             let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
                 ask: ask,
                 spokenLine: replay.reply,
                 nextAsk: "Tell me about my emails.",
                 context: desk
             )
+            XCTAssertTrue(walk.ttsFinished, ask)
             XCTAssertTrue(walk.listenArmed, ask)
             XCTAssertTrue(walk.captureArmed, ask)
             XCTAssertEqual(walk.decision, .resumeCapture, ask)
@@ -135,8 +153,11 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
 
     func testGrokVoiceServiceSpeaksDeskLinesOnDeviceNotViaGrokVerbatim() throws {
         let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertTrue(source.contains("ClientVoiceSpeech.shared.speak"), source)
+        XCTAssertTrue(source.contains("await ClientVoiceSpeech.shared.speak"), source)
         XCTAssertFalse(source.contains("speakVerbatimViaGrok"), source)
+        let tts = try XCTUnwrap(repoFile("VoiceDesk/Voice/ClientVoiceSpeech.swift"))
+        XCTAssertTrue(tts.contains("didFinish"), tts)
+        XCTAssertTrue(tts.contains("didCancel"), tts)
         XCTAssertFalse(source.contains("verbatimSpeakSessionUpdateObject"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"desk speak\")"), source)
         XCTAssertFalse(source.contains("shouldSpeakViaRealtime"), source)

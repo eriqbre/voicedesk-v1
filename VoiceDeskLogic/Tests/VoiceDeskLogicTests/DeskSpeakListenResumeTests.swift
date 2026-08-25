@@ -74,6 +74,32 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         VoiceRegressionDesk.connected
     }
 
+    func testListenStaysUnarmedUntilClientTTSReportsDone() {
+        let during = DeskSpeakListenResume.whileClientTTSSpeaking(
+            ask: "What's on my calendar for the week?",
+            spokenLine: "Massimo’s on Thursday.",
+            nextAsk: "Tell me about my emails.",
+            context: connected
+        )
+        XCTAssertFalse(during.ttsFinished)
+        XCTAssertFalse(during.listenArmed)
+        XCTAssertFalse(during.captureArmed)
+        XCTAssertEqual(during.voiceState, .speaking)
+        XCTAssertFalse(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: during.ttsFinished))
+
+        let after = DeskSpeakListenResume.afterCompletedDeskSpeak(
+            ask: "What's on my calendar for the week?",
+            spokenLine: "Massimo’s on Thursday.",
+            nextAsk: "Tell me about my emails.",
+            context: connected
+        )
+        XCTAssertTrue(after.ttsFinished)
+        XCTAssertTrue(after.listenArmed)
+        XCTAssertTrue(after.captureArmed)
+        XCTAssertEqual(after.decision, .resumeCapture)
+        XCTAssertTrue(after.nextAccepted)
+    }
+
     func testInboxOverviewSpeakLeavesListenArmedForNextAsk() {
         for ask in Self.inboxOverviewFamily {
             let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(

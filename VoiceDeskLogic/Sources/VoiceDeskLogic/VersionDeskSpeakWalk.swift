@@ -7,6 +7,7 @@ public struct VersionDeskSpeakWalk: Equatable, Sendable {
     public var cardsAttached: Bool
     public var spokenLineCompleted: Bool
     public var usesGrokVerbatim: Bool
+    public var listenArmedDuringTTS: Bool
     public var listenArmedAfterSpeak: Bool
     public var close1000StayLive: Bool
     public var close1000Decision: ListenResumeDecision
@@ -19,6 +20,7 @@ public struct VersionDeskSpeakWalk: Equatable, Sendable {
         cardsAttached: Bool,
         spokenLineCompleted: Bool,
         usesGrokVerbatim: Bool,
+        listenArmedDuringTTS: Bool,
         listenArmedAfterSpeak: Bool,
         close1000StayLive: Bool,
         close1000Decision: ListenResumeDecision,
@@ -30,6 +32,7 @@ public struct VersionDeskSpeakWalk: Equatable, Sendable {
         self.cardsAttached = cardsAttached
         self.spokenLineCompleted = spokenLineCompleted
         self.usesGrokVerbatim = usesGrokVerbatim
+        self.listenArmedDuringTTS = listenArmedDuringTTS
         self.listenArmedAfterSpeak = listenArmedAfterSpeak
         self.close1000StayLive = close1000StayLive
         self.close1000Decision = close1000Decision
@@ -65,6 +68,13 @@ public struct VersionDeskSpeakWalk: Equatable, Sendable {
                 barged = true
             }
         }
+        let during = DeskSpeakListenResume.whileClientTTSSpeaking(
+            ask: uttered,
+            spokenLine: spokenLine,
+            nextAsk: glanceAsk,
+            context: VoiceRegressionDesk.connected,
+            userWantsVoiceOff: userWantsVoiceOff
+        )
         gate.finishSpeaking()
 
         let after = DeskSpeakListenResume.afterCompletedDeskSpeak(
@@ -91,6 +101,7 @@ public struct VersionDeskSpeakWalk: Equatable, Sendable {
             cardsAttached: !replay.cardLabels.isEmpty,
             spokenLineCompleted: !barged && !spokenLine.isEmpty,
             usesGrokVerbatim: ListenResumePolicy.deskSpeakUsesGrokVerbatim(),
+            listenArmedDuringTTS: during.listenArmed,
             listenArmedAfterSpeak: after.listenArmed && after.captureArmed,
             close1000StayLive: stayLive,
             close1000Decision: close,

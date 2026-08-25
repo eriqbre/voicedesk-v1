@@ -105,7 +105,8 @@ final class GrokVoiceService: VoiceServicing {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         echoGate.beginSpeaking(trimmed)
-        ClientVoiceSpeech.shared.speak(trimmed)
+        apply(.speakStarted)
+        await ClientVoiceSpeech.shared.speak(trimmed)
         echoGate.finishSpeaking()
         armListenIfSessionLive(reason: "client tts")
     }

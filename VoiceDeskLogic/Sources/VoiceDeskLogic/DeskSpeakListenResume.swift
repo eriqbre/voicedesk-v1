@@ -11,6 +11,7 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
     public var nextIntent: String
     public var nextAccepted: Bool
     public var voiceState: VoiceState
+    public var ttsFinished: Bool
 
     public init(
         spokenIntent: String,
@@ -19,7 +20,8 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         decision: ListenResumeDecision,
         nextIntent: String,
         nextAccepted: Bool,
-        voiceState: VoiceState
+        voiceState: VoiceState,
+        ttsFinished: Bool = true
     ) {
         self.spokenIntent = spokenIntent
         self.listenArmed = listenArmed
@@ -28,9 +30,52 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         self.nextIntent = nextIntent
         self.nextAccepted = nextAccepted
         self.voiceState = voiceState
+        self.ttsFinished = ttsFinished
     }
 
-    /// Live session → desk speak → speak completes → listen/capture armed
+    /// Speak started; AVSpeech has not reported didFinish / cancelled.
+    /// Echo window stays open. Listen is not armed yet.
+    public static func whileClientTTSSpeaking(
+        ask: String,
+        spokenLine: String,
+        nextAsk: String,
+        context: DeskContext,
+        socketConnected: Bool = true,
+        captureRunning: Bool = false,
+        userWantsVoiceOff: Bool = false
+    ) -> DeskSpeakListenResume {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        session.apply(.listenFinished)
+        session.apply(.speakStarted)
+
+        var gate = EchoTranscriptGate()
+        gate.beginSpeaking(spokenLine)
+
+        let pending = ListenResumePolicy.afterClientTTS(
+            ttsFinished: false,
+            userWantsVoiceOff: userWantsVoiceOff,
+            socketConnected: socketConnected,
+            captureRunning: captureRunning
+        )
+        let spoken = VoiceTurnReplay.play(utterance: ask, context: context)
+        let next = gate.decide(nextAsk, voiceState: session.state, context: context)
+        let listenArmed = ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false)
+            && ListenResumePolicy.isListenArmed(state: session.state)
+
+        return DeskSpeakListenResume(
+            spokenIntent: spoken.intent,
+            listenArmed: listenArmed,
+            captureArmed: listenArmed && pending.map(ListenResumePolicy.isArmed) == true,
+            decision: pending ?? .stayIdle,
+            nextIntent: next.intent,
+            nextAccepted: !next.isDropped,
+            voiceState: session.state,
+            ttsFinished: false
+        )
+    }
+
+    /// Live session → desk speak → TTS reports done → listen/capture armed
     /// → a later real ask is accepted (not eaten as echo / leftover).
     public static func afterCompletedDeskSpeak(
         ask: String,
@@ -51,11 +96,12 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         gate.finishSpeaking()
         ListenResumePolicy.applySessionAfterDeskSpeak(&session)
 
-        let decision = ListenResumePolicy.afterDeskSpeak(
+        let decision = ListenResumePolicy.afterClientTTS(
+            ttsFinished: true,
             userWantsVoiceOff: userWantsVoiceOff,
             socketConnected: socketConnected,
             captureRunning: captureRunningAfterSpeak
-        )
+        ) ?? .stayIdle
         let spoken = VoiceTurnReplay.play(utterance: ask, context: context)
         let next = gate.decide(nextAsk, voiceState: session.state, context: context)
         let listenArmed = ListenResumePolicy.isListenArmed(state: session.state)

@@ -15,10 +15,11 @@ public enum ListenResumeDecision: Equatable, Sendable {
 /// Desk speak is on-device TTS — it does not go through the socket.
 /// This policy is only “stay in listen / resume the tap / reconnect.”
 public enum ListenResumePolicy: Sendable {
-    /// After Eve starts (or finishes) a local desk line. User did not tap stop.
+    /// After on-device TTS reports didFinish / cancelled. User did not tap stop.
     ///
     /// AVSpeech can leave the engine “running” with a silent tap — do not
     /// trust `captureRunning`. Never wait on Grok `response.done` / drain.
+    /// Never call this while client TTS is still speaking.
     public static func afterDeskSpeak(
         userWantsVoiceOff: Bool,
         socketConnected: Bool,
@@ -28,6 +29,27 @@ public enum ListenResumePolicy: Sendable {
         if userWantsVoiceOff { return .stayIdle }
         if !socketConnected { return .reconnect }
         return .resumeCapture
+    }
+
+    /// Listen rearm waits for AVSpeech didFinish / cancelled — not Grok
+    /// `response.done`. `nil` means TTS is still speaking: do not arm.
+    public static func afterClientTTS(
+        ttsFinished: Bool,
+        userWantsVoiceOff: Bool,
+        socketConnected: Bool,
+        captureRunning: Bool
+    ) -> ListenResumeDecision? {
+        if userWantsVoiceOff { return .stayIdle }
+        guard ttsFinished else { return nil }
+        return afterDeskSpeak(
+            userWantsVoiceOff: userWantsVoiceOff,
+            socketConnected: socketConnected,
+            captureRunning: captureRunning
+        )
+    }
+
+    public static func shouldArmListenAfterClientTTS(ttsFinished: Bool) -> Bool {
+        ttsFinished
     }
 
     /// Desk replies always use on-device TTS. Grok realtime is listen +

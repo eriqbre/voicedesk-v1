@@ -2,6 +2,38 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class ListenResumePolicyTests: XCTestCase {
+    func testListenIsNotArmedUntilClientTTSReportsDone() {
+        XCTAssertFalse(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
+        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: true))
+        XCTAssertNil(
+            ListenResumePolicy.afterClientTTS(
+                ttsFinished: false,
+                userWantsVoiceOff: false,
+                socketConnected: true,
+                captureRunning: false
+            ),
+            "do not rearm listen while AVSpeech is still talking"
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterClientTTS(
+                ttsFinished: true,
+                userWantsVoiceOff: false,
+                socketConnected: true,
+                captureRunning: false
+            ),
+            .resumeCapture
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterClientTTS(
+                ttsFinished: false,
+                userWantsVoiceOff: true,
+                socketConnected: true,
+                captureRunning: false
+            ),
+            .stayIdle
+        )
+    }
+
     func testDeskSpeakUsesClientTTSNotGrokVerbatim() {
         XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
         XCTAssertFalse(ListenResumePolicy.deskSpeakUsesGrokVerbatim())
