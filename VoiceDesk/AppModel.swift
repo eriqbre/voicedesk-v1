@@ -815,7 +815,14 @@ final class AppModel {
 
     private func shouldRefreshDeskSnapshot(for text: String) -> Bool {
         guard google.isConnected, isOnline else { return false }
-        if ConversationPresence.wantsInboxOverview(text) { return true }
+        if ConversationPresence.wantsInboxOverview(text) {
+            return InboxGlanceSpeakPlan.shouldRefreshGmailListBeforeFirstSpeak(
+                ask: text,
+                snapshot: deskSnapshot,
+                isConnected: true,
+                isOnline: true
+            )
+        }
         return ConversationPresence.wantsCalendarAsk(text) && deskSnapshot.events.isEmpty
     }
 
@@ -873,22 +880,24 @@ final class AppModel {
             if case .email(let item) = card { return item }
             return nil
         }
-        let fallback = emails.isEmpty ? evidence.text : InboxGlance.heuristic(emails)
-        let beatID = appendThinkingBeat()
-        let glance: String
-        if emails.isEmpty {
-            glance = fallback
-        } else {
-            glance = await emailSummarizer.glanceInbox(emails)
-        }
-        let spoken = glance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : glance
+        // Cache-hot glance: first audio is the snapshot heuristic. Do not await
+        // xAI’s five-line rewrite or a Gmail list refresh before speak.
+        let plan = InboxGlanceSpeakPlan.fromCachedEmails(emails, fallbackText: evidence.text)
+        let spoken = plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? evidence.text
+            : plan.spokenText
         // Cards are the list. Speak the glance; don’t reprint Name — topic lines in the bubble.
         let onScreen = emails.isEmpty
             ? spoken
             : InboxGlance.onScreenText(compactCardCount: emails.count)
-        replaceAssistant(id: beatID, text: onScreen, cards: evidence.cards)
+        appendAssistant(onScreen, cards: evidence.cards)
         await speakDeskReply(spoken)
-        logVoiceTurn(evidence: evidence, reply: spoken, cards: evidence.cards)
+        logVoiceTurn(
+            evidence: evidence,
+            reply: spoken,
+            cards: evidence.cards,
+            notes: plan.voiceLogNotes
+        )
     }
 
     @discardableResult
