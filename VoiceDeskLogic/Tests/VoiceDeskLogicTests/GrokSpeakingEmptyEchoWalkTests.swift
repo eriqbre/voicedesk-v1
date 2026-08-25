@@ -69,6 +69,35 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
         }
     }
 
+    func testLiveIngressAfterVersionSpeakDropsLeftoverAndKeepsLatestEmails() {
+        var gate = EchoTranscriptGate()
+        gate.beginSpeaking(BuildIdentity.fixture.spokenLine)
+        gate.finishSpeaking()
+        for leftover in ["zero", "point one", "build 6"] {
+            XCTAssertNil(
+                EchoBargeIn.acceptedUserTranscript(leftover, gate: gate),
+                leftover
+            )
+        }
+        XCTAssertEqual(
+            EchoBargeIn.acceptedUserTranscript(
+                "show my latest emails",
+                gate: gate,
+                voiceState: .speaking
+            ),
+            "show my latest emails"
+        )
+        let empty = EchoTranscriptGate()
+        XCTAssertEqual(
+            EchoBargeIn.acceptedUserTranscript(
+                "show my latest emails",
+                gate: empty,
+                voiceState: .speaking
+            ),
+            "show my latest emails"
+        )
+    }
+
     func testOnDeviceDeskTTSLeftoverStillDrops() {
         var gate = EchoTranscriptGate()
         gate.beginSpeaking("Murray Mitchell — Closing / notarization.")
@@ -113,10 +142,11 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
         XCTAssertTrue(source.contains("leftover-echo"))
         XCTAssertTrue(source.contains("liveSessionArmed = true"))
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        XCTAssertFalse(app.contains("echoGate"), "AppModel must not keep a second echo gate")
-        XCTAssertFalse(app.contains("acceptUserTranscript"), "one gate: GrokVoiceService already applied EchoBargeIn")
-        XCTAssertFalse(app.contains("isLeftoverEcho"), "one gate: do not re-drop in AppModel")
+        XCTAssertTrue(app.contains("EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate)"), app)
+        XCTAssertTrue(app.contains("echoGate.beginSpeaking(spoken)"), app)
         XCTAssertFalse(app.contains("markSpeaking"))
+        XCTAssertFalse(app.contains("voiceState: voice.state"), "Grok speaking must not drop")
+        XCTAssertFalse(app.contains("lastSpokenLine.isEmpty { return nil }"))
         let gate = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/EchoTranscriptGate.swift"))
         XCTAssertFalse(gate.contains("func markSpeaking"))
         XCTAssertFalse(gate.contains("lastSpokenLine.isEmpty { return nil }"))

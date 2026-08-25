@@ -492,8 +492,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             // "voice" / "point" / "build" must not stop the version line.
             guard EchoBargeIn.acceptedUserTranscript(
                 trimmed,
-                gate: echoGate,
-                voiceState: session.state
+                gate: echoGate
             ) != nil else {
                 logListenResume(note: "\(ListenResumeLog.droppedTranscriptNote) leftover-echo")
                 break
