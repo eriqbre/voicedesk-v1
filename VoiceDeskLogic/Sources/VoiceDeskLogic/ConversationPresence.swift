@@ -479,18 +479,7 @@ public enum ConversationPresence {
     }
 
     private static func normalizeClarifyPick(_ raw: String) -> String {
-        var lower = raw.lowercased()
-        lower = lower.replacingOccurrences(of: #"[^\p{L}\p{N}\s]"#, with: " ", options: .regularExpression)
-        let filler: Set<String> = [
-            "um", "uh", "please", "yeah", "yes", "yep", "yup", "sure",
-            "okay", "ok", "alright", "very", "just",
-            "mm", "hmm", "mhm", "huh"
-        ]
-        let words = lower
-            .split { $0.isWhitespace }
-            .map(String.init)
-            .filter { !$0.isEmpty && !filler.contains($0) }
-        return words.joined(separator: " ")
+        spokenWords(raw).joined(separator: " ")
     }
 
     /// Grok refusal or routing meta. Must never stay on the transcript after a local desk fetch.
@@ -571,7 +560,7 @@ public enum ConversationPresence {
             return false
         }
         if wantsFullThread(raw) || wantsEmailFollowUp(raw) || wantsShowEmail(raw)
-            || wantsInbox(raw) || wantsInboxOverview(raw) {
+            || wantsInbox(raw) || wantsInboxOverview(raw) || wantsLastDeskEmail(raw) {
             return true
         }
         // A bare person name is not desk intent. Trivia (“what year did John Wick…”) stays with Grok.
@@ -805,6 +794,20 @@ public enum ConversationPresence {
             return inboxOverviewEvidence(context: context, ask: raw)
         }
 
+        // “Show me the email” / “that email” / “the email” with no name:
+        // last card / focused thread, else newest glance card. Not need-more.
+        if wantsLastDeskEmail(raw),
+           let email = lastDeskEmail(
+                context: context,
+                focusedEmail: focusedEmail,
+                clarifyMatches: clarifyMatches
+           ) {
+            if wantsFullThread(raw) {
+                return threadEvidence(email)
+            }
+            return emailEvidence(email)
+        }
+
         let deskFollow = pendingSearchClarify || pendingSenderRefine || focusedEmail != nil || !clarifyMatches.isEmpty
         if deskFollow, isSenderRejectRefine(raw) {
             return rejectRefineEvidence(
@@ -975,13 +978,17 @@ public enum ConversationPresence {
     /// List / digest of recent mail — not a person or last-thread follow-up.
     ///
     /// Synonym families (named sender still wins):
-    /// - **glance**: what’s in my inbox / latest emails / show me my emails
+    /// - **glance**: tell/show/pull/list + my emails / the emails / my inbox /
+    ///   about my emails / tell me my emails / what’s in my inbox / latest emails
     /// - **today-inbox**: show me all my emails from today / mails from today /
     ///   today’s emails / emails from today / how many emails today
     /// - **sweep**: everything / all of them / all my emails / just show me everything
     public static func wantsInboxOverview(_ raw: String) -> Bool {
         if GmailSearchQuery.hasSenderPattern(raw) { return false }
         if wantsTodayInbox(raw) || wantsInboxCount(raw) || isInboxSweepAsk(raw) {
+            return true
+        }
+        if isInboxCollectionAsk(raw) {
             return true
         }
         let lower = raw.lowercased()
@@ -1003,6 +1010,47 @@ public enum ConversationPresence {
             return true
         }
         return false
+    }
+
+    /// Plural / inbox collection — not singular “the email” (that is last-card).
+    ///
+    /// Verb family: tell / show / pull / list / see / what. Noun family:
+    /// my emails / the emails / my inbox / about my emails. Filler stripped.
+    public static func isInboxCollectionAsk(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, ["weather", "dinner", "calendar", "schedule", "task", "tasks"]) {
+            return false
+        }
+        let words = spokenWords(raw)
+        guard !words.isEmpty else { return false }
+        let collection = words.contains(where: { inboxCollectionNouns.contains($0) })
+        guard collection else { return false }
+        if words.contains("inbox"), contains(lower, ["that inbox"]) {
+            return false
+        }
+        if words.contains(where: { inboxGlanceVerbs.contains($0) }) {
+            return true
+        }
+        if words.contains("my") || words.contains("the") || words.contains("about") {
+            return true
+        }
+        return false
+    }
+
+    /// “Show me the email” / “that email” / “the email” — no named person.
+    /// Last card / focused thread; if nothing is focused, newest glance card.
+    public static func wantsLastDeskEmail(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        if isInboxCollectionAsk(raw) { return false }
+        if wantsTodayInbox(raw) || wantsInboxCount(raw) || isInboxSweepAsk(raw) {
+            return false
+        }
+        let words = spokenWords(raw)
+        let singular = words.contains(where: { lastDeskEmailNouns.contains($0) })
+        let plural = words.contains(where: { inboxCollectionNouns.contains($0) })
+        let demonstrative = words.contains(where: { lastDeskEmailDeterminers.contains($0) })
+        return singular && demonstrative && !plural
     }
 
     /// Today-scoped glance or today-count. Same inbox-overview route.
@@ -1072,6 +1120,39 @@ public enum ConversationPresence {
         "what other emails",
         "what emails do i"
     ]
+
+    private static let inboxGlanceVerbs: Set<String> = [
+        "tell", "show", "pull", "list", "see", "what", "whats",
+        "read", "get", "check", "look"
+    ]
+
+    private static let inboxCollectionNouns: Set<String> = [
+        "emails", "mails", "inbox"
+    ]
+
+    private static let lastDeskEmailNouns: Set<String> = [
+        "email", "mail", "message", "thread", "note"
+    ]
+
+    private static let lastDeskEmailDeterminers: Set<String> = [
+        "the", "that", "this"
+    ]
+
+    private static let spokenFiller: Set<String> = [
+        "um", "uh", "please", "yeah", "yes", "yep", "yup", "sure",
+        "okay", "ok", "alright", "very", "just",
+        "mm", "hmm", "mhm", "huh"
+    ]
+
+    /// Spoken tokens with punctuation and filler stripped. Synonym families
+    /// match these words — never one golden phrase.
+    private static func spokenWords(_ raw: String) -> [String] {
+        raw.lowercased()
+            .replacingOccurrences(of: #"[^\p{L}\p{N}\s]"#, with: " ", options: .regularExpression)
+            .split { $0.isWhitespace }
+            .map(String.init)
+            .filter { !$0.isEmpty && !spokenFiller.contains($0) }
+    }
 
     private static func isShortInboxSweep(_ raw: String) -> Bool {
         var normalized = normalizeClarifyPick(raw)
@@ -1244,13 +1325,11 @@ public enum ConversationPresence {
                 }
             }
         }
-        let lower = raw.lowercased()
         if GmailSearchQuery.hasSenderPattern(raw) {
             return nil
         }
-        if wantsEmailBody(raw),
-           contains(lower, ["that email", "this email", "the email"]) {
-            return emails.first
+        if wantsLastDeskEmail(raw) {
+            return EmailRecency.newest(emails) ?? emails.first
         }
         if wantsEmailBody(raw), emails.count == 1, !wantsInbox(raw) {
             return emails.first
@@ -1272,6 +1351,20 @@ public enum ConversationPresence {
         owner: MailboxOwner? = nil
     ) -> Bool {
         GmailSearchQuery.namedSenderMismatches(focused, ask: raw, owner: owner)
+    }
+
+    /// Focused last card, else newest offered/glance card. Empty desk stays
+    /// need-more (brand hunt after “Who’s it from?”).
+    public static func lastDeskEmail(
+        context: DeskContext,
+        focusedEmail: EmailItem?,
+        clarifyMatches: [EmailItem] = []
+    ) -> EmailItem? {
+        if let focusedEmail { return focusedEmail }
+        if let newestOffered = EmailRecency.newest(clarifyMatches) {
+            return newestOffered
+        }
+        return EmailRecency.newest(context.snapshot.emails) ?? context.snapshot.emails.first
     }
 
     private static func resolveThreadEmail(
