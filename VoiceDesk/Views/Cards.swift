@@ -44,25 +44,35 @@ struct EmailCardView: View {
     @Environment(AppModel.self) private var model
     let item: EmailItem
     @State private var showingEarlier = false
+    /// Visual expand/collapse. Same local @State the old compact tap used so
+    /// SwiftUI animates height in place. Model presentation is persistence.
+    @State private var showsExpanded: Bool?
 
     private var showsFullReader: Bool {
-        item.cardPresentation == .full
+        showsExpanded ?? (item.cardPresentation == .full)
     }
 
     var body: some View {
         Button {
+            withAnimation {
+                showsExpanded = !showsFullReader
+            }
             model.toggleEmailCard(item)
         } label: {
-            if showsFullReader {
-                fullReader
-            } else {
-                compactRow
+            CardChrome {
+                Group {
+                    if showsFullReader {
+                        fullReaderContent
+                    } else {
+                        compactRowContent
+                    }
+                }
+                .transition(.identity)
             }
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(item.cardPresentation.tapIdentifier)
         .accessibilityLabel(showsFullReader ? emailAccessibilityLabel : compactAccessibilityLabel)
-        .accessibilityValue(item.cardPresentation.rawValue)
+        .accessibilityValue(showsFullReader ? EmailCardPresentation.full.rawValue : EmailCardPresentation.compact.rawValue)
         .accessibilityHint(showsFullReader ? "Collapses the email" : "Opens the full email")
         .onAppear { expandEarlierIfRequested() }
         .onChange(of: model.expandEarlierEpoch) { _, _ in
@@ -73,41 +83,38 @@ struct EmailCardView: View {
         }
     }
 
-    private var compactRow: some View {
-        CardChrome {
-            HStack(alignment: .top, spacing: 12) {
-                InitialsMark(initials: item.initials, hue: 0.72)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(item.fromName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Palette.ink)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text(item.sentAtLabel)
-                            .font(.caption)
-                            .foregroundStyle(Palette.muted)
-                    }
-                    Text(item.subject)
-                        .font(.subheadline.weight(.medium))
+    private var compactRowContent: some View {
+        HStack(alignment: .top, spacing: 12) {
+            InitialsMark(initials: item.initials, hue: 0.72)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(item.fromName)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Palette.ink)
                         .lineLimit(1)
-                    Text(item.compactSnippet)
+                    Spacer(minLength: 8)
+                    Text(item.sentAtLabel)
                         .font(.caption)
-                        .foregroundStyle(Palette.ink.opacity(0.75))
-                        .lineLimit(1)
+                        .foregroundStyle(Palette.muted)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Palette.muted)
-                    .padding(.top, 4)
+                Text(item.subject)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(1)
+                Text(item.compactSnippet)
+                    .font(.caption)
+                    .foregroundStyle(Palette.ink.opacity(0.75))
+                    .lineLimit(1)
             }
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.muted)
+                .padding(.top, 4)
         }
     }
 
-    private var fullReader: some View {
-        CardChrome {
-            VStack(alignment: .leading, spacing: 12) {
+    private var fullReaderContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
                     InitialsMark(initials: item.initials, hue: 0.72)
                     VStack(alignment: .leading, spacing: 2) {
@@ -183,7 +190,6 @@ struct EmailCardView: View {
                         .font(.caption)
                         .foregroundStyle(Palette.muted)
                 }
-            }
         }
     }
 
