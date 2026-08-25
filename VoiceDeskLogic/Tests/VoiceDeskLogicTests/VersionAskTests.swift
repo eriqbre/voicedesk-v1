@@ -27,7 +27,7 @@ final class VersionAskTests: XCTestCase {
             XCTAssertFalse(plan.attachesCards, ask)
             XCTAssertEqual(
                 ConversationPresence.spokenIdentityLine(for: ask, identity: .fixture),
-                "VoiceDesk point 1, build 5.",
+                "VoiceDesk point 1, build 6.",
                 ask
             )
 
@@ -144,9 +144,9 @@ final class VersionAskTests: XCTestCase {
         XCTAssertEqual(BuildIdentity.fixture.build, "5")
         XCTAssertEqual(BuildIdentity.fixture.shortSHA, "1fa0a0e")
         XCTAssertEqual(BuildIdentity.fixture.spokenMarketing, "point 1")
-        XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk point 1, build 5.")
+        XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk point 1, build 6.")
         XCTAssertEqual(BuildIdentity.fixture.spokenSHALine, "VoiceDesk 1fa0a0e.")
-        XCTAssertEqual(BuildIdentity.fixture.dogfoodLine, "0.1.0 build 5 sha 1fa0a0e")
+        XCTAssertEqual(BuildIdentity.fixture.dogfoodLine, "0.1.0 build 6 sha 1fa0a0e")
         XCTAssertFalse(BuildIdentity.fixture.spokenLine.contains("0.1.0.1"))
         XCTAssertEqual(
             BuildIdentity(marketing: "1.2.0", build: "8").spokenLine,
@@ -200,7 +200,7 @@ final class VersionAskTests: XCTestCase {
         XCTAssertFalse(replay.shouldSearchGmail)
         XCTAssertTrue(replay.stickyCleared)
         XCTAssertTrue(replay.cardLabels.isEmpty)
-        XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk point 1, build 5.")
+        XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk point 1, build 6.")
         XCTAssertEqual(
             ConversationPresence.spokenIdentityLine(for: "what SHA is this", identity: .fixture),
             "VoiceDesk 1fa0a0e."

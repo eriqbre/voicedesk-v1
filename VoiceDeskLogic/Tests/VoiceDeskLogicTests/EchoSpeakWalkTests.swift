@@ -5,7 +5,7 @@ final class EchoSpeakWalkTests: XCTestCase {
     func testVersionAskCompletesSpokenLineWhenEchoArrivesMidSpeak() {
         let walk = EchoSpeakWalk.versionAskThenMidSpeakEcho()
 
-        XCTAssertEqual(walk.spokenLine, "VoiceDesk point 1, build 5.")
+        XCTAssertEqual(walk.spokenLine, "VoiceDesk point 1, build 6.")
         XCTAssertTrue(walk.completedSpokenLine, "Eve must finish the version sentence")
         XCTAssertFalse(walk.cancelledSpeak, "voice / point / build echo must not barge-in")
 
