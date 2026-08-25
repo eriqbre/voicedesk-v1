@@ -42,7 +42,7 @@ public struct EarlyFinalHold: Equatable, Sendable {
         at now: Date = Date(),
         window: TimeInterval = defaultWindow
     ) -> String? {
-        let trimmed = dropLeadingLeftoverStem(
+        let trimmed = Self.dropLeadingLeftoverStem(
             text.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         guard !trimmed.isEmpty else { return nil }
@@ -63,7 +63,7 @@ public struct EarlyFinalHold: Equatable, Sendable {
                 }
                 heldPrefix = nil
                 self.heldAt = nil
-                return dropLeadingLeftoverStem(combined)
+                return Self.dropLeadingLeftoverStem(combined)
             }
             heldPrefix = trimmed
             heldAt = now
@@ -74,7 +74,7 @@ public struct EarlyFinalHold: Equatable, Sendable {
         heldPrefix = nil
         heldAt = nil
 
-        let combined = dropLeadingLeftoverStem(Self.stitch(held, onto: trimmed))
+        let combined = Self.dropLeadingLeftoverStem(Self.stitch(held, onto: trimmed))
         if Self.isActionableAsk(combined, context: context) {
             return combined
         }
