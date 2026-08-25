@@ -41,6 +41,29 @@ final class LaunchSmokeTests: XCTestCase {
         XCTAssertTrue(coach.waitForExistence(timeout: 5))
     }
 
+    func testTourEmailCardTapExpandsThenCollapses() {
+        XCTAssertTrue(app.buttons["suggestion.tour"].waitForExistence(timeout: 5))
+        app.buttons["suggestion.tour"].tap()
+        waitForCard("card.email")
+
+        let full = app.descendants(matching: .any)["card.email.full"]
+        let compact = app.descendants(matching: .any)["card.email.compact"]
+        XCTAssertTrue(full.waitForExistence(timeout: 8), "tour email starts open")
+        XCTAssertFalse(compact.exists)
+
+        full.tap()
+        XCTAssertTrue(compact.waitForExistence(timeout: 5), "tap open card → compact")
+        XCTAssertFalse(full.exists)
+
+        compact.tap()
+        XCTAssertTrue(full.waitForExistence(timeout: 5), "tap compact → open")
+        XCTAssertFalse(compact.exists)
+
+        full.tap()
+        XCTAssertTrue(compact.waitForExistence(timeout: 5), "tap-expanded then tap-again is compact")
+        XCTAssertFalse(full.exists)
+    }
+
     func testDraftConfirmDoesNotFakeSend() {
         XCTAssertTrue(app.buttons["suggestion.draft"].waitForExistence(timeout: 5))
         app.buttons["suggestion.draft"].tap()

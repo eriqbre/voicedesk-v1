@@ -33,6 +33,37 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .ready)
     }
 
+    func testTappingAlreadyOpenEmailCardCollapsesToCompact() async {
+        let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
+        await model.applyUserTurn(ConversationPresence.deskPreview)
+        let email = model.turns.flatMap(\.cards).compactMap { card -> EmailItem? in
+            if case .email(let item) = card { return item }
+            return nil
+        }.first
+        guard let email else {
+            XCTFail("expected an already-open preview email")
+            return
+        }
+        XCTAssertEqual(email.cardPresentation, .full)
+        XCTAssertFalse(email.isCompactListRow)
+
+        let epoch = model.conversationScrollEpoch
+        let turns = model.turns.count
+        model.toggleEmailCard(email)
+        XCTAssertEqual(emailPresentation(in: model, matching: email), .compact)
+        XCTAssertTrue(emailItem(in: model, matching: email)?.isCompactListRow == true)
+        XCTAssertEqual(model.conversationScrollEpoch, epoch)
+        XCTAssertEqual(model.turns.count, turns)
+
+        model.toggleEmailCard(email)
+        XCTAssertEqual(emailPresentation(in: model, matching: email), .full)
+        XCTAssertFalse(emailItem(in: model, matching: email)?.isCompactListRow == true)
+
+        model.toggleEmailCard(email)
+        XCTAssertEqual(emailPresentation(in: model, matching: email), .compact)
+        XCTAssertEqual(model.turns.count, turns)
+    }
+
     func testTourInsertsRequiredCards() async {
         let model = AppModel(voice: MockVoiceService(label: "test", instant: true))
         await model.applyUserTurn("give me a tour")
@@ -1027,10 +1058,22 @@ final class AppModelTests: XCTestCase {
 
         let epoch = model.conversationScrollEpoch
         let target = model.conversationScrollTarget
+        let spokenCount = fake.spoken.count
+        let turnCount = model.turns.count
         if case .email(let item) = cards.first {
-            model.expandCompactEmail(item)
+            model.toggleEmailCard(item)
             XCTAssertEqual(model.conversationScrollEpoch, epoch, "expand must stay in place")
             XCTAssertEqual(model.conversationScrollTarget, target)
+            XCTAssertEqual(emailPresentation(in: model, matching: item), .full)
+            XCTAssertFalse(emailItem(in: model, matching: item)?.isCompactListRow == true)
+
+            model.toggleEmailCard(item)
+            XCTAssertEqual(model.conversationScrollEpoch, epoch, "collapse must stay in place")
+            XCTAssertEqual(model.conversationScrollTarget, target)
+            XCTAssertEqual(emailPresentation(in: model, matching: item), .compact)
+            XCTAssertTrue(emailItem(in: model, matching: item)?.isCompactListRow == true)
+            XCTAssertEqual(model.turns.count, turnCount, "toggle must not add a bubble")
+            XCTAssertEqual(fake.spoken.count, spokenCount, "toggle must not re-speak the card")
         } else {
             XCTFail("expected compact email to expand")
         }
@@ -1212,6 +1255,20 @@ final class AppModelTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("timed out waiting for voice service")
+    }
+
+    private func emailItem(in model: AppModel, matching item: EmailItem) -> EmailItem? {
+        for card in model.turns.flatMap(\.cards) {
+            if case .email(let existing) = card,
+               existing.id == item.id || (existing.providerID != nil && existing.providerID == item.providerID) {
+                return existing
+            }
+        }
+        return nil
+    }
+
+    private func emailPresentation(in model: AppModel, matching item: EmailItem) -> EmailCardPresentation? {
+        emailItem(in: model, matching: item)?.cardPresentation
     }
 }
 

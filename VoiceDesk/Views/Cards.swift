@@ -42,59 +42,64 @@ struct EmailCardView: View {
     @Environment(AppModel.self) private var model
     let item: EmailItem
     @State private var showingEarlier = false
-    @State private var expandedFromCompact = false
 
     private var showsFullReader: Bool {
-        item.cardPresentation == .full || expandedFromCompact
+        item.cardPresentation == .full
     }
 
     var body: some View {
-        if showsFullReader {
-            fullReader
-        } else {
-            compactRow
+        Button {
+            model.toggleEmailCard(item)
+        } label: {
+            if showsFullReader {
+                fullReader
+            } else {
+                compactRow
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(item.cardPresentation.tapIdentifier)
+        .accessibilityLabel(showsFullReader ? emailAccessibilityLabel : compactAccessibilityLabel)
+        .accessibilityHint(showsFullReader ? "Collapses the email" : "Opens the full email")
+        .onAppear { expandEarlierIfRequested() }
+        .onChange(of: model.expandEarlierEpoch) { _, _ in
+            expandEarlierIfRequested()
+        }
+        .onChange(of: item.earlierMessages.count) { _, _ in
+            expandEarlierIfRequested()
         }
     }
 
     private var compactRow: some View {
-        Button {
-            expandedFromCompact = true
-            model.expandCompactEmail(item)
-        } label: {
-            CardChrome {
-                HStack(alignment: .top, spacing: 12) {
-                    InitialsMark(initials: item.initials, hue: 0.72)
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(item.fromName)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Palette.ink)
-                                .lineLimit(1)
-                            Spacer(minLength: 8)
-                            Text(item.sentAtLabel)
-                                .font(.caption)
-                                .foregroundStyle(Palette.muted)
-                        }
-                        Text(item.subject)
-                            .font(.subheadline.weight(.medium))
+        CardChrome {
+            HStack(alignment: .top, spacing: 12) {
+                InitialsMark(initials: item.initials, hue: 0.72)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(item.fromName)
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Palette.ink)
                             .lineLimit(1)
-                        Text(item.compactSnippet)
+                        Spacer(minLength: 8)
+                        Text(item.sentAtLabel)
                             .font(.caption)
-                            .foregroundStyle(Palette.ink.opacity(0.75))
-                            .lineLimit(1)
+                            .foregroundStyle(Palette.muted)
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.muted)
-                        .padding(.top, 4)
+                    Text(item.subject)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(1)
+                    Text(item.compactSnippet)
+                        .font(.caption)
+                        .foregroundStyle(Palette.ink.opacity(0.75))
+                        .lineLimit(1)
                 }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.muted)
+                    .padding(.top, 4)
             }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("card.email.compact")
-        .accessibilityLabel("Email from \(item.fromName). \(item.subject). \(item.compactSnippet)")
-        .accessibilityHint("Opens the full email")
     }
 
     private var fullReader: some View {
@@ -122,6 +127,7 @@ struct EmailCardView: View {
                     .foregroundStyle(Palette.ink)
                 if item.hasFullBody {
                     EmailBodyReader(html: item.htmlBody, plain: item.body, expandsToFit: true)
+                        .allowsHitTesting(false)
                 } else {
                     Text(item.preview)
                         .font(.subheadline)
@@ -176,22 +182,16 @@ struct EmailCardView: View {
                 }
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(emailAccessibilityLabel)
-        .accessibilityIdentifier("card.email")
-        .onAppear { expandEarlierIfRequested() }
-        .onChange(of: model.expandEarlierEpoch) { _, _ in
-            expandEarlierIfRequested()
-        }
-        .onChange(of: item.earlierMessages.count) { _, _ in
-            expandEarlierIfRequested()
-        }
     }
 
     private func expandEarlierIfRequested() {
         if model.expandsEarlierMessages(item), item.hasEarlierMessages {
             showingEarlier = true
         }
+    }
+
+    private var compactAccessibilityLabel: String {
+        "Email from \(item.fromName). \(item.subject). \(item.compactSnippet)"
     }
 
     private var emailAccessibilityLabel: String {

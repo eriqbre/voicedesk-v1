@@ -704,14 +704,14 @@ final class AppModel {
         Task { await revealEmailBody(item) }
     }
 
-    /// Compact inbox row → full Mail reader for that one message. Expand in place.
-    func expandCompactEmail(_ item: EmailItem) {
+    /// Compact ↔ full Mail reader. Same tap. Stay in place. No new bubble.
+    func toggleEmailCard(_ item: EmailItem) {
         lastFocusedEmail = item
         for index in turns.indices {
             for cardIndex in turns[index].cards.indices {
                 if case .email(let existing) = turns[index].cards[cardIndex],
                    existing.id == item.id || (existing.providerID != nil && existing.providerID == item.providerID) {
-                    turns[index].cards[cardIndex] = .email(existing.presented(as: .full))
+                    turns[index].cards[cardIndex] = .email(existing.togglingCardPresentation())
                 }
             }
         }

@@ -137,6 +137,14 @@ public struct EmailThreadMessage: Identifiable, Hashable, Sendable, Codable {
 public enum EmailCardPresentation: String, Hashable, Sendable, Codable {
     case full
     case compact
+
+    /// Button identity for the same tap control. Outer `card.email` stays on the wrapper.
+    public var tapIdentifier: String {
+        switch self {
+        case .full: "card.email.full"
+        case .compact: "card.email.compact"
+        }
+    }
 }
 
 public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
@@ -200,6 +208,11 @@ public struct EmailItem: Identifiable, Hashable, Sendable, Codable {
     }
 
     public var isCompactListRow: Bool { cardPresentation == .compact }
+
+    /// Compact ↔ full. Same tap on the card; no extra chrome.
+    public func togglingCardPresentation() -> EmailItem {
+        presented(as: cardPresentation == .compact ? .full : .compact)
+    }
 
     public var compactSnippet: String {
         let gist = EmailBodyFormatting.spokenSummary(from: body, fallback: preview, style: .brief)
