@@ -611,6 +611,11 @@ public enum ConversationPresence {
            raw.range(of: #"[A-Za-z]{3,}['’]s\b"#, options: .regularExpression) != nil {
             return true
         }
+        // “Show me everything from Murray” — named sender still wins; no “email” word required.
+        if GmailSearchQuery.hasSenderPattern(raw),
+           contains(lower, ["everything", "all of them", "all of", "show me"]) {
+            return true
+        }
         // “The one regarding Fleeman Road” / “regarding Fleeman” — desk topic pick.
         if contains(lower, ["regarding", "dealing with", "the one regarding", "looking for the one"]),
            GmailSearchQuery.plan(from: raw)?.subjectTokens.isEmpty == false {
@@ -794,6 +799,12 @@ public enum ConversationPresence {
             )
         }
 
+        // Inbox / today / everything wins over leftover clarify or sticky.
+        // Named sender is excluded inside wantsInboxOverview.
+        if wantsInboxOverview(raw) {
+            return inboxOverviewEvidence(context: context, ask: raw)
+        }
+
         let deskFollow = pendingSearchClarify || pendingSenderRefine || focusedEmail != nil || !clarifyMatches.isEmpty
         if deskFollow, isSenderRejectRefine(raw) {
             return rejectRefineEvidence(
@@ -855,10 +866,6 @@ public enum ConversationPresence {
                let plan = GmailSearchQuery.plan(from: raw, treatAsBrand: true) {
                 return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
             }
-        }
-
-        if wantsInboxOverview(raw) {
-            return inboxOverviewEvidence(context: context)
         }
 
         if wantsFullThread(raw) {
@@ -956,20 +963,7 @@ public enum ConversationPresence {
     public static func wantsInbox(_ raw: String) -> Bool {
         if wantsInboxOverview(raw) { return true }
         let lower = raw.lowercased()
-        if contains(lower, [
-            "what's in my inbox",
-            "whats in my inbox",
-            "what emails do i have",
-            "what email do i have",
-            "other emails",
-            "emails i have today",
-            "emails today",
-            "show me my emails",
-            "show me my inbox",
-            "show my emails",
-            "what other emails",
-            "what emails do i"
-        ]) {
+        if contains(lower, inboxOverviewPhrases) {
             return true
         }
         if lower.contains("inbox") { return true }
@@ -979,22 +973,19 @@ public enum ConversationPresence {
     }
 
     /// List / digest of recent mail — not a person or last-thread follow-up.
+    ///
+    /// Synonym families (named sender still wins):
+    /// - **glance**: what’s in my inbox / latest emails / show me my emails
+    /// - **today-inbox**: show me all my emails from today / mails from today /
+    ///   today’s emails / emails from today / how many emails today
+    /// - **sweep**: everything / all of them / all my emails / just show me everything
     public static func wantsInboxOverview(_ raw: String) -> Bool {
         if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        if wantsTodayInbox(raw) || wantsInboxCount(raw) || isInboxSweepAsk(raw) {
+            return true
+        }
         let lower = raw.lowercased()
-        if contains(lower, [
-            "what's in my inbox",
-            "whats in my inbox",
-            "what emails do i have",
-            "what email do i have",
-            "other emails",
-            "emails i have today",
-            "emails today",
-            "show me my emails",
-            "show me my inbox",
-            "show my emails",
-            "what other emails"
-        ]) {
+        if contains(lower, inboxOverviewPhrases) {
             return true
         }
         if lower.contains("inbox"), !contains(lower, ["that inbox"]) {
@@ -1004,7 +995,7 @@ public enum ConversationPresence {
             return true
         }
         let recent = contains(lower, ["latest", "recent"])
-        let mail = contains(lower, ["email", "emails", "mail"])
+        let mail = contains(lower, ["email", "emails", "mail", "mails"])
         if recent, mail, contains(lower, ["my"]) {
             return true
         }
@@ -1012,6 +1003,100 @@ public enum ConversationPresence {
             return true
         }
         return false
+    }
+
+    /// Today-scoped glance or today-count. Same inbox-overview route.
+    public static func wantsTodayInbox(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        let mail = contains(lower, ["email", "emails", "mail", "mails", "inbox"])
+        let today = contains(lower, ["today", "today's", "todays"])
+            || contains(lower, ["this morning", "this afternoon", "tonight"])
+        return mail && today
+    }
+
+    /// “How many emails today” — same parse + route as today-inbox; speak a count.
+    public static func wantsInboxCount(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        return contains(lower, ["how many"])
+            && contains(lower, ["email", "emails", "mail", "mails"])
+    }
+
+    /// “Everything” / “all of them” / “all my emails” with no named person.
+    public static func isInboxSweepAsk(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, ["weather", "dinner", "calendar", "schedule", "task", "tasks"]) {
+            return false
+        }
+        if contains(lower, [
+            "all my emails",
+            "all my email",
+            "all my mail",
+            "all my mails",
+            "all the emails",
+            "all the email",
+            "all the mail",
+            "all the mails",
+            "all emails",
+            "all mail"
+        ]) {
+            return true
+        }
+        let sweepPhrase = contains(lower, [
+            "everything",
+            "all of them",
+            "all of it",
+            "all of those",
+            "the whole inbox"
+        ])
+        guard sweepPhrase else { return false }
+        if contains(lower, ["email", "emails", "mail", "mails", "inbox"]) {
+            return true
+        }
+        return isShortInboxSweep(raw)
+    }
+
+    private static let inboxOverviewPhrases = [
+        "what's in my inbox",
+        "whats in my inbox",
+        "what emails do i have",
+        "what email do i have",
+        "other emails",
+        "emails i have today",
+        "emails today",
+        "show me my emails",
+        "show me my inbox",
+        "show my emails",
+        "what other emails",
+        "what emails do i"
+    ]
+
+    private static func isShortInboxSweep(_ raw: String) -> Bool {
+        var normalized = normalizeClarifyPick(raw)
+        for prefix in ["how about ", "what about "] {
+            if normalized.hasPrefix(prefix) {
+                normalized = String(normalized.dropFirst(prefix.count))
+            }
+        }
+        switch normalized {
+        case "everything",
+             "show me everything",
+             "show everything",
+             "all of them",
+             "show me all of them",
+             "show all of them",
+             "all of it",
+             "show me all of it",
+             "show it all",
+             "show me all",
+             "all of those",
+             "the whole inbox":
+            return true
+        default:
+            return false
+        }
     }
 
     public static func isBareInboxList(_ raw: String) -> Bool {
@@ -1433,7 +1518,52 @@ public enum ConversationPresence {
     public static let taskMissReply =
         "No matching open task in the last sync. I’m not inventing one."
 
-    private static func inboxOverviewEvidence(context: DeskContext) -> DeskEvidence {
+    public static func todayCountCopy(_ count: Int) -> String {
+        switch count {
+        case 0:
+            return "No emails from today in the last sync."
+        case 1:
+            return "1 email today."
+        default:
+            return "\(count) emails today."
+        }
+    }
+
+    public static func todayEmptyCopy(hasInbox: Bool) -> String {
+        if hasInbox {
+            return "No emails from today in the last sync."
+        }
+        return "Google is connected, but I don’t have any synced threads yet. I’m not inventing mail."
+    }
+
+    private static func inboxOverviewEvidence(context: DeskContext, ask: String) -> DeskEvidence {
+        let todayOnly = wantsTodayInbox(ask)
+        let countAsk = wantsInboxCount(ask)
+        if context.isConnected, (todayOnly || countAsk) {
+            let pool = todayOnly
+                ? EmailRecency.fromToday(context.snapshot.emails)
+                : context.snapshot.emails
+            let window = Array(pool.prefix(InboxGlance.overviewLimit))
+            let text: String
+            if countAsk {
+                text = pool.isEmpty && !context.snapshot.emails.isEmpty && todayOnly
+                    ? todayEmptyCopy(hasInbox: true)
+                    : todayCountCopy(pool.count)
+            } else if window.isEmpty {
+                text = todayEmptyCopy(hasInbox: !context.snapshot.emails.isEmpty)
+            } else {
+                text = InboxGlance.heuristic(window)
+            }
+            return DeskEvidence(
+                topic: .inbox,
+                text: text,
+                cards: EmailItem.listCards(window),
+                focusedEmail: nil,
+                shouldFetchBody: false,
+                resetsFocusedEmail: true,
+                shouldGlanceInbox: !window.isEmpty
+            )
+        }
         var evidence = inboxEvidence(context: context, followUp: false, resetsFocus: true)
         if context.isConnected, !context.snapshot.emails.isEmpty {
             evidence.shouldGlanceInbox = true

@@ -78,6 +78,8 @@ public enum GmailSearchQuery: Sendable {
         "gave", "got", "asked", "ask", "could", "would", "should",
         "of", "in", "on", "up", "out", "into", "over", "than", "then",
         "most", "recent", "by", "who", "whom",
+        // Sweep / count leftovers. “from today” / “everything” is not a sender.
+        "all", "everything", "many", "morning", "afternoon", "evening", "tonight",
         // Question / auxiliary words. Never a first name before “X’s last email”.
         "when", "was", "were", "how", "why",
         // Conversational filler before “how about X’s latest email”.

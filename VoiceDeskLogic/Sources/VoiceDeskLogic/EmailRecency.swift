@@ -23,6 +23,17 @@ public enum EmailRecency: Sendable {
         }.map(\.element)
     }
 
+    /// View of today's rows. Never mutates the inbox store.
+    public static func fromToday(_ emails: [EmailItem], now: Date = Date()) -> [EmailItem] {
+        emails.filter { isFromToday($0, now: now) }
+    }
+
+    public static func isFromToday(_ email: EmailItem, now: Date = Date()) -> Bool {
+        let calendar = Calendar(identifier: .gregorian)
+        guard let date = parsedDate(from: email.sentAtLabel, now: now) else { return false }
+        return calendar.isDate(date, inSameDayAs: now)
+    }
+
     public static func parsedDate(from label: String, now: Date = Date()) -> Date? {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.lowercased() != "recently" else { return nil }
