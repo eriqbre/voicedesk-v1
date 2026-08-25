@@ -51,8 +51,6 @@ final class AppModel {
     private var lastSearchAsk: String?
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
-    /// Drop Eve's own TTS leftovers. Never mutes the mic.
-    private var echoGate = EchoTranscriptGate()
     /// ASR early-final of a lone “what’s” / “what” — hold, don’t send to Grok.
     private var earlyFinal = EarlyFinalHold()
     private var lastUserUtterance = ""
@@ -169,11 +167,6 @@ final class AppModel {
     }
 
     func voiceBecame(_ state: VoiceState) {
-        if state == .speaking {
-            echoGate.markSpeaking()
-        } else {
-            echoGate.finishSpeaking()
-        }
         voiceListeningVisual = state == .listening
         guard state == .idle, waitingToOfferConnectAfterTalk else { return }
         waitingToOfferConnectAfterTalk = false
@@ -197,7 +190,6 @@ final class AppModel {
         case .listening, .speaking, .thinking:
             VoiceEarcon.listenEnded()
             voiceListeningVisual = false
-            echoGate.cancelSpeaking()
             earlyFinal.reset()
             voice.cancel()
             liveAssistantID = nil
@@ -350,11 +342,7 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            // Drop before barge-in / Grok / desk routing. GrokVoiceService
-            // already applied the same gate on speech_started.
-            if echoGate.acceptUserTranscript(event.text, voiceState: voice.state) == nil {
-                return
-            }
+            // One gate: GrokVoiceService already applied EchoBargeIn.
             if !event.isFinal {
                 if EarlyFinalHold.shouldHold(event.text) {
                     claimLocalAssistantReply()
@@ -1058,11 +1046,7 @@ final class AppModel {
             return
         }
         lastSpokenDeskReply = spoken
-        echoGate.beginSpeaking(spoken)
         await voice.speak(spoken)
-        if voice.state != .speaking {
-            echoGate.finishSpeaking()
-        }
     }
 
     private func rememberUserTurn(_ text: String, source: String) {

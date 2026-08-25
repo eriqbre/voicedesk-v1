@@ -2,10 +2,9 @@ import Foundation
 
 /// Transcript-level echo filter. The microphone stays live.
 ///
-/// While Eve is speaking a desk / verbatim line, incoming user transcripts are
-/// ignored. After she finishes, a leftover ASR fragment that is only an echo of
-/// the last spoken line is still dropped (normalized overlap / contained
-/// fragment, with synonym families). A real ask that merely shares a word stays live.
+/// One job: drop self-hear of on-device desk TTS. That is leftover ASR of
+/// `lastSpokenLine` (synonym families). Grok `.speaking` is not desk TTS.
+/// An empty `lastSpokenLine` never drops a real ask.
 ///
 /// Do **not** mute the mic tap or `beginHalfDuplex`. That stack left
 /// `VoiceSession` stuck in `.speaking`.
@@ -22,13 +21,8 @@ public struct EchoTranscriptGate: Equatable, Sendable {
 
     public mutating func beginSpeaking(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            lastSpokenLine = trimmed
-        }
-        isSpeaking = true
-    }
-
-    public mutating func markSpeaking() {
+        guard !trimmed.isEmpty else { return }
+        lastSpokenLine = trimmed
         isSpeaking = true
     }
 
@@ -42,26 +36,24 @@ public struct EchoTranscriptGate: Equatable, Sendable {
         isSpeaking = false
     }
 
-    /// While Eve is talking — including `voiceState == .speaking` as a second flag.
+    /// On-device desk TTS only (`beginSpeaking` with a real line). Grok
+    /// `voiceState == .speaking` is not desk TTS and never drops a transcript.
     public func shouldIgnoreUserTranscript(voiceState: VoiceState = .listening) -> Bool {
-        isSpeaking || voiceState == .speaking
+        _ = voiceState
+        return isSpeaking && !lastSpokenLine.isEmpty
     }
 
-    /// Returns the trimmed transcript, or `nil` when this is echo and must not
-    /// become a user turn. Echo is dropped **before** barge-in is considered.
+    /// Returns the trimmed transcript, or `nil` when this is leftover echo of
+    /// on-device desk TTS. A real ask always returns. Never drop because
+    /// `lastSpokenLine` is empty or Grok is speaking.
     public func acceptUserTranscript(
         _ text: String,
         voiceState: VoiceState = .listening
     ) -> String? {
+        _ = voiceState
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if isLeftoverEcho(trimmed) { return nil }
-        let speaking = shouldIgnoreUserTranscript(voiceState: voiceState)
-        if speaking {
-            // Short identity / version line: finish the sentence. Do not barge-in.
-            if isProtectedIdentityLine || lastSpokenLine.isEmpty { return nil }
-            return trimmed
-        }
         return trimmed
     }
 

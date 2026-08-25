@@ -68,13 +68,14 @@ public enum ListenResumePolicy: Sendable {
         code == 1000 || code == 1001
     }
 
-    /// Armed on first Tap to talk. Cleared only on user stop. Independent of
-    /// whether VoiceSession flipped idle after TTS / timeout.
+    /// Armed on first Tap to talk, warmUp, or `audio.start`. Cleared only on
+    /// user stop. Audio flowing is live unless they tapped stop.
     public static func sessionShouldStayLive(
         userWantsVoiceOff: Bool,
-        liveSessionArmed: Bool
+        liveSessionArmed: Bool,
+        audioStarted: Bool = false
     ) -> Bool {
-        !userWantsVoiceOff && liveSessionArmed
+        !userWantsVoiceOff && (liveSessionArmed || audioStarted)
     }
 
     /// Socket closed. Reconnect when the live session is still supposed to hear.
@@ -144,6 +145,12 @@ public enum ListenResumePolicy: Sendable {
 public enum ListenResumeLog: Sendable {
     public static let intent = "listen-resume"
     public static let source = "engine"
+
+    public static let droppedTranscriptNote = "dropped transcript"
+
+    public static func droppedTranscript(detail: String = "leftover-echo") -> VoiceInteractionEntry {
+        entry(note: "\(droppedTranscriptNote) \(detail)")
+    }
 
     public static func entry(note: String, errors: [String] = []) -> VoiceInteractionEntry {
         VoiceInteractionEntry(

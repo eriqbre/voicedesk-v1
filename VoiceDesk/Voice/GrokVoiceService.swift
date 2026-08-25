@@ -64,6 +64,7 @@ final class GrokVoiceService: VoiceServicing {
         isTearingDown = false
         let granted = await AVAudioApplication.requestRecordPermission()
         guard granted else { return }
+        liveSessionArmed = true
         do {
             try await ensureReadyForFirstListen()
         } catch {
@@ -244,6 +245,9 @@ final class GrokVoiceService: VoiceServicing {
         let logs = audio.start(echoCancellation: true) { base64 in
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
         }
+        if audio.isRunning {
+            liveSessionArmed = true
+        }
         logListenResume(
             note: "audio.start \(logs.joined(separator: "; ")) running=\(audio.isRunning)",
             errors: audio.isRunning ? [] : logs
@@ -299,7 +303,8 @@ final class GrokVoiceService: VoiceServicing {
     private var sessionShouldStayLive: Bool {
         ListenResumePolicy.sessionShouldStayLive(
             userWantsVoiceOff: userWantsVoiceOff,
-            liveSessionArmed: liveSessionArmed
+            liveSessionArmed: liveSessionArmed,
+            audioStarted: audio.isRunning || didConnectThisLaunch
         )
     }
 
@@ -489,7 +494,10 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                 trimmed,
                 gate: echoGate,
                 voiceState: session.state
-            ) != nil else { break }
+            ) != nil else {
+                logListenResume(note: "\(ListenResumeLog.droppedTranscriptNote) leftover-echo")
+                break
+            }
             applyBargeInIfNeeded(event: .userTranscript(text: trimmed, itemID: itemID))
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):

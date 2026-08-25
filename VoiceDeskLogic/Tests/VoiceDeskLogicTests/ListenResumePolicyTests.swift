@@ -170,12 +170,21 @@ final class ListenResumePolicyTests: XCTestCase {
                 liveSessionArmed: true
             )
         )
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: false,
+                audioStarted: true
+            ),
+            "audio.start / warmUp is live unless they tapped stop"
+        )
         XCTAssertFalse(
             ListenResumePolicy.sessionShouldStayLive(
                 userWantsVoiceOff: false,
-                liveSessionArmed: false
+                liveSessionArmed: false,
+                audioStarted: false
             ),
-            "warmup / never tapped must not reconnect a 1000"
+            "never opened audio and never tapped must not reconnect a 1000"
         )
         XCTAssertFalse(
             ListenResumePolicy.sessionShouldStayLive(
