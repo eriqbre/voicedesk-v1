@@ -70,6 +70,13 @@ final class VoiceRegressionReplayTests: XCTestCase {
             if fixture.shouldAssertReply {
                 XCTAssertEqual(replay.reply, fixture.assistantReply, ask)
             }
+            if replay.evidence?.hidesSpokenSummaryOnScreen == true {
+                XCTAssertTrue(
+                    InboxGlance.isShortOnScreenLeadIn(replay.onScreen),
+                    "\(ask): cards-only must not print Eve: \(replay.onScreen)"
+                )
+                XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
+            }
 
             let haystack = (replay.notes + replay.cardLabels + [replay.gmailQuery ?? "", replay.reply, replay.intent])
                 .joined(separator: "\n")

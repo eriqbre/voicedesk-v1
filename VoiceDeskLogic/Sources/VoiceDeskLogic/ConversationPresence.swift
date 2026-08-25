@@ -274,6 +274,17 @@ public enum ConversationPresence {
             self.keepsSenderRefine = keepsSenderRefine
         }
 
+        /// Cards are the visual. Eve still speaks `text`; the chat bubble stays empty.
+        /// Inbox glance and calendar overview with event cards — not details, miss, or connect.
+        public var hidesSpokenSummaryOnScreen: Bool {
+            if shouldGlanceInbox {
+                return cards.contains { $0.kind == .email }
+            }
+            return topic == .calendar
+                && cards.contains { $0.kind == .calendar }
+                && !ConversationPresence.replyMentionsCard(text)
+        }
+
         public var claimsCardWithoutAttaching: Bool {
             ConversationPresence.replyMentionsCard(text) && cards.isEmpty
         }
@@ -707,7 +718,16 @@ public enum ConversationPresence {
             "on my calendar this week",
             "what's on my calendar this week",
             "whats on my calendar this week",
-            "my calendar this week"
+            "what's on my calendar for the week",
+            "whats on my calendar for the week",
+            "my calendar this week",
+            "calendar for the week",
+            "show my calendar",
+            "show the calendar",
+            "show calendar",
+            "what's my calendar look like",
+            "whats my calendar look like",
+            "my calendar look like"
         ]) {
             return true
         }
@@ -719,8 +739,21 @@ public enum ConversationPresence {
     }
 
     private static func wantsCalendarListPhrase(_ lower: String) -> Bool {
-        contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
+        contains(lower, [
+            "my calendar",
+            "on my calendar",
+            "what's on my calendar",
+            "whats on my calendar",
+            "schedule today",
+            "what meetings",
+            "calendar for the week",
+            "show calendar",
+            "show the calendar",
+            "show my calendar",
+            "calendar look like"
+        ])
             || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
+            || (contains(lower, ["calendar"]) && contains(lower, ["this week", "for the week", "look like"]))
     }
 
     public static func wantsTaskAsk(_ raw: String) -> Bool {

@@ -3,7 +3,7 @@ import Foundation
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
 ///
 /// Eve **speaks** these lines. Cards are the on-screen list — do not also print the
-/// spoken glance *or* a single-email AI summary in the chat bubble.
+/// spoken glance, a single-email AI summary, or a calendar-overview line in the bubble.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
     public static let snippetLimit = 80
@@ -112,11 +112,11 @@ public enum InboxGlance: Sendable {
         raw.split(whereSeparator: \.isNewline).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count >= 2
     }
 
-    /// Chat-bubble copy when email cards are attached. Cards **are** the visual.
-    /// Used for inbox glance (N compact rows) and a single-email summary card.
-    /// Empty (no bubble) or `onScreenLeadIn` — never the spoken glance or summary.
-    /// Clarify / not-found / connect / error replies must still be passed through
-    /// as the bubble; they are the message (and usually have no summary card).
+    /// Chat-bubble copy when email or calendar-overview cards are attached.
+    /// Cards **are** the visual. Empty (no bubble) or `onScreenLeadIn` — never the
+    /// spoken glance, single-email summary, or calendar “Next up” line.
+    /// Clarify / not-found / connect / error / calendar-details replies must still
+    /// be passed through as the bubble; they are the message.
     public static func onScreenText(compactCardCount: Int) -> String {
         // Cards already carry the visual. Empty bubble (or `onScreenLeadIn`).
         _ = compactCardCount
@@ -126,6 +126,15 @@ public enum InboxGlance: Sendable {
     /// Same “cards are the visual” rule for one full email card + spoken summary.
     public static func onScreenTextHidingSpokenSummary() -> String {
         onScreenText(compactCardCount: 1)
+    }
+
+    /// Inbox glance and calendar overview with event cards: empty bubble.
+    /// Details / miss / connect / empty-desk copy stays `evidence.text`.
+    public static func onScreenText(for evidence: ConversationPresence.DeskEvidence) -> String {
+        if evidence.hidesSpokenSummaryOnScreen {
+            return onScreenText(compactCardCount: evidence.cards.count)
+        }
+        return evidence.text
     }
 
     /// True for empty / “Here are the latest.” — false if the glance recitation leaked on-screen.
