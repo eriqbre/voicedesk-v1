@@ -156,6 +156,45 @@ final class VoiceRegressionReplayTests: XCTestCase {
         XCTAssertFalse(haystack.contains("from:(\"how murray\")"), haystack)
     }
 
+    func testLatestEmailsFamilyAfterEricSearchShowsInboxNotEric() {
+        let desk = DeskContext(
+            isConnected: true,
+            snapshot: DeskSnapshot(emails: [VoiceRegressionDesk.laren])
+        )
+        let ericHits = [
+            VoiceRegressionDesk.ericGross,
+            VoiceRegressionDesk.ericGross
+        ]
+        let latestFamily = [
+            "Show me my latest emails.",
+            "see my latest emails",
+            "Just show me my latest emails.",
+            "latest emails",
+            "Can you pull my latest emails?"
+        ]
+        for ask in latestFamily {
+            let replay = VoiceTurnReplay.play(
+                utterance: ask,
+                context: desk,
+                focusedEmail: VoiceRegressionDesk.ericGross,
+                pendingSearchClarify: true,
+                clarifyMatches: ericHits
+            )
+            XCTAssertEqual(replay.intent, "inbox-overview", ask)
+            XCTAssertNotEqual(replay.intent, "desk-person", ask)
+            XCTAssertTrue(replay.stickyCleared, ask)
+            XCTAssertTrue(
+                replay.cardLabels.contains { $0.contains("Laren Cole") },
+                "\(ask) → \(replay.cardLabels)"
+            )
+            XCTAssertFalse(
+                replay.cardLabels.contains { $0.contains("Eric") },
+                "\(ask) must not attach Eric search hits: \(replay.cardLabels)"
+            )
+            XCTAssertFalse(replay.reply.localizedCaseInsensitiveContains("Eric Gross"), ask)
+        }
+    }
+
     func testInboxOverviewThenMurraySummaryIsMurrayNotGreenacre() {
         let overview = VoiceTurnReplay.play(
             utterance: "Uh, that's cool. Just show me my latest emails.",

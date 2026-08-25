@@ -1583,12 +1583,14 @@ final class GoogleSliceTests: XCTestCase {
         )
         let sync = MockGoogleSync(result: inbox)
         sync.searchable = [eric(1, subject: "Lot walk"), eric(2, subject: "Offer"), eric(3, subject: "Follow-up"), murray]
+        let cache = MemoryDeskCache(snapshot: inbox)
         let model = AppModel(
             voice: MockVoiceService(label: "test", instant: true),
             google: .mock(connected: true),
-            cache: MemoryDeskCache(snapshot: inbox),
+            cache: cache,
             sync: sync
         )
+        let desk = DeskContext(isConnected: true, snapshot: inbox)
 
         await model.applyUserTurn("Can you find the last email by Eric?")
         XCTAssertEqual(sync.syncCalls, 0, "person search must not replace inbox via sync")
@@ -1602,9 +1604,33 @@ final class GoogleSliceTests: XCTestCase {
         XCTAssertEqual(model.deskSnapshot.tasks.first?.title, "Call the title company")
         XCTAssertEqual(cache.load().emails.map(\.fromName), ["Laren Cole"])
 
+        let latestFamily = [
+            "Show me my latest emails.",
+            "see my latest emails",
+            "Just show me my latest emails.",
+            "latest emails",
+            "Can you pull my latest emails?"
+        ]
+        for ask in latestFamily {
+            XCTAssertTrue(ConversationPresence.wantsInboxOverview(ask), ask)
+            XCTAssertFalse(ConversationPresence.isClarifyPick(ask), ask)
+            XCTAssertEqual(
+                VoiceTurnReplay.play(
+                    utterance: ask,
+                    context: desk,
+                    focusedEmail: VoiceRegressionDesk.ericGross,
+                    pendingSearchClarify: true,
+                    clarifyMatches: sync.searchable.filter { $0.fromName == "Eric Gross" }
+                ).intent,
+                "inbox-overview",
+                ask
+            )
+        }
+
         await model.applyUserTurn("Show me my latest emails.")
         XCTAssertEqual(sync.syncCalls, 1, "inbox-overview must sync after a search")
         XCTAssertEqual(model.deskSnapshot.emails.map(\.fromName), ["Laren Cole"])
+        XCTAssertEqual(cache.load().emails.map(\.fromName), ["Laren Cole"])
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
         XCTAssertFalse(InboxGlance.repeatsGlanceLines(model.turns.last?.text ?? ""))
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Eric Gross"))
