@@ -182,6 +182,21 @@ public enum GrokRealtime {
         )
     }
 
+    /// Put the socket back in listen mode after a local desk / verbatim line.
+    /// Verbatim speak sets `create_response: false`; omitting the flag on the
+    /// next `session.update` can leave the server from committing the next ask.
+    public static func listenResumeSessionUpdateObject(
+        voice: String = defaultVoice,
+        instructions: String = presenceInstructions
+    ) -> [String: Any] {
+        sessionUpdateObject(
+            voice: voice,
+            instructions: instructions,
+            interruptResponse: true,
+            createResponse: true
+        )
+    }
+
     public static func sessionUpdateJSON(
         voice: String = defaultVoice,
         instructions: String = presenceInstructions
