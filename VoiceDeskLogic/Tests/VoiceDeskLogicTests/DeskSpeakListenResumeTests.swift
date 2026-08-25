@@ -1,0 +1,200 @@
+import XCTest
+@testable import VoiceDeskLogic
+
+/// Live walk 2026-08-25 ~12:05–12:09 ET, SHA fa6616e:
+/// desk speaks (inbox-overview, need-more, task miss, calendar) completed,
+/// then the live Grok session went deaf — zero turns after 16:07:51Z.
+///
+/// After any local desk speak, listen/capture must be armed again.
+/// Synonym families, not one golden phrase. Intent / state only.
+///
+/// Out of scope (logged, not fixed): “The email from Eriq via Todoist is
+/// listed twice…” classified as task with garbage `from:eriqviatodoist`.
+final class DeskSpeakListenResumeTests: XCTestCase {
+    static let inboxOverviewFamily = [
+        "Tell me about my emails.",
+        "tell me my emails",
+        "show me my emails",
+        "what's in my inbox"
+    ]
+
+    static let calendarFamily = [
+        "What's on my calendar this week?",
+        "whats on my calendar",
+        "what's on my calendar",
+        "my calendar this week"
+    ]
+
+    static let needMoreFamily = [
+        "Who’s it from?",
+        "who's it from",
+        "what's the subject"
+    ]
+
+    static let taskFamily = [
+        "what's on my tasks",
+        "what tasks do I have",
+        "my tasks",
+        "open tasks"
+    ]
+
+    /// Walk leftover: this must stay a follow-up ask after a desk speak,
+    /// not get eaten because listen died.
+    static let nextAskFamily = [
+        "What's on my calendar this week?",
+        "Tell me about my emails.",
+        "what's on my tasks"
+    ]
+
+    private var connected: DeskContext {
+        VoiceRegressionDesk.connected
+    }
+
+    func testInboxOverviewSpeakLeavesListenArmedForNextAsk() {
+        for ask in Self.inboxOverviewFamily {
+            let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
+                ask: ask,
+                spokenLine: "Five emails in the last sync.",
+                nextAsk: "What's on my calendar this week?",
+                context: connected
+            )
+            XCTAssertEqual(walk.spokenIntent, "inbox-overview", ask)
+            XCTAssertTrue(walk.listenArmed, ask)
+            XCTAssertTrue(walk.captureArmed, ask)
+            XCTAssertEqual(walk.decision, .resumeCapture, ask)
+            XCTAssertEqual(walk.voiceState, .listening, ask)
+            XCTAssertTrue(walk.nextAccepted, ask)
+            XCTAssertEqual(walk.nextIntent, "calendar", ask)
+        }
+    }
+
+    func testCalendarSpeakLeavesListenArmedForInboxFollowUp() {
+        for ask in Self.calendarFamily {
+            let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
+                ask: ask,
+                spokenLine: "Massimo’s on Thursday.",
+                nextAsk: "Tell me about my emails.",
+                context: connected
+            )
+            XCTAssertEqual(walk.spokenIntent, "calendar", ask)
+            XCTAssertTrue(walk.listenArmed, ask)
+            XCTAssertTrue(walk.captureArmed, ask)
+            XCTAssertEqual(walk.decision, .resumeCapture, ask)
+            XCTAssertTrue(walk.nextAccepted, ask)
+            XCTAssertEqual(walk.nextIntent, "inbox-overview", ask)
+        }
+    }
+
+    func testNeedMoreSpeakLeavesListenArmed() {
+        for spoken in [
+            ConversationPresence.emailNeedMoreReply,
+            "Who’s it from, or what’s the subject?"
+        ] {
+            let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
+                ask: "show me that one",
+                spokenLine: spoken,
+                nextAsk: "what's on my tasks",
+                context: connected
+            )
+            XCTAssertTrue(walk.listenArmed, spoken)
+            XCTAssertTrue(walk.captureArmed, spoken)
+            XCTAssertEqual(walk.decision, .resumeCapture, spoken)
+            XCTAssertEqual(walk.voiceState, .listening, spoken)
+            XCTAssertTrue(walk.nextAccepted, spoken)
+            XCTAssertEqual(walk.nextIntent, "task", spoken)
+        }
+    }
+
+    func testTaskMissSpeakLeavesListenArmed() {
+        for ask in Self.taskFamily {
+            let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
+                ask: ask,
+                spokenLine: ConversationPresence.taskMissReply,
+                nextAsk: "What's on my calendar this week?",
+                context: connected
+            )
+            XCTAssertEqual(walk.spokenIntent, "task", ask)
+            XCTAssertTrue(walk.listenArmed, ask)
+            XCTAssertTrue(walk.captureArmed, ask)
+            XCTAssertEqual(walk.decision, .resumeCapture, ask)
+            XCTAssertTrue(walk.nextAccepted, ask)
+            XCTAssertEqual(walk.nextIntent, "calendar", ask)
+        }
+    }
+
+    func testClosedSocketAfterDeskSpeakReconnectsWithoutNewTap() {
+        let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
+            ask: "What's on my calendar this week?",
+            spokenLine: "Massimo’s on Thursday.",
+            nextAsk: "Tell me about my emails.",
+            context: connected,
+            socketConnected: false,
+            captureRunningAfterSpeak: false
+        )
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.captureArmed)
+        XCTAssertEqual(walk.decision, .reconnect)
+        XCTAssertTrue(walk.nextAccepted)
+    }
+
+    func testCaptureAlreadyRunningStaysListening() {
+        let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
+            ask: "Tell me about my emails.",
+            spokenLine: "Five emails in the last sync.",
+            nextAsk: "What's on my calendar this week?",
+            context: connected,
+            captureRunningAfterSpeak: true
+        )
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.captureArmed)
+        XCTAssertEqual(walk.decision, .keepListening)
+        XCTAssertTrue(walk.nextAccepted)
+    }
+
+    func testUserStopAfterDeskSpeakDoesNotArm() {
+        let decision = ListenResumePolicy.afterDeskSpeak(
+            userWantsVoiceOff: true,
+            socketConnected: true,
+            captureRunning: false
+        )
+        XCTAssertEqual(decision, .stayIdle)
+        XCTAssertFalse(ListenResumePolicy.isArmed(decision))
+    }
+
+    func testNextAskFamilyIsAcceptedAfterCalendarSpeak() {
+        for next in Self.nextAskFamily {
+            let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
+                ask: "What's on my calendar this week?",
+                spokenLine: "Massimo’s on Thursday.",
+                nextAsk: next,
+                context: connected
+            )
+            XCTAssertTrue(walk.listenArmed, next)
+            XCTAssertTrue(walk.nextAccepted, next)
+            XCTAssertNotEqual(walk.nextIntent, "dropped", next)
+            XCTAssertNotEqual(walk.nextIntent, "general", "\(next) must stay desk-owned after listen resume")
+        }
+    }
+
+    /// Recorded walk #3 routing — do not change here. After that speak,
+    /// listen must still arm.
+    func testTodoistTwiceParseStaysOutOfScopeButListenStillArms() {
+        let recorded = "The email from Eriq via Todoist is listed twice in my email list."
+        let replay = VoiceTurnReplay.play(utterance: recorded, context: connected)
+        // Live walk: intent task, garbage q=from:eriqviatodoist. Log only.
+        _ = replay.intent
+        _ = replay.gmailQuery
+
+        let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
+            ask: recorded,
+            spokenLine: ConversationPresence.taskMissReply,
+            nextAsk: "What's on my calendar this week?",
+            context: connected
+        )
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.captureArmed)
+        XCTAssertEqual(walk.decision, .resumeCapture)
+        XCTAssertTrue(walk.nextAccepted)
+        XCTAssertEqual(walk.nextIntent, "calendar")
+    }
+}

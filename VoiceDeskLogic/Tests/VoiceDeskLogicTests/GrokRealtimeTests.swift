@@ -229,6 +229,22 @@ final class GrokRealtimeTests: XCTestCase {
             (verbatimSession["session"] as? [String: Any])?["instructions"] as? String
                 == GrokRealtime.verbatimSpeakInstructions(text: "VoiceDesk point 1, build 6.")
         )
+
+        let listenResume = GrokRealtime.listenResumeSessionUpdateObject(
+            voice: "eve",
+            instructions: "listen"
+        )
+        let listenTurn = try XCTUnwrap(
+            (listenResume["session"] as? [String: Any])?["turn_detection"] as? [String: Any]
+        )
+        XCTAssertEqual(listenTurn["type"] as? String, "server_vad")
+        XCTAssertEqual(listenTurn["interrupt_response"] as? Bool, true)
+        XCTAssertEqual(
+            listenTurn["create_response"] as? Bool,
+            true,
+            "verbatim leave-behind create_response:false must be flipped back on"
+        )
+        XCTAssertEqual((listenResume["session"] as? [String: Any])?["instructions"] as? String, "listen")
     }
 
     func testCancelAndTextTurnPayloads() {
