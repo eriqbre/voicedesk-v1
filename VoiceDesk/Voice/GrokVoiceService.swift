@@ -313,7 +313,7 @@ final class GrokVoiceService: VoiceServicing {
     private func armListenIfSessionLive(reason: String) {
         guard !userWantsVoiceOff, !isTearingDown else { return }
         if verbatim.isSpeaking {
-            logListenResume("after \(reason): skip, verbatim still speaking")
+            logListenResume(note: "after \(reason): skip, verbatim still speaking")
             return
         }
         echoGate.finishSpeaking()
@@ -596,7 +596,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                     userWantsVoiceOff: userWantsVoiceOff,
                     liveSessionArmed: liveSessionArmed
                 )
-                logListenResume("realtime \(code) \(decision) stayLive=\(sessionShouldStayLive)")
+                logListenResume(note: "realtime \(code) \(decision) stayLive=\(sessionShouldStayLive)")
                 if decision == .reconnect {
                     Task { await recoverAfterDrop(reason: "timeout \(code)") }
                 } else {
