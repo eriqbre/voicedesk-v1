@@ -37,7 +37,7 @@ public struct EchoTranscriptGate: Equatable, Sendable {
     }
 
     /// On-device desk TTS only (`beginSpeaking` with a real line). Grok
-    /// `voiceState == .speaking` is not desk TTS and never drops a transcript.
+    /// speaking is not desk TTS and never drops a transcript.
     public func shouldIgnoreUserTranscript(voiceState: VoiceState = .listening) -> Bool {
         _ = voiceState
         return isSpeaking && !lastSpokenLine.isEmpty

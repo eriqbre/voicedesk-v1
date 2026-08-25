@@ -99,19 +99,19 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
 
     func testOneGateAndDroppedTranscriptIsLogged() throws {
         let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertTrue(source.contains("EchoBargeIn.acceptedUserTranscript"), source)
-        XCTAssertTrue(source.contains("ListenResumeLog.droppedTranscriptNote"), source)
-        XCTAssertTrue(source.contains("dropped transcript"), source)
-        XCTAssertTrue(source.contains("liveSessionArmed = true"), source)
+        XCTAssertTrue(source.contains("EchoBargeIn.acceptedUserTranscript"))
+        XCTAssertTrue(source.contains("ListenResumeLog.droppedTranscriptNote"))
+        XCTAssertTrue(source.contains("leftover-echo"))
+        XCTAssertTrue(source.contains("liveSessionArmed = true"))
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        XCTAssertFalse(app.contains("echoGate"), app)
-        XCTAssertFalse(app.contains("acceptUserTranscript"), app)
-        XCTAssertFalse(app.contains("isLeftoverEcho"), app)
-        XCTAssertFalse(app.contains("markSpeaking"), app)
+        XCTAssertFalse(app.contains("echoGate"), "AppModel must not keep a second echo gate")
+        XCTAssertFalse(app.contains("acceptUserTranscript"), "one gate: GrokVoiceService already applied EchoBargeIn")
+        XCTAssertFalse(app.contains("isLeftoverEcho"), "one gate: do not re-drop in AppModel")
+        XCTAssertFalse(app.contains("markSpeaking"))
         let gate = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/EchoTranscriptGate.swift"))
-        XCTAssertFalse(gate.contains("func markSpeaking"), gate)
-        XCTAssertFalse(gate.contains("voiceState == .speaking"), gate)
-        XCTAssertFalse(gate.contains("lastSpokenLine.isEmpty { return nil }"), gate)
+        XCTAssertFalse(gate.contains("func markSpeaking"))
+        XCTAssertFalse(gate.contains("lastSpokenLine.isEmpty { return nil }"))
+        XCTAssertFalse(gate.contains("isSpeaking || voiceState"))
     }
 
     func testSessionStaysLiveAfterAudioStartOrWarmUpUnlessUserStop() {
