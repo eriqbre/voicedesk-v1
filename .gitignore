@@ -5,6 +5,8 @@ voice-log.jsonl
 **/voice-log.jsonl
 !VoiceDeskLogic/Tests/Fixtures/**/*.jsonl
 !VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/**/*.jsonl
+VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/voice-tapes/*.wav
+VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/voice-tapes/*.aiff
 xcuserdata/
 DerivedData/
 Secrets.plist

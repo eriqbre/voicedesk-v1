@@ -1,0 +1,58 @@
+[
+  {
+    "id": "show-my-latest-emails",
+    "say": "show my latest emails",
+    "intent": "inbox-overview",
+    "allowedIntents": ["inbox-overview"],
+    "context": "connected"
+  },
+  {
+    "id": "my-latest-emails",
+    "say": "my latest emails",
+    "intent": "inbox-overview",
+    "allowedIntents": ["inbox-overview"],
+    "context": "connected"
+  },
+  {
+    "id": "okay-show-me-my-latest-emails",
+    "say": "okay show me my latest emails",
+    "intent": "inbox-overview",
+    "allowedIntents": ["inbox-overview"],
+    "context": "connected"
+  },
+  {
+    "id": "what-version-are-we-on",
+    "say": "what version are we on",
+    "intent": "version",
+    "allowedIntents": ["version"],
+    "context": "connected"
+  },
+  {
+    "id": "what-sha-is-this",
+    "say": "what SHA is this",
+    "intent": "version",
+    "allowedIntents": ["version"],
+    "context": "connected"
+  },
+  {
+    "id": "calendar-for-the-week",
+    "say": "what's on my calendar for the week",
+    "intent": "calendar",
+    "allowedIntents": ["calendar"],
+    "context": "massimoCalendar"
+  },
+  {
+    "id": "latest-email-from-lauren",
+    "say": "latest email from Lauren",
+    "intent": "desk-person",
+    "allowedIntents": ["desk-person", "desk-thread"],
+    "context": "greenacreFirst"
+  },
+  {
+    "id": "email-from-katherine",
+    "say": "email from Katherine",
+    "intent": "desk-person",
+    "allowedIntents": ["desk-person", "desk-thread"],
+    "context": "massimoCalendar"
+  }
+]

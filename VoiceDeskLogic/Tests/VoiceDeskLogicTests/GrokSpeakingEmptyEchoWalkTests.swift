@@ -58,6 +58,15 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
             XCTAssertNotEqual(walk.intent, "dropped", ask)
             XCTAssertNotEqual(walk.intent, "general", ask)
         }
+        for ask in GrokSpeakingEmptyEchoWalk.namedKatherineFamily {
+            let walk = GrokSpeakingEmptyEchoWalk.race(
+                ask: ask,
+                context: VoiceRegressionDesk.massimoCalendar
+            )
+            XCTAssertTrue(walk.accepted, ask)
+            XCTAssertTrue(["desk-person", "desk-thread"].contains(walk.intent), "\(ask) → \(walk.intent)")
+            XCTAssertNotEqual(walk.intent, "dropped", ask)
+        }
     }
 
     func testOnDeviceDeskTTSLeftoverStillDrops() {

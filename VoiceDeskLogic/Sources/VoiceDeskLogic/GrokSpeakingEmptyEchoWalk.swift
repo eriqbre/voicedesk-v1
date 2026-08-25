@@ -46,6 +46,11 @@ public struct GrokSpeakingEmptyEchoWalk: Equatable, Sendable {
         "What's the latest email from Lauren?"
     ]
 
+    public static let namedKatherineFamily = [
+        "email from Katherine",
+        "the email from Katherine"
+    ]
+
     /// Grok is already `.speaking`. No on-device desk line. Real ask.
     public static func race(
         ask: String,
