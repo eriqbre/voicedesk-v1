@@ -1046,6 +1046,9 @@ public enum ConversationPresence {
         if wantsTodayInbox(raw) || wantsInboxCount(raw) || isInboxSweepAsk(raw) {
             return false
         }
+        // Full-thread asks resolve via focused email; do not treat “the thread”
+        // as a last-card hunt.
+        if wantsFullThread(raw) { return false }
         let words = spokenWords(raw)
         let singular = words.contains(where: { lastDeskEmailNouns.contains($0) })
         let plural = words.contains(where: { inboxCollectionNouns.contains($0) })
