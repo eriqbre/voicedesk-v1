@@ -1483,7 +1483,7 @@ final class GoogleSliceTests: XCTestCase {
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
     }
 
-    func testInboxOverviewPullLatestHitsSyncNotStaleCache() async {
+    func testInboxOverviewWithCachedLatestFiveSkipsListRefresh() async {
         var stale = SampleData.syncedEmail()
         stale.fromName = "Old Sender"
         stale.subject = "Day-one snapshot"
@@ -1510,18 +1510,18 @@ final class GoogleSliceTests: XCTestCase {
         )
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
         await model.applyUserTurn("Can you pull my latest emails?")
-        XCTAssertEqual(sync.syncCalls, 1, "inbox-overview must sync before listing cache")
-        XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Arrived this morning")
-        XCTAssertTrue(
-            model.deskSnapshot.emails.contains { $0.subject == "Day-one snapshot" },
-            "inbox sync merges; it must not drop cached mail"
+        XCTAssertEqual(
+            sync.syncCalls,
+            0,
+            "cache already has latest-5 — first glance must not wait on a Gmail list"
         )
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("New Sender"))
+        XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Day-one snapshot")
         XCTAssertTrue(
             model.turns.last?.cards.contains { card in
-                if case .email(let item) = card { return item.subject == "Arrived this morning" }
+                if case .email(let item) = card { return item.subject == "Day-one snapshot" }
                 return false
-            } == true
+            } == true,
+            "cards attach from the snapshot"
         )
     }
 
@@ -1702,7 +1702,11 @@ final class GoogleSliceTests: XCTestCase {
         }
 
         await model.applyUserTurn("Show me my latest emails.")
-        XCTAssertEqual(sync.syncCalls, 1, "inbox-overview must sync after a search")
+        XCTAssertEqual(
+            sync.syncCalls,
+            0,
+            "inbox already has latest-5 — glance must not list-refresh after a search"
+        )
         XCTAssertEqual(model.deskSnapshot.emails.map(\.fromName), ["Laren Cole"])
         XCTAssertEqual(cache.load().emails.map(\.fromName), ["Laren Cole"])
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
