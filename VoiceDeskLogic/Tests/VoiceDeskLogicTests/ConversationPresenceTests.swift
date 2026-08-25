@@ -576,13 +576,17 @@ final class ConversationPresenceTests: XCTestCase {
             let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
             XCTAssertEqual(evidence?.topic, .calendar, ask)
             XCTAssertNotEqual(evidence?.text, ConversationPresence.calendarMissReply, ask)
-            XCTAssertTrue((evidence?.text ?? "").contains("Massimo showing"), ask)
+            XCTAssertEqual(evidence?.hidesSpokenSummaryOnScreen, true, ask)
             XCTAssertEqual(evidence?.cards.count, 1, ask)
             if case .calendar(let item) = evidence?.cards.first {
                 XCTAssertEqual(item.title, "Massimo showing")
             } else {
                 XCTFail("expected calendar card for \(ask)")
             }
+            let onScreen = InboxGlance.onScreenText(for: evidence!)
+            XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(onScreen), "\(ask) on-screen: \(onScreen)")
+            XCTAssertFalse(onScreen.contains("Massimo"), ask)
+            XCTAssertEqual(DeskReplySpeech.textToSpeak(evidence?.text ?? "", lastSpoken: nil), evidence?.text, ask)
         }
     }
 
@@ -594,6 +598,8 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertNotEqual(evidence?.text, ConversationPresence.calendarMissReply)
         XCTAssertTrue((evidence?.text ?? "").lowercased().contains("not inventing"))
         XCTAssertTrue(evidence?.cards.isEmpty == true)
+        XCTAssertEqual(evidence?.hidesSpokenSummaryOnScreen, false)
+        XCTAssertEqual(InboxGlance.onScreenText(for: evidence!), evidence?.text)
     }
 
     func testConnectedInboxUsesCacheNotSampleDesk() {
@@ -652,6 +658,8 @@ final class ConversationPresenceTests: XCTestCase {
             XCTFail("expected calendar card with details")
         }
         XCTAssertFalse(evidence?.claimsCardWithoutAttaching == true)
+        XCTAssertEqual(evidence?.hidesSpokenSummaryOnScreen, false)
+        XCTAssertEqual(InboxGlance.onScreenText(for: evidence!), evidence?.text)
     }
 
     func testCalendarAndTasksWhenConnected() {

@@ -1820,8 +1820,9 @@ final class GoogleSliceTests: XCTestCase {
             events: [event]
         )
         let sync = MockGoogleSync(result: snapshot)
+        let voice = MockVoiceService(label: "test", instant: true)
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: voice,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: sync
@@ -1829,7 +1830,12 @@ final class GoogleSliceTests: XCTestCase {
         await model.applyUserTurn("What's the latest on my calendar?")
         XCTAssertEqual(sync.syncCalls, 0, "non-empty calendar uses the synced snapshot")
         XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.calendarMissReply)
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Massimo showing"))
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            "cards are the list; bubble must not reprint Eve: \(model.turns.last?.text ?? "")"
+        )
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("Massimo showing"))
+        XCTAssertTrue(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
         XCTAssertEqual(model.turns.last?.cards.count, 1)
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.title, "Massimo showing")
@@ -1849,8 +1855,9 @@ final class GoogleSliceTests: XCTestCase {
             emails: [SampleData.syncedEmail()]
         )
         let sync = MockGoogleSync(result: DeskSnapshot(emails: stale.emails, events: [event]))
+        let voice = MockVoiceService(label: "test", instant: true)
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: voice,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: stale),
             sync: sync
@@ -1859,7 +1866,12 @@ final class GoogleSliceTests: XCTestCase {
         await model.applyUserTurn("What's the latest on my calendar?")
         XCTAssertEqual(sync.syncCalls, 1, "empty calendar must sync before speaking")
         XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.calendarMissReply)
-        XCTAssertTrue((model.turns.last?.text ?? "").contains("Massimo showing"))
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            "cards are the list; bubble must not reprint Eve: \(model.turns.last?.text ?? "")"
+        )
+        XCTAssertFalse((model.turns.last?.text ?? "").contains("Massimo showing"))
+        XCTAssertTrue(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.title, "Massimo showing")
         } else {

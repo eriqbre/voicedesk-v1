@@ -186,6 +186,36 @@ public enum VoiceRegressionDesk: Sendable {
         DeskSnapshot(accountEmail: "eriq@example.com", emails: [eriqSelf])
     }
 
+    /// Live tape 2026-08-25 (be0b4c8): calendar for the week → Massimo + a second card.
+    public static let massimoShowing = CalendarItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000101")!,
+        providerID: "fixture-massimo",
+        title: "Massimo showing",
+        whenLabel: "Thursday 3:00 PM",
+        location: "1842 Beach Drive",
+        relatedPeople: ["Massimo Ricci"]
+    )
+
+    public static let saturdayWalk = CalendarItem(
+        id: UUID(uuidString: "00000000-0000-4000-8000-000000000102")!,
+        providerID: "fixture-walk",
+        title: "Walk the lot",
+        whenLabel: "Saturday 11:00 AM",
+        location: "1842 Beach Drive"
+    )
+
+    public static var massimoCalendarSnapshot: DeskSnapshot {
+        DeskSnapshot(
+            accountEmail: "agent@example.com",
+            emails: [murray, steve],
+            events: [massimoShowing, saturdayWalk]
+        )
+    }
+
+    public static var massimoCalendar: DeskContext {
+        DeskContext(isConnected: true, snapshot: massimoCalendarSnapshot)
+    }
+
     /// Murray 302 + Sandy gut — leftover-stem / empty-speak walk fixtures.
     public static var leftoverSpeakSnapshot: DeskSnapshot {
         DeskSnapshot(accountEmail: "agent@example.com", emails: [murrayGeorgia, sandyGut])
@@ -271,6 +301,8 @@ public enum VoiceRegressionDesk: Sendable {
             return ericSelfOnly
         case "leftover-speak":
             return leftoverSpeak
+        case "massimo-calendar":
+            return massimoCalendar
         default:
             return connected
         }

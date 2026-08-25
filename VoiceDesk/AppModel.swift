@@ -870,7 +870,9 @@ final class AppModel {
             await applyInboxGlance(evidence)
             return
         }
-        appendAssistant(evidence.text, cards: evidence.cards)
+        // Calendar overview (and any other cards-only evidence): speak `text`,
+        // don’t reprint it in the bubble. Cards are the visual — same as inbox.
+        appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
         await speakDeskReply(evidence.text)
         logVoiceTurn(evidence: evidence, reply: evidence.text)
     }

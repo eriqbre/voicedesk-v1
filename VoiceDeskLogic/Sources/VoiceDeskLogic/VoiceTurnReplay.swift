@@ -18,6 +18,16 @@ public enum VoiceTurnReplay: Sendable {
             cardLabels.contains { $0.hasPrefix("email:") }
         }
 
+        public var attachesCalendarCard: Bool {
+            cardLabels.contains { $0.hasPrefix("calendar:") }
+        }
+
+        /// Chat-bubble copy. Cards-only turns (inbox glance, calendar overview) are empty.
+        public var onScreen: String {
+            guard let evidence else { return reply }
+            return InboxGlance.onScreenText(for: evidence)
+        }
+
         public init(
             intent: String,
             notes: [String],
