@@ -1,8 +1,8 @@
 import AVFoundation
 import Foundation
 
-/// On-device TTS for local desk replies. Bypasses live Grok audio/transcript
-/// suppress so the client can speak while the socket stays muted.
+/// On-device TTS for local desk replies. The live Grok socket stays in
+/// listen — desk speak never injects a fake user turn.
 @MainActor
 final class ClientVoiceSpeech {
     static let shared = ClientVoiceSpeech()

@@ -178,12 +178,13 @@ final class GrokRealtimeTests: XCTestCase {
     }
 
     func testLiveSpeakUsesRealtimeWhenConnected() throws {
-        XCTAssertTrue(
+        XCTAssertFalse(
             GrokRealtime.shouldSpeakViaRealtime(
                 usesLiveLoop: true,
                 isConnected: true,
                 userWantsVoiceOff: false
-            )
+            ),
+            "desk lines use on-device TTS; Grok realtime stays in listen"
         )
         XCTAssertFalse(
             GrokRealtime.shouldSpeakViaRealtime(

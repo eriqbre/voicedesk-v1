@@ -2,6 +2,60 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class ListenResumePolicyTests: XCTestCase {
+    func testDeskSpeakUsesClientTTSNotGrokVerbatim() {
+        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
+        XCTAssertFalse(ListenResumePolicy.deskSpeakUsesGrokVerbatim())
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: true,
+                userWantsVoiceOff: false
+            ),
+            "desk lines must not inject a fake Grok turn"
+        )
+    }
+
+    func testClose1000AfterDeskSpeakReconnectsWhenLiveSessionArmed() {
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true
+            )
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: true,
+                closeCode: 1000,
+                voiceState: .idle
+            ),
+            .reconnect,
+            "697147d: close 1000 after a desk line is not user-stop"
+        )
+        XCTAssertNotEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: true,
+                closeCode: 1000,
+                voiceState: .idle
+            ),
+            .stayIdle
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterRealtimeTimeout(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true
+            ),
+            .reconnect
+        )
+        XCTAssertFalse(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: true,
+                liveSessionArmed: true
+            )
+        )
+    }
+
     func testAfterDeskSpeakResumesCaptureWhenSocketOpen() {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(

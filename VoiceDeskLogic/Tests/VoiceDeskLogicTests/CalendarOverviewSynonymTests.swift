@@ -27,7 +27,9 @@ final class CalendarOverviewSynonymTests: XCTestCase {
         "what's my calendar look like",
         "my calendar this week",
         "uh show my calendar",
-        "okay, calendar for the week"
+        "okay, calendar for the week",
+        "Okay got it. What's on my calendar for the week?",
+        "okay got it. what's on my calendar for the week"
     ]
 
     private var desk: DeskContext { VoiceRegressionDesk.massimoCalendar }

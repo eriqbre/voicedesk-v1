@@ -219,13 +219,17 @@ public enum GrokRealtime {
 
     public static let speakVerbatimMarker = "SPEAK_VERBATIM"
 
-    /// Live Eve should read this block aloud. AVSpeech is only for Mock / no session.
+    /// Desk replies use on-device TTS. Always false — do not inject a fake
+    /// user turn + `response.create` so Grok can speak a local line.
     public static func shouldSpeakViaRealtime(
         usesLiveLoop: Bool,
         isConnected: Bool,
         userWantsVoiceOff: Bool
     ) -> Bool {
-        usesLiveLoop && isConnected && !userWantsVoiceOff
+        _ = usesLiveLoop
+        _ = isConnected
+        _ = userWantsVoiceOff
+        return false
     }
 
     public static func verbatimSpeakInstructions(text: String) -> String {

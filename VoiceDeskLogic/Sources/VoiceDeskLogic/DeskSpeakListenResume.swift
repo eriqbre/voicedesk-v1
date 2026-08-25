@@ -112,6 +112,46 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         )
     }
 
+    /// Named-sender desk speak then calendar. Both are on-device TTS; the
+    /// socket stays in listen. Close 1000 after calendar is not user-stop.
+    public static func afterNamedSenderThenCalendar(
+        senderAsk: String,
+        calendarAsk: String,
+        context: DeskContext,
+        userWantsVoiceOff: Bool = false,
+        liveSessionArmed: Bool = true,
+        reportClose: Bool = false
+    ) -> DeskSpeakListenResume {
+        _ = VoiceTurnReplay.play(utterance: senderAsk, context: context)
+        let afterCalendar = afterCompletedDeskSpeak(
+            ask: calendarAsk,
+            spokenLine: ConversationPresence.calendarReply(context: context),
+            nextAsk: "Tell me about my emails.",
+            context: context,
+            userWantsVoiceOff: userWantsVoiceOff
+        )
+        let stayLive = ListenResumePolicy.sessionShouldStayLive(
+            userWantsVoiceOff: userWantsVoiceOff,
+            liveSessionArmed: liveSessionArmed
+        )
+        let close = ListenResumePolicy.afterSocketClose(
+            userWantsVoiceOff: userWantsVoiceOff,
+            sessionShouldStayLive: stayLive,
+            closeCode: 1000,
+            voiceState: .idle
+        )
+        return DeskSpeakListenResume(
+            spokenIntent: afterCalendar.spokenIntent,
+            listenArmed: !userWantsVoiceOff && afterCalendar.listenArmed,
+            captureArmed: !userWantsVoiceOff && afterCalendar.captureArmed
+                && ListenResumePolicy.isArmed(close),
+            decision: reportClose ? close : afterCalendar.decision,
+            nextIntent: afterCalendar.nextIntent,
+            nextAccepted: afterCalendar.nextAccepted,
+            voiceState: afterCalendar.voiceState
+        )
+    }
+
     /// 4ac127a live fail: walk-2 tape through calendar, then code-1000 close
     /// with VoiceSession already idle. Must reconnect + arm without a new tap.
     public static func afterWalk2CalendarThenIdleNormalClose(

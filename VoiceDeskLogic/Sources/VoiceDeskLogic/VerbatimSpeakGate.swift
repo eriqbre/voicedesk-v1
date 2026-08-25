@@ -1,7 +1,8 @@
 import Foundation
 
-/// Tracks one Eve SPEAK_VERBATIM turn so a leftover Grok `response.done`
-/// (handoff / cancelled reply) cannot mute audio before the local digest plays.
+/// Leftover Grok `response.done` tracking. Desk speak no longer uses a
+/// SPEAK_VERBATIM turn — this stays so a cancelled Grok handoff cannot
+/// mute general conversation.
 public struct VerbatimSpeakGate: Equatable, Sendable {
     public var isSpeaking = false
     public var awaitingCreated = false
@@ -15,7 +16,6 @@ public struct VerbatimSpeakGate: Equatable, Sendable {
         responseID = nil
     }
 
-    /// First `response.created` after `begin()` is the verbatim turn. Unmute then.
     @discardableResult
     public mutating func created(_ id: String) -> Bool {
         guard isSpeaking, awaitingCreated else { return false }
@@ -24,13 +24,6 @@ public struct VerbatimSpeakGate: Equatable, Sendable {
         return true
     }
 
-    /// Ignore leftover `response.done` while we still wait for our create,
-    /// or when the finished id is not the verbatim response.
-    ///
-    /// Always prefer `eventID` from the done payload. Slower desk turns
-    /// (inbox digest, person follow-up fetch) often receive the cancelled
-    /// handoff `response.done` *after* `response.created` already flipped
-    /// `currentID` to the verbatim id — matching on `currentID` alone remutes Eve.
     public func shouldIgnoreDone(eventID: String? = nil, currentID: String?) -> Bool {
         guard isSpeaking else { return false }
         if awaitingCreated { return true }
@@ -43,7 +36,6 @@ public struct VerbatimSpeakGate: Equatable, Sendable {
         return false
     }
 
-    /// True when this done belongs to the verbatim speak — restore mute / session.
     @discardableResult
     public mutating func finishDone(eventID: String? = nil, currentID: String?) -> Bool {
         guard isSpeaking else { return false }
