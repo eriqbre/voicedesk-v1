@@ -95,6 +95,11 @@ final class VoiceTapeHarnessTests: XCTestCase {
         XCTAssertTrue(VoiceTape.shouldSkipLive(hasAPIKey: false))
         XCTAssertTrue(VoiceTape.shouldSkipLive(hasAPIKey: true, dryRun: true))
         XCTAssertFalse(VoiceTape.shouldSkipLive(hasAPIKey: true, dryRun: false))
+
+        let mint = try XCTUnwrap(repoFile("scripts/mint-voice-tapes.sh"))
+        XCTAssertTrue(mint.contains("say -o \"$aiff\" \"$phrase\""))
+        XCTAssertTrue(mint.contains("afconvert -f WAVE -d LEI16@24000 -c 1"))
+        XCTAssertFalse(mint.contains("--data-format"), "say --data-format writes an empty AIFF")
     }
 
     func testNamedKatherineIsDeskOwnedOnTheTapeCatalog() {

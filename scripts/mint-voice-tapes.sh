@@ -19,7 +19,7 @@ mint() {
     phrase="$2"
     aiff="$DEST/$id.aiff"
     wav="$DEST/$id.wav"
-    say -o "$aiff" --data-format=LEF32@24000 "$phrase"
+    say -o "$aiff" "$phrase"
     afconvert -f WAVE -d LEI16@24000 -c 1 "$aiff" "$wav"
     rm -f "$aiff"
     echo "minted $id" >&2
