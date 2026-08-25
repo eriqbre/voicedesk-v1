@@ -95,6 +95,9 @@ final class VoiceTapeHarnessTests: XCTestCase {
         XCTAssertTrue(VoiceTape.shouldSkipLive(hasAPIKey: false))
         XCTAssertTrue(VoiceTape.shouldSkipLive(hasAPIKey: true, dryRun: true))
         XCTAssertFalse(VoiceTape.shouldSkipLive(hasAPIKey: true, dryRun: false))
+        XCTAssertTrue(script.contains("play_tape_on_fresh_socket"), "one socket per tape")
+        XCTAssertTrue(script.contains("input_audio_buffer.clear"))
+        XCTAssertFalse(script.contains("if not play_and_assert(sock, second)"))
 
         let mint = try XCTUnwrap(repoFile("scripts/mint-voice-tapes.sh"))
         XCTAssertTrue(mint.contains("say -o \"$aiff\" \"$phrase\""))

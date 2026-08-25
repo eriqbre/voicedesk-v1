@@ -10,7 +10,8 @@ No key (or --dry-run) → exit 0 skip. Mint WAVs on a Mac first:
 
 PCM16 24 kHz → wss://api.x.ai/v1/realtime → user transcript → EchoBargeIn
 (voiceState=speaking, lastSpokenLine empty) → inbox-overview / version /
-calendar / desk-person. Close 1000 must reconnect, not stayIdle.
+calendar / desk-person. New socket per tape — no leftover conversation.
+Close 1000 must reconnect, not stayIdle.
 
 No BlackHole. No simctl mic. No XCUITest audio-input. No new voice stack.
 """
@@ -206,7 +207,6 @@ def plist_string(path: Path, key: str) -> str | None:
 
 def run_live() -> int:
     catalog = load_manifest()
-    by_id = {item["id"]: item for item in catalog}
     missing = [item["id"] for item in catalog if not wav_path(item["id"]).is_file()]
     if missing:
         print(
@@ -221,31 +221,28 @@ def run_live() -> int:
         print("skip: no XAI_API_KEY", file=sys.stderr)
         return 0
 
-    session = gate_json(["session-update", "--context", "connected"])
+    for item in catalog:
+        if not play_tape_on_fresh_socket(key, item):
+            return 1
+
+    stay = gate_json(["stay-live"])
+    if stay.get("decision") != "reconnect" or stay.get("reconnect") is not True:
+        print("fail: close 1000 after audio.start must reconnect, not stayIdle", file=sys.stderr)
+        return 1
+    print("ok: tapes accepted; close 1000 reconnects")
+    return 0
+
+
+def play_tape_on_fresh_socket(key: str, item: dict[str, Any]) -> bool:
+    """New realtime session per tape. Prior inbox turns must not stick."""
+    session = gate_json(["session-update", "--context", item.get("context") or "connected"])
     sock = connect(key)
     try:
         sock.wait_type("session.created", TAPE_TIMEOUT_S)
         sock.send_json(session)
         sock.wait_type("session.updated", TAPE_TIMEOUT_S)
-
-        first = by_id["show-my-latest-emails"]
-        second = by_id["my-latest-emails"]
-        if not play_and_assert(sock, first):
-            return 1
-        if not play_and_assert(sock, second):
-            return 1
-        for item in catalog:
-            if item["id"] in {first["id"], second["id"]}:
-                continue
-            if not play_and_assert(sock, item):
-                return 1
-
-        stay = gate_json(["stay-live"])
-        if stay.get("decision") != "reconnect" or stay.get("reconnect") is not True:
-            print("fail: close 1000 after audio.start must reconnect, not stayIdle", file=sys.stderr)
-            return 1
-        print("ok: tapes accepted; close 1000 reconnects")
-        return 0
+        sock.send_json({"type": "input_audio_buffer.clear"})
+        return play_and_assert(sock, item)
     finally:
         sock.close()
 
