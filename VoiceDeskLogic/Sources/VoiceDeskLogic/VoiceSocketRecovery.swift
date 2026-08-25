@@ -13,6 +13,8 @@ public enum VoiceSocketRecovery: Sendable {
             || lower.contains("broken pipe")
             || lower.contains("connection reset")
             || lower.contains("timed out")
+            || lower.contains("timeout")
+            || lower.contains("max_duration")
             || lower.contains("websocket timeout")
             || lower.contains("disconnected")
             || lower.contains("closed")

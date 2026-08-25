@@ -42,6 +42,9 @@ final class GrokVoiceService: VoiceServicing {
     private var connectingTask: Task<Void, Error>?
     /// True once the live socket opened during this process lifetime.
     private var didConnectThisLaunch = false
+    /// First Tap to talk armed this live loop. Cleared only on user stop.
+    /// Independent of VoiceSession flipping idle after TTS / timeout.
+    private var liveSessionArmed = false
     /// Set when a local desk / verbatim line starts. Cleared after playback
     /// drains (or immediately when there is no audio left to play).
     private var pendingListenAfterDeskSpeak = false
@@ -78,6 +81,7 @@ final class GrokVoiceService: VoiceServicing {
 
     func startListening() async -> String {
         userWantsVoiceOff = false
+        liveSessionArmed = true
         if session.state != .idle {
             if !client.isConnected, !isRecovering {
                 await recoverAfterDrop(reason: "tap talk")
@@ -188,6 +192,7 @@ final class GrokVoiceService: VoiceServicing {
 
     func cancel() {
         userWantsVoiceOff = true
+        liveSessionArmed = false
         pendingListenAfterDeskSpeak = false
         echoGate.cancelSpeaking()
         teardown(sendCancel: true)
@@ -307,6 +312,10 @@ final class GrokVoiceService: VoiceServicing {
     /// first-tap if it closed and the user did not tap stop.
     private func armListenIfSessionLive(reason: String) {
         guard !userWantsVoiceOff, !isTearingDown else { return }
+        if verbatim.isSpeaking {
+            logListenResume("after \(reason): skip, verbatim still speaking")
+            return
+        }
         echoGate.finishSpeaking()
         ListenResumePolicy.applySessionAfterDeskSpeak(&session)
         eventHandler?(.state(session.state))
@@ -322,6 +331,7 @@ final class GrokVoiceService: VoiceServicing {
         case .stayIdle:
             return
         case .keepListening, .resumeCapture:
+            reconnectsUsed = 0
             sendListenResumeSessionUpdate()
             resumeCaptureAfterDeskSpeak()
         case .reconnect:
@@ -338,8 +348,16 @@ final class GrokVoiceService: VoiceServicing {
     /// line finished in the speaker — re-arm the tap once playback drains.
     private func armListenAfterPlaybackDrained() {
         guard pendingListenAfterDeskSpeak else { return }
+        if verbatim.isSpeaking { return }
         pendingListenAfterDeskSpeak = false
         armListenIfSessionLive(reason: "playback drained")
+    }
+
+    private var sessionShouldStayLive: Bool {
+        ListenResumePolicy.sessionShouldStayLive(
+            userWantsVoiceOff: userWantsVoiceOff,
+            liveSessionArmed: liveSessionArmed
+        )
     }
 
     private func logListenResume(note: String, errors: [String] = []) {
@@ -451,26 +469,29 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
 
     func grokWebSocketDidClose(code: Int, reason: String?) {
         failReady(GrokVoiceError.connectFailed("closed \(code) \(reason ?? "")"))
+        let stayLive = sessionShouldStayLive
+        let decision = ListenResumePolicy.afterSocketClose(
+            userWantsVoiceOff: userWantsVoiceOff,
+            sessionShouldStayLive: stayLive,
+            closeCode: code,
+            voiceState: session.state
+        )
         logListenResume(
-            note: "session close code=\(code) reason=\(reason ?? "") state=\(session.state.rawValue)"
+            note: "session close code=\(code) reason=\(reason ?? "") state=\(session.state.rawValue) stayLive=\(stayLive) \(decision)"
         )
         guard !isTearingDown, !isRecovering else { return }
-        let stayLive = ListenResumePolicy.afterSocketClose(
-            userWantsVoiceOff: userWantsVoiceOff,
-            sessionShouldStayLive: session.state != .idle
-        )
         let detail = "Grok disconnected"
-        if stayLive == .reconnect,
+        if decision == .reconnect,
            VoiceSocketRecovery.shouldReconnect(
             error: detail,
             alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects,
             userWantsVoiceOff: userWantsVoiceOff
            ) {
             reconnectsUsed += 1
-            Task { await recoverAfterDrop(reason: detail) }
+            Task { await recoverAfterDrop(reason: "close \(code)") }
             return
         }
-        guard session.state != .idle, !userWantsVoiceOff else { return }
+        guard stayLive else { return }
         eventHandler?(.failed(detail))
         teardown(sendCancel: false)
     }
@@ -571,7 +592,16 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .error(let code, let message):
             eventHandler?(.failed("\(code) \(message)".trimmingCharacters(in: .whitespaces)))
             if code == "timeout" || code == "max_duration" {
-                teardown(sendCancel: false)
+                let decision = ListenResumePolicy.afterRealtimeTimeout(
+                    userWantsVoiceOff: userWantsVoiceOff,
+                    liveSessionArmed: liveSessionArmed
+                )
+                logListenResume("realtime \(code) \(decision) stayLive=\(sessionShouldStayLive)")
+                if decision == .reconnect {
+                    Task { await recoverAfterDrop(reason: "timeout \(code)") }
+                } else {
+                    teardown(sendCancel: false)
+                }
             }
         case .ignored:
             break

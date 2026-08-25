@@ -73,6 +73,57 @@ final class ListenResumePolicyTests: XCTestCase {
         )
     }
 
+    func testNormalClose1000WhileIdleStillReconnectsWhenLiveSessionArmed() {
+        XCTAssertTrue(ListenResumePolicy.isNormalClose(1000))
+        XCTAssertTrue(ListenResumePolicy.isNormalClose(1001))
+        XCTAssertFalse(ListenResumePolicy.isNormalClose(1006))
+
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true
+            )
+        )
+        XCTAssertFalse(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: false
+            ),
+            "warmup / never tapped must not reconnect a 1000"
+        )
+        XCTAssertFalse(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: true,
+                liveSessionArmed: true
+            )
+        )
+
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: true,
+                closeCode: 1000,
+                voiceState: .idle
+            ),
+            .reconnect,
+            "4ac127a: code 1000 + idle is not user-stop"
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterRealtimeTimeout(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true
+            ),
+            .reconnect
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterRealtimeTimeout(
+                userWantsVoiceOff: true,
+                liveSessionArmed: true
+            ),
+            .stayIdle
+        )
+    }
+
     func testSessionReturnsToListeningAfterDeskSpeakFromAnyLiveState() {
         for start: VoiceState in [.listening, .thinking, .speaking, .idle] {
             var session = VoiceSession(state: start)

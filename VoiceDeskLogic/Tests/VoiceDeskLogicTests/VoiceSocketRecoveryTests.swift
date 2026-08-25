@@ -6,6 +6,8 @@ final class VoiceSocketRecoveryTests: XCTestCase {
         XCTAssertTrue(VoiceSocketRecovery.isSocketDrop("The operation couldn't be completed. Socket is not connected"))
         XCTAssertTrue(VoiceSocketRecovery.isSocketDrop("Grok disconnected"))
         XCTAssertTrue(VoiceSocketRecovery.isSocketDrop("WebSocket timeout"))
+        XCTAssertTrue(VoiceSocketRecovery.isSocketDrop("timeout"))
+        XCTAssertTrue(VoiceSocketRecovery.isSocketDrop("max_duration"))
         XCTAssertFalse(VoiceSocketRecovery.isSocketDrop("Microphone permission denied"))
     }
 

@@ -34,13 +34,48 @@ public enum ListenResumePolicy: Sendable {
         return .resumeCapture
     }
 
+    /// 4ac127a walk: calendar spoke, then `session close code=1000 state=idle`.
+    /// Normal close is not “user stopped.” Reconnect when the live session
+    /// is still supposed to hear — do not gate on VoiceState.idle.
+    public static func isNormalClose(_ code: Int) -> Bool {
+        code == 1000 || code == 1001
+    }
+
+    /// Armed on first Tap to talk. Cleared only on user stop. Independent of
+    /// whether the VoiceSession machine flipped idle after TTS / timeout.
+    public static func sessionShouldStayLive(
+        userWantsVoiceOff: Bool,
+        liveSessionArmed: Bool
+    ) -> Bool {
+        !userWantsVoiceOff && liveSessionArmed
+    }
+
     /// Socket closed. Reconnect when the live session is still supposed to hear.
+    /// Code 1000 + idle is the 4ac127a deaf path.
     public static func afterSocketClose(
         userWantsVoiceOff: Bool,
-        sessionShouldStayLive: Bool
+        sessionShouldStayLive: Bool,
+        closeCode: Int? = nil,
+        voiceState: VoiceState? = nil
     ) -> ListenResumeDecision {
+        _ = closeCode
+        _ = voiceState
         if userWantsVoiceOff || !sessionShouldStayLive { return .stayIdle }
         return .reconnect
+    }
+
+    /// Server idle / max_duration after a local desk line. Stay live → reconnect.
+    public static func afterRealtimeTimeout(
+        userWantsVoiceOff: Bool,
+        liveSessionArmed: Bool
+    ) -> ListenResumeDecision {
+        afterSocketClose(
+            userWantsVoiceOff: userWantsVoiceOff,
+            sessionShouldStayLive: sessionShouldStayLive(
+                userWantsVoiceOff: userWantsVoiceOff,
+                liveSessionArmed: liveSessionArmed
+            )
+        )
     }
 
     /// Idle after a desk speak still wants listen — they already tapped Talk.

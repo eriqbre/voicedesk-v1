@@ -206,6 +206,32 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         XCTAssertEqual(walk.nextIntent, "inbox-overview")
     }
 
+    /// 4ac127a Qs 15 Pro Max: walk-2 through calendar, then close 1000 / idle.
+    /// Reconnect + capture armed. No new first-tap.
+    func testWalk2CalendarThenIdleCode1000ReconnectsAndArmsCapture() {
+        let desk = VoiceRegressionDesk.laurenSeveral
+        let walk = DeskSpeakListenResume.afterWalk2CalendarThenIdleNormalClose(
+            nextAsk: "Tell me about my emails.",
+            context: desk
+        )
+        XCTAssertEqual(walk.spokenIntent, "calendar")
+        XCTAssertEqual(walk.decision, .reconnect)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.captureArmed)
+        XCTAssertEqual(walk.voiceState, .listening)
+        XCTAssertTrue(walk.nextAccepted)
+        XCTAssertEqual(walk.nextIntent, "inbox-overview")
+
+        let stopped = DeskSpeakListenResume.afterWalk2CalendarThenIdleNormalClose(
+            nextAsk: "Tell me about my emails.",
+            context: desk,
+            userWantsVoiceOff: true
+        )
+        XCTAssertEqual(stopped.decision, .stayIdle)
+        XCTAssertFalse(stopped.listenArmed)
+        XCTAssertFalse(stopped.captureArmed)
+    }
+
     func testUserStopAfterDeskSpeakDoesNotArm() {
         let decision = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: true,

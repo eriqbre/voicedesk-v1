@@ -111,4 +111,52 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
             voiceState: session.state
         )
     }
+
+    /// 4ac127a live fail: walk-2 tape through calendar, then code-1000 close
+    /// with VoiceSession already idle. Must reconnect + arm without a new tap.
+    public static func afterWalk2CalendarThenIdleNormalClose(
+        nextAsk: String,
+        context: DeskContext,
+        userWantsVoiceOff: Bool = false,
+        liveSessionArmed: Bool = true
+    ) -> DeskSpeakListenResume {
+        let before = afterSequentialDeskSpeaks(
+            turns: [
+                ("Tell me my emails for the day.", "Five emails in the last sync."),
+                (
+                    "Find that, find that email from Lauren about Fleeman Road.",
+                    "Laren Jansen wrote about Fleeman Road disclosures."
+                ),
+                ("What's on my calendar for the week?", "Massimo’s on Thursday.")
+            ],
+            nextAsk: nextAsk,
+            context: context,
+            captureRunningAfterSpeak: true
+        )
+        var session = VoiceSession(state: .idle)
+        let shouldStay = ListenResumePolicy.sessionShouldStayLive(
+            userWantsVoiceOff: userWantsVoiceOff,
+            liveSessionArmed: liveSessionArmed
+        )
+        let close = ListenResumePolicy.afterSocketClose(
+            userWantsVoiceOff: userWantsVoiceOff,
+            sessionShouldStayLive: shouldStay,
+            closeCode: 1000,
+            voiceState: .idle
+        )
+        if ListenResumePolicy.isArmed(close) {
+            ListenResumePolicy.applySessionAfterDeskSpeak(&session)
+        }
+        let next = EchoTranscriptGate().decide(nextAsk, voiceState: session.state, context: context)
+        return DeskSpeakListenResume(
+            spokenIntent: before.spokenIntent,
+            listenArmed: ListenResumePolicy.isListenArmed(state: session.state),
+            captureArmed: ListenResumePolicy.isListenArmed(state: session.state)
+                && ListenResumePolicy.isArmed(close),
+            decision: close,
+            nextIntent: next.intent,
+            nextAccepted: !next.isDropped,
+            voiceState: session.state
+        )
+    }
 }
