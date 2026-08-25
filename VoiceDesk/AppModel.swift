@@ -273,35 +273,33 @@ final class AppModel {
         }
     }
 
-    func connectGoogle() {
-        Task {
-            await google.connect()
-            refreshGoogleCards()
-            if google.setupNeeded || !google.isConnected {
-                let copy = google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy
-                activity.append(
-                    ActivityEntry(
-                        title: "Google connect",
-                        detail: "Gmail, Calendar, Tasks",
-                        outcome: google.setupNeeded ? "Setup required. Not connected." : (google.snapshot.message ?? "Failed. Not connected.")
-                    )
-                )
-                appendAssistant(copy)
-                return
-            }
-            await syncDesk()
+    func connectGoogle() async {
+        await google.connect()
+        refreshGoogleCards()
+        if google.setupNeeded || !google.isConnected {
+            let copy = google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy
             activity.append(
                 ActivityEntry(
                     title: "Google connect",
-                    detail: google.snapshot.email ?? "Gmail, Calendar, Tasks",
-                    outcome: "Connected. Last-synced reads are cached offline."
+                    detail: "Gmail, Calendar, Tasks",
+                    outcome: google.setupNeeded ? "Setup required. Not connected." : (google.snapshot.message ?? "Failed. Not connected.")
                 )
             )
-            appendAssistant(
-                "Google is connected as \(google.snapshot.email ?? "your account"). Ask what’s in your inbox — I’ll only show synced mail."
-            )
-            await voice.speak("Google is connected.")
+            appendAssistant(copy)
+            return
         }
+        await syncDesk()
+        activity.append(
+            ActivityEntry(
+                title: "Google connect",
+                detail: google.snapshot.email ?? "Gmail, Calendar, Tasks",
+                outcome: "Connected. Last-synced reads are cached offline."
+            )
+        )
+        appendAssistant(
+            "Google is connected as \(google.snapshot.email ?? "your account"). Ask what’s in your inbox — I’ll only show synced mail."
+        )
+        await voice.speak("Google is connected.")
     }
 
     func disconnectGoogle() {

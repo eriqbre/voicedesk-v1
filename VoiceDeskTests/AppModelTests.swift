@@ -285,7 +285,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.conversationScrollReason, .cardsPeek)
     }
 
-    func testLiveCalendarReplyAttachesCardsAndScrolls() {
+    func testLiveCalendarReplyAttachesCardsAndScrolls() async {
         let event = CalendarItem(
             title: "Dinner reservation",
             whenLabel: "Tonight 7:00 PM",
@@ -299,10 +299,15 @@ final class AppModelTests: XCTestCase {
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: DeskSnapshot(events: [event]))
         )
-        fake.emitUser("What's on my calendar?", itemID: "cal-1")
         let epoch = model.conversationScrollEpoch
-        fake.emitAssistant("Next up: Dinner reservation, Tonight 7:00 PM.", isFinal: true)
+        await model.applyUserTurn("What's on my calendar?")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            "calendar overview is cards-only: \(model.turns.last?.text ?? "")"
+        )
+        XCTAssertTrue(fake.spoken.contains { $0.contains("Dinner reservation") })
+        XCTAssertTrue(fake.sentTurns.isEmpty, "calendar is on-device TTS; Grok stays in listen")
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.notes, "Window table, party of 4.")
         } else {
@@ -340,8 +345,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.turns.last?.text, "VoiceDesk point 1, build 6.")
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
         XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 6."))
-        XCTAssertTrue(fake.sentTurns.isEmpty)
-        XCTAssertTrue(fake.assistantOutputSuppressed)
+        XCTAssertTrue(fake.sentTurns.isEmpty, "version is on-device TTS, not a Grok turn")
 
         await model.applyUserTurn("Can you show it to me?")
         XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 6.")
@@ -397,17 +401,19 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("what's on the phone")
         let afterVersion = model.turns.count
         XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 6."))
+        XCTAssertTrue(fake.sentTurns.isEmpty)
 
         fake.emitUser("zero")
         fake.emitUser("point one")
         fake.emitUser("build 6")
         XCTAssertEqual(model.turns.count, afterVersion, "echo leftovers must not become user turns")
 
-        fake.emitUser("what's on my calendar")
+        await model.applyUserTurn("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
         XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk point 1, build 6.")
 
-        fake.emitUser("latest email from Lauren")
+        await model.applyUserTurn("latest email from Lauren")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
@@ -435,23 +441,24 @@ final class AppModelTests: XCTestCase {
         fake.emitUser("What's.")
         XCTAssertEqual(model.turns.count, afterWelcome, "bare What's. must not become a user turn")
         XCTAssertTrue(fake.sentTurns.isEmpty)
-        XCTAssertTrue(fake.assistantOutputSuppressed)
         XCTAssertFalse(fake.spoken.contains { $0.lowercased().contains("starting a thought") })
 
-        fake.emitUser("what SHA")
+        await model.applyUserTurn("what SHA")
         XCTAssertEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
         XCTAssertTrue(fake.spoken.contains("VoiceDesk 1fa0a0e."))
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
+        XCTAssertTrue(fake.sentTurns.isEmpty)
 
         fake.emitUser("What's.")
         let afterSecondHold = model.turns.count
-        fake.emitUser("what's on my calendar")
+        await model.applyUserTurn("what's on my calendar")
         XCTAssertGreaterThan(model.turns.count, afterSecondHold)
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
         XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
 
         fake.emitUser("What's.")
-        fake.emitUser("what's the latest email from Lauren")
+        await model.applyUserTurn("what's the latest email from Lauren")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
@@ -469,9 +476,8 @@ final class AppModelTests: XCTestCase {
         fake.emitUser("give me a summary")
         XCTAssertEqual(model.turns.count, afterWelcome, "incomplete desk stem must not become a user turn")
         XCTAssertTrue(fake.sentTurns.isEmpty)
-        XCTAssertTrue(fake.assistantOutputSuppressed)
 
-        fake.emitUser("on the email from lauren about fleeman rd")
+        await model.applyUserTurn("on the email from lauren about fleeman rd")
         XCTAssertTrue(
             model.turns.last?.cards.contains(where: { card in
                 if case .email(let item) = card {
@@ -609,11 +615,19 @@ final class AppModelTests: XCTestCase {
         } else {
             XCTFail("expected Murray thread card")
         }
-        let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.lowercased().contains("thread") || reply.lowercased().contains("earlier"))
-        XCTAssertFalse(reply.lowercased().contains("can't pull") || reply.lowercased().contains("cannot pull"))
-        XCTAssertFalse(reply.lowercased().contains("not in my last sync"))
-        XCTAssertFalse(reply.lowercased().contains("all i have is the latest"))
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            "thread summary is spoken, not reprinted: \(model.turns.last?.text ?? "")"
+        )
+        XCTAssertTrue(
+            fake.spoken.contains {
+                $0.lowercased().contains("thread") || $0.lowercased().contains("earlier")
+                    || $0.lowercased().contains("walk the lot")
+            },
+            "\(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { $0.lowercased().contains("can't pull") })
+        XCTAssertFalse(fake.spoken.contains { $0.lowercased().contains("not in my last sync") })
     }
 
     func testCacheMissSearchesGmailAndAttaches() async {
@@ -695,14 +709,12 @@ final class AppModelTests: XCTestCase {
         )
 
         await model.applyUserTurn("Give me a summary of Murray's last email.")
-        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue(fake.sentTurns.isEmpty, "named-sender clarify is on-device TTS")
         XCTAssertEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
         XCTAssertEqual(model.turns.last?.cards.filter { $0.kind == .email }.count, 3)
-        XCTAssertTrue(fake.assistantOutputSuppressed)
 
         await model.applyUserTurn("The last one.")
-        XCTAssertTrue(fake.sentTurns.isEmpty, "must not unmute live Grok for a clarify pick")
-        XCTAssertTrue(fake.assistantOutputSuppressed)
+        XCTAssertTrue(fake.sentTurns.isEmpty, "clarify pick must not inject a Grok user turn")
         XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
         XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("stay quiet"))
         XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("ios app handles"))
@@ -880,8 +892,9 @@ final class AppModelTests: XCTestCase {
         let sync = MockGoogleSync(result: snapshot)
         sync.bodies["msg-murray-full"] = murray.body
         sync.earlierMessages["msg-murray-full"] = murray.earlierMessages
+        let fake = FakeLiveVoiceService()
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: fake,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: sync
@@ -893,9 +906,19 @@ final class AppModelTests: XCTestCase {
         } else {
             XCTFail("expected Murray thread card")
         }
-        let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.contains("Need you to notarize") || reply.contains("buyer is coming"))
-        XCTAssertTrue(reply.lowercased().contains("earlier") || reply.contains("walk the lot"))
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            "full summary is spoken, not reprinted: \(model.turns.last?.text ?? "")"
+        )
+        XCTAssertTrue(
+            fake.spoken.contains { $0.contains("Need you to notarize") || $0.contains("buyer is coming") },
+            "\(fake.spoken)"
+        )
+        XCTAssertTrue(
+            fake.spoken.contains { $0.lowercased().contains("earlier") || $0.contains("walk the lot") },
+            "\(fake.spoken)"
+        )
+        XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
     func testGmailSearchEmptyIsHonest() async {
@@ -912,7 +935,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
     }
 
-    func testDeskReplyIsSpokenWhileLiveGrokStaysMuted() async {
+    func testDeskReplySpeaksOnDeviceWithoutGrokTurn() async {
         var murray = SampleData.syncedEmail()
         murray.fromName = "Murray Mitchell"
         murray.providerID = "msg-murray-speak"
@@ -932,16 +955,19 @@ final class AppModelTests: XCTestCase {
             sync: sync
         )
         await model.applyUserTurn("full summary of Murray’s latest email")
-        let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.contains("Need you to notarize"))
-        XCTAssertEqual(fake.spoken, [reply])
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            model.turns.last?.text ?? ""
+        )
+        XCTAssertEqual(fake.spoken.count, 1)
+        let spoken = fake.spoken[0]
+        XCTAssertTrue(spoken.contains("Need you to notarize"), spoken)
         XCTAssertFalse(fake.spoken.contains(ConversationPresence.gmailSearchingBeat))
-        XCTAssertTrue(fake.assistantOutputSuppressed)
-        XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue(fake.sentTurns.isEmpty, "desk speak is client TTS; do not inject a Grok turn")
 
         await model.applyUserTurn("full summary of Murray’s latest email")
-        XCTAssertEqual(fake.spoken, [reply], "same desk reply must not be spoken twice")
-        XCTAssertTrue(fake.assistantOutputSuppressed)
+        XCTAssertEqual(fake.spoken, [spoken], "same desk reply must not be spoken twice")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
     func testNeedMoreAndSearchResultsAreSpokenNotTheSearchingBeat() async {
@@ -968,7 +994,7 @@ final class AppModelTests: XCTestCase {
         let reply = model.turns.last?.text ?? ""
         XCTAssertEqual(fake.spoken, [ConversationPresence.emailNeedMoreReply, reply])
         XCTAssertFalse(fake.spoken.contains(ConversationPresence.gmailSearchingBeat))
-        XCTAssertTrue(fake.assistantOutputSuppressed)
+        XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
     func testLiveRefusalIsScrubbedWhenLocalEmailAttaches() async {
@@ -1049,12 +1075,18 @@ final class AppModelTests: XCTestCase {
             if case .email(let item) = card { return item.isCompactListRow }
             return false
         })
-        let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.contains("Murray Mitchell"))
-        XCTAssertTrue(reply.contains("Steve Brown"))
-        XCTAssertEqual(fake.spoken.last, reply)
-        XCTAssertFalse(reply.contains("<html"))
-        XCTAssertFalse(EmailSummary.containsUIChrome(reply))
+        let onScreen = model.turns.last?.text ?? ""
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(onScreen),
+            "glance is cards-only: \(onScreen)"
+        )
+        let digest = fake.spoken.last ?? ""
+        XCTAssertTrue(digest.contains("Murray Mitchell"), digest)
+        XCTAssertTrue(digest.contains("Steve Brown"), digest)
+        XCTAssertNotEqual(digest, onScreen)
+        XCTAssertFalse(digest.contains("<html"))
+        XCTAssertFalse(EmailSummary.containsUIChrome(digest))
+        XCTAssertTrue(fake.sentTurns.isEmpty)
 
         let epoch = model.conversationScrollEpoch
         let target = model.conversationScrollTarget
@@ -1169,7 +1201,6 @@ final class AppModelTests: XCTestCase {
         } else {
             XCTFail("expected John Madison full card")
         }
-        XCTAssertTrue(fake.assistantOutputSuppressed)
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
@@ -1272,6 +1303,9 @@ final class AppModelTests: XCTestCase {
     }
 }
 
+/// Live Grok stand-in. Desk speak is `speak` (on-device TTS). `sentTurns` is
+/// a fake Grok user turn — desk replies must not use it. The socket stays
+/// in listen; do not treat output-suppress as “session muted.”
 @MainActor
 final class FakeLiveVoiceService: VoiceServicing {
     private var session = VoiceSession()
@@ -1603,7 +1637,10 @@ final class GoogleSliceTests: XCTestCase {
         )
         await model.applyUserTurn("what's in my inbox?")
         XCTAssertEqual(sync.syncCalls, 0)
-        XCTAssertTrue((model.turns.last?.text ?? "").lowercased().contains("last-synced"))
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            "offline glance is still cards-only: \(model.turns.last?.text ?? "")"
+        )
         if case .email(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.subject, "Day-one snapshot")
         } else {

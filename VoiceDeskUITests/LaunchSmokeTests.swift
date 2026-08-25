@@ -37,7 +37,7 @@ final class LaunchSmokeTests: XCTestCase {
         waitForCard("card.connectGoogle")
         XCTAssertTrue(app.buttons["google.connect"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["suggestion.connectGoogle"].waitForExistence(timeout: 5))
-        let coach = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Connect Google so I can see'")).firstMatch
+        let coach = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Tap Connect Google'")).firstMatch
         XCTAssertTrue(coach.waitForExistence(timeout: 5))
     }
 
