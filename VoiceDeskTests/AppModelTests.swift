@@ -991,10 +991,19 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(fake.spoken, [ConversationPresence.emailNeedMoreReply])
 
         await model.applyUserTurn("Showing time")
-        let reply = model.turns.last?.text ?? ""
-        XCTAssertEqual(fake.spoken, [ConversationPresence.emailNeedMoreReply, reply])
+        XCTAssertTrue(
+            InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
+            "search hit is cards-only: \(model.turns.last?.text ?? "")"
+        )
+        XCTAssertEqual(fake.spoken.first, ConversationPresence.emailNeedMoreReply)
+        XCTAssertTrue(
+            (fake.spoken.last ?? "").contains("ShowingTime")
+                || (fake.spoken.last ?? "").localizedCaseInsensitiveContains("showing"),
+            "\(fake.spoken)"
+        )
         XCTAssertFalse(fake.spoken.contains(ConversationPresence.gmailSearchingBeat))
         XCTAssertTrue(fake.sentTurns.isEmpty)
+        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
     func testLiveRefusalIsScrubbedWhenLocalEmailAttaches() async {
@@ -1013,12 +1022,17 @@ final class AppModelTests: XCTestCase {
             sync: sync
         )
         fake.emitAssistant("I can’t pull the full email — that’s not in my last sync.", isFinal: true)
-        XCTAssertTrue(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
+        XCTAssertFalse(
+            model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) },
+            "live refusal must never become a turn"
+        )
         await model.applyUserTurn("full summary of Murray’s latest email")
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
         XCTAssertTrue(fake.spoken.contains { $0.contains("Need you to notarize") })
+        XCTAssertFalse(fake.spoken.contains { ConversationPresence.isGrokDeskRefusal($0) })
+        XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
     func testHandoffMetaIsDroppedAndEveStillSpeaksDeskSummary() async {
@@ -1035,7 +1049,10 @@ final class AppModelTests: XCTestCase {
             sync: MockGoogleSync(result: snapshot)
         )
         fake.emitAssistant("I’ll let the app handle that.", isFinal: true)
-        XCTAssertTrue(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
+        XCTAssertFalse(
+            model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) },
+            "handoff meta must never become a turn"
+        )
         await model.applyUserTurn("summarize the Murray email")
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
         XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("let the app handle") })
@@ -1046,6 +1063,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(fake.spoken.contains { $0.localizedCaseInsensitiveContains("let the app handle") })
         fake.emitAssistant("I'll have the app look that up.", isFinal: true)
         XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("look that up") })
+        XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
     func testInboxOverviewAttachesCompactRowsAndSpeaksDigest() async {

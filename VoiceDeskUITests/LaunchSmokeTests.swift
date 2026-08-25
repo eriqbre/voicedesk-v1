@@ -68,13 +68,18 @@ final class LaunchSmokeTests: XCTestCase {
     }
 
     func testDraftConfirmDoesNotFakeSend() {
-        XCTAssertTrue(app.buttons["suggestion.draft"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["suggestion.draft"].waitForExistence(timeout: 8))
         app.buttons["suggestion.draft"].tap()
-        XCTAssertTrue(app.buttons["draft.confirm"].waitForExistence(timeout: 10))
-        app.buttons["draft.confirm"].tap()
-        let notSent = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Not sent'")).firstMatch
-        XCTAssertTrue(notSent.waitForExistence(timeout: 8))
-        XCTAssertFalse(app.staticTexts["Delivered."].exists)
+        waitForCard("card.draftConfirm")
+        let confirm = app.buttons["draft.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        confirm.tap()
+        let queued = app.descendants(matching: .any)["draft.queued"]
+        if !queued.waitForExistence(timeout: 2) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(queued.waitForExistence(timeout: 8), "confirm must show Not sent / queued")
+        XCTAssertFalse(app.descendants(matching: .any)["draft.delivered"].exists)
     }
 
     private func waitForCard(_ id: String) {

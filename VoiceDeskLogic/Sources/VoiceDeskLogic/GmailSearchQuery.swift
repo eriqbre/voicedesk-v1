@@ -374,8 +374,10 @@ public enum GmailSearchQuery: Sendable {
         }
 
         let only = groups.values.first ?? []
-        if plan.subjectTokens.isEmpty, let newest = EmailRecency.newest(only.map(\.email)) {
-            return .one(newest)
+        // Same sender, several threads, no topic: ask which one.
+        // “The last one.” after that clarify is EmailRecency, not this pick.
+        if only.count > 1, plan.subjectTokens.isEmpty {
+            return .several(Array(EmailRecency.newestFirst(only.map(\.email)).prefix(3)))
         }
         if let best = only.max(by: { $0.score < $1.score }) {
             return .one(best.email)
