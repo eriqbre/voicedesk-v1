@@ -18,7 +18,9 @@ struct ContentCardView: View {
             }
         }
         // Outer ID is what made CI green (91b54e4). CardChrome must stay visual-only.
+        // XCUITest sees this node, not the inner `card.email.full` / `.compact` tap id.
         .accessibilityIdentifier(card.fixtureID)
+        .accessibilityValue(card.emailPresentationState ?? "")
     }
 }
 
@@ -60,6 +62,7 @@ struct EmailCardView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(item.cardPresentation.tapIdentifier)
         .accessibilityLabel(showsFullReader ? emailAccessibilityLabel : compactAccessibilityLabel)
+        .accessibilityValue(item.cardPresentation.rawValue)
         .accessibilityHint(showsFullReader ? "Collapses the email" : "Opens the full email")
         .onAppear { expandEarlierIfRequested() }
         .onChange(of: model.expandEarlierEpoch) { _, _ in

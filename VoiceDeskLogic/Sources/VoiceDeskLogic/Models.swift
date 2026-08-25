@@ -81,6 +81,15 @@ public enum ContentCard: Identifiable, Hashable, Sendable {
 
     public var fixtureID: String { kind.fixtureID }
 
+    /// Compact/full state for the email wrapper XCUITest can actually see (`card.email`).
+    /// Inner `tapIdentifier` is swallowed by that outer id.
+    public var emailPresentationState: String? {
+        if case .email(let item) = self {
+            return item.cardPresentation.rawValue
+        }
+        return nil
+    }
+
     public var accessibilityIdentity: String {
         switch self {
         case .email(let item):

@@ -82,5 +82,24 @@ final class CardInsertionTests: XCTestCase {
         XCTAssertEqual(collapsed.id, compact.id)
         XCTAssertEqual(ContentCard.email(collapsed).fixtureID, "card.email")
         XCTAssertEqual(ContentCard.email(opened).fixtureID, "card.email")
+        XCTAssertEqual(ContentCard.email(collapsed).emailPresentationState, "compact")
+        XCTAssertEqual(ContentCard.email(opened).emailPresentationState, "full")
+    }
+
+    func testTourGraphEmailStartsFullButWrapperIDStaysCardEmail() {
+        guard case .email(let item) = TourScript.graphCards().first else {
+            XCTFail("tour graph starts with the sample email")
+            return
+        }
+        XCTAssertEqual(item.cardPresentation, .full)
+        XCTAssertFalse(item.isCompactListRow)
+        XCTAssertEqual(ContentCard.email(item).fixtureID, "card.email")
+        XCTAssertEqual(ContentCard.email(item).emailPresentationState, "full")
+        XCTAssertEqual(item.cardPresentation.tapIdentifier, "card.email.full")
+        XCTAssertNotEqual(
+            item.cardPresentation.tapIdentifier,
+            ContentCard.email(item).fixtureID,
+            "smoke must query card.email; inner tap id is not the wrapper"
+        )
     }
 }

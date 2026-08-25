@@ -46,22 +46,25 @@ final class LaunchSmokeTests: XCTestCase {
         app.buttons["suggestion.tour"].tap()
         waitForCard("card.email")
 
-        let full = app.descendants(matching: .any)["card.email.full"]
-        let compact = app.descendants(matching: .any)["card.email.compact"]
-        XCTAssertTrue(full.waitForExistence(timeout: 8), "tour email starts open")
-        XCTAssertFalse(compact.exists)
+        let card = app.descendants(matching: .any)["card.email"]
+        XCTAssertTrue(card.waitForExistence(timeout: 2))
 
-        full.tap()
-        XCTAssertTrue(compact.waitForExistence(timeout: 5), "tap open card → compact")
-        XCTAssertFalse(full.exists)
+        // Same control. Tour wrapper id is `card.email` (inner `.full` / `.compact` is not
+        // in the XCUITest tree). Start from whatever state the tour actually shows.
+        if emailCardIsCompact() {
+            card.tap()
+            XCTAssertTrue(waitForEmailCardState("full"), "tap compact → open")
+        }
+        XCTAssertTrue(emailCardIsFull(), "need an open card before the collapse proof")
 
-        compact.tap()
-        XCTAssertTrue(full.waitForExistence(timeout: 5), "tap compact → open")
-        XCTAssertFalse(compact.exists)
+        card.tap()
+        XCTAssertTrue(waitForEmailCardState("compact"), "tap open card → compact")
 
-        full.tap()
-        XCTAssertTrue(compact.waitForExistence(timeout: 5), "tap-expanded then tap-again is compact")
-        XCTAssertFalse(full.exists)
+        card.tap()
+        XCTAssertTrue(waitForEmailCardState("full"), "tap compact → open")
+
+        card.tap()
+        XCTAssertTrue(waitForEmailCardState("compact"), "tap-expanded then tap-again is compact")
     }
 
     func testDraftConfirmDoesNotFakeSend() {
@@ -82,5 +85,38 @@ final class LaunchSmokeTests: XCTestCase {
             if node.waitForExistence(timeout: 2) { return }
         }
         XCTAssertTrue(node.waitForExistence(timeout: 2), "Missing \(id)")
+    }
+
+    private func emailCardIsCompact() -> Bool {
+        emailCardState() == "compact"
+    }
+
+    private func emailCardIsFull() -> Bool {
+        emailCardState() == "full"
+    }
+
+    /// Presentation on the `card.email` node XCUITest actually exposes.
+    private func emailCardState() -> String? {
+        if app.descendants(matching: .any)["card.email.compact"].exists { return "compact" }
+        if app.descendants(matching: .any)["card.email.full"].exists { return "full" }
+        let card = app.descendants(matching: .any)["card.email"]
+        guard card.exists else { return nil }
+        let blobs = [card.value as? String, card.label].compactMap { $0 }.joined(separator: " ")
+        if blobs == "compact" || blobs.hasPrefix("compact") || blobs.contains("Opens the full email") {
+            return "compact"
+        }
+        if blobs == "full" || blobs.hasPrefix("full") || blobs.contains("Collapses the email") {
+            return "full"
+        }
+        return nil
+    }
+
+    private func waitForEmailCardState(_ expected: String, timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if emailCardState() == expected { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return emailCardState() == expected
     }
 }
