@@ -40,7 +40,7 @@ final class EchoTranscriptGateTests: XCTestCase {
             "point 1",
             "dot one",
             "build 6",
-            "build five",
+            "build six",
             "build 1",
             "build one",
             "voice desk",

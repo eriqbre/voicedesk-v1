@@ -141,7 +141,7 @@ final class VersionAskTests: XCTestCase {
 
     func testSpokenLineUsesFixtureMarketingAndNeverInvents() {
         XCTAssertEqual(BuildIdentity.fixture.marketing, "0.1.0")
-        XCTAssertEqual(BuildIdentity.fixture.build, "5")
+        XCTAssertEqual(BuildIdentity.fixture.build, "6")
         XCTAssertEqual(BuildIdentity.fixture.shortSHA, "1fa0a0e")
         XCTAssertEqual(BuildIdentity.fixture.spokenMarketing, "point 1")
         XCTAssertEqual(BuildIdentity.fixture.spokenLine, "VoiceDesk point 1, build 6.")

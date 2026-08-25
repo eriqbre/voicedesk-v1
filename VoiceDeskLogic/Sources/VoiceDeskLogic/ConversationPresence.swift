@@ -611,6 +611,11 @@ public enum ConversationPresence {
            raw.range(of: #"[A-Za-z]{3,}['’]s\b"#, options: .regularExpression) != nil {
             return true
         }
+        // “Show me everything from Murray” — named sender still wins; no “email” word required.
+        if GmailSearchQuery.hasSenderPattern(raw),
+           contains(lower, ["everything", "all of them", "all of", "show me"]) {
+            return true
+        }
         // “The one regarding Fleeman Road” / “regarding Fleeman” — desk topic pick.
         if contains(lower, ["regarding", "dealing with", "the one regarding", "looking for the one"]),
            GmailSearchQuery.plan(from: raw)?.subjectTokens.isEmpty == false {
