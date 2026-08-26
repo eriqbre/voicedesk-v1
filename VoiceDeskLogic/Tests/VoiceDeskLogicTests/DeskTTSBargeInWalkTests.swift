@@ -166,7 +166,8 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
         }
         for ask in Self.firstAskAfterAckFamily {
             XCTAssertEqual(EchoBargeIn.acceptedUserTranscript(ask, gate: gate), ask, ask)
-            XCTAssertEqual(EarlyFinalHold().accept(ask, context: desk), ask, ask)
+            var hold = EarlyFinalHold()
+            XCTAssertEqual(hold.accept(ask, context: desk), ask, ask)
         }
     }
 
@@ -203,7 +204,8 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
             let decision = gate.decide(ask, voiceState: session.state, context: desk)
             XCTAssertFalse(decision.isDropped, ask)
             XCTAssertNotEqual(decision.intent, "dropped", ask)
-            XCTAssertEqual(EarlyFinalHold().accept(ask, context: desk), ask, ask)
+            var hold = EarlyFinalHold()
+            XCTAssertEqual(hold.accept(ask, context: desk), ask, ask)
             var dedupe = TranscriptDedupe()
             XCTAssertEqual(dedupe.accept(text: ask), ask, ask)
         }
