@@ -251,6 +251,7 @@ final class GrokRealtimeTests: XCTestCase {
     func testCancelAndTextTurnPayloads() {
         XCTAssertEqual(GrokRealtime.responseCancelObject()["type"] as? String, "response.cancel")
         XCTAssertEqual(GrokRealtime.clearBufferObject()["type"] as? String, "input_audio_buffer.clear")
+        XCTAssertEqual(GrokRealtime.commitAudioBufferObject()["type"] as? String, "input_audio_buffer.commit")
 
         let item = GrokRealtime.textItemObject("Hello")
         XCTAssertEqual(item["type"] as? String, "conversation.item.create")

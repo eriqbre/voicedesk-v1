@@ -348,6 +348,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         outboundQueue.removeAll()
         let task = self.task
         let sink = testSendSink
+        let shouldCloseTurn = queued.contains { Self.isAudioAppend($0) }
         if sink {
             deliveredForTests.append(contentsOf: queued)
         }
@@ -356,6 +357,9 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
             for item in queued {
                 task?.send(.string(item)) { _ in }
             }
+        }
+        if shouldCloseTurn {
+            sendJSON(GrokRealtime.commitAudioBufferObject())
         }
     }
 

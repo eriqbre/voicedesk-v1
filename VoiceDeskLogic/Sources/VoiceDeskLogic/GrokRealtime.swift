@@ -217,6 +217,12 @@ public enum GrokRealtime {
         ["type": "input_audio_buffer.clear"]
     }
 
+    /// Close a queued utterance after a dead-socket flush. The speaker
+    /// already stopped. Server VAD will not see trailing silence.
+    public static func commitAudioBufferObject() -> [String: Any] {
+        ["type": "input_audio_buffer.commit"]
+    }
+
     public static let speakVerbatimMarker = "SPEAK_VERBATIM"
 
     /// Desk replies use on-device TTS. Always false — do not inject a fake
