@@ -303,7 +303,7 @@ private final class LiveTapSink: @unchecked Sendable {
     var startCount: Int
     var tapLive: Bool
 
-    init(session: VoiceSession, command: Data) {
+    convenience init(session: VoiceSession, command: Data) {
         self.init(session: session, commands: [command], noise: nil)
     }
 
