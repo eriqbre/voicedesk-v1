@@ -100,6 +100,9 @@ final class AppModelTests: XCTestCase {
         fake.emitUser("What’s in my inbox?", itemID: "item_1")
         fake.emitUser("What’s in my inbox?", itemID: "item_1")
         fake.emitUser("What’s in my inbox?", itemID: "item_echo")
+        await waitUntil("the local desk reply to attach") {
+            model.turns.last?.cards.contains { $0.kind == .connectGoogle } == true
+        }
         fake.emitAssistant("Jordan wrote this morning about Saturday.", isFinal: false)
         fake.emitAssistant("", isFinal: true)
 
@@ -244,7 +247,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.conversationScrollReason, .cardsPeek)
     }
 
-    func testLiveCalendarReplyAttachesCardsAndScrolls() {
+    func testLiveCalendarReplyAttachesCardsAndScrolls() async {
         let event = CalendarItem(
             title: "Dinner reservation",
             whenLabel: "Tonight 7:00 PM",
@@ -261,6 +264,9 @@ final class AppModelTests: XCTestCase {
         fake.emitUser("What's on my calendar?", itemID: "cal-1")
         let epoch = model.conversationScrollEpoch
         fake.emitAssistant("Next up: Dinner reservation, Tonight 7:00 PM.", isFinal: true)
+        await waitUntil("the calendar card to attach") {
+            model.turns.last?.cards.contains { $0.kind == .calendar } == true
+        }
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.notes, "Window table, party of 4.")
@@ -646,7 +652,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.assistantOutputSuppressed)
     }
 
-    func testLiveRefusalIsScrubbedWhenLocalEmailAttaches() async {
+    func testLiveRefusalNeverReachesTheThreadWhenLocalEmailAttaches() async {
         var murray = SampleData.syncedEmail()
         murray.fromName = "Murray Mitchell"
         murray.providerID = "msg-murray-scrub"
@@ -661,8 +667,10 @@ final class AppModelTests: XCTestCase {
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: sync
         )
+        // `upsertLiveAssistant` drops desk meta at ingestion, so the refusal
+        // never lands in the thread — there is nothing left to scrub later.
         fake.emitAssistant("I can’t pull the full email — that’s not in my last sync.", isFinal: true)
-        XCTAssertTrue(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
+        XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
         await model.applyUserTurn("full summary of Murray’s latest email")
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
@@ -684,7 +692,7 @@ final class AppModelTests: XCTestCase {
             sync: MockGoogleSync(result: snapshot)
         )
         fake.emitAssistant("I’ll let the app handle that.", isFinal: true)
-        XCTAssertTrue(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
+        XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
         await model.applyUserTurn("summarize the Murray email")
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
         XCTAssertFalse(model.turns.contains { $0.text.localizedCaseInsensitiveContains("let the app handle") })
@@ -891,13 +899,6 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(LiveGrokVoiceClient.extractClientSecret(from: [:]))
     }
 
-    private func waitUntil(_ predicate: @escaping () -> Bool) async {
-        for _ in 0..<40 {
-            if predicate() { return }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        XCTFail("timed out waiting for voice service")
-    }
 }
 
 @MainActor
@@ -964,7 +965,10 @@ final class GoogleSliceTests: XCTestCase {
             voice: MockVoiceService(label: "test", instant: true),
             google: .missingClientID()
         )
-        await model.connectGoogle()
+        model.connectGoogle()
+        await waitUntil("the connect attempt to be logged") {
+            model.activity.contains { $0.title == "Google connect" }
+        }
         XCTAssertFalse(model.google.isConnected)
         XCTAssertTrue(model.google.setupNeeded)
         XCTAssertTrue((model.turns.last?.text ?? "").contains("GOOGLE_CLIENT_ID"))
@@ -979,7 +983,10 @@ final class GoogleSliceTests: XCTestCase {
             cache: cache,
             sync: MockGoogleSync(result: DeskSnapshot(emails: [SampleData.syncedEmail()]))
         )
-        await model.connectGoogle()
+        model.connectGoogle()
+        await waitUntil("the first sync to land in the cache") {
+            !cache.load().emails.isEmpty
+        }
         XCTAssertTrue(model.google.isConnected)
         XCTAssertEqual(model.deskSnapshot.emails.first?.subject, "Inspection questions")
         XCTAssertEqual(cache.load().emails.first?.fromName, "Ada Cole")
@@ -1001,8 +1008,10 @@ final class GoogleSliceTests: XCTestCase {
             cache: cache,
             sync: MockGoogleSync()
         )
-        await model.connectGoogle()
-        XCTAssertFalse(cache.load().emails.isEmpty)
+        model.connectGoogle()
+        await waitUntil("the first sync to land in the cache") {
+            !cache.load().emails.isEmpty
+        }
         model.disconnectGoogle()
         XCTAssertFalse(model.google.isConnected)
         XCTAssertTrue(model.deskSnapshot.emails.isEmpty)
