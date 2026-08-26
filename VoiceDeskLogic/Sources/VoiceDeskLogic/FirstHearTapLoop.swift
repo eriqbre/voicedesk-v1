@@ -127,7 +127,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         session.apply(.tapTalk)
         var tapLive = true
         var stayLive = true
-        var startCount = 1
+        let startCount = 1
         var turns: [Data] = []
         var close1000 = ListenResumePolicy.afterSocketClose(
             userWantsVoiceOff: false,
