@@ -546,6 +546,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live.contains("testLiveConversationLoopDidClose1000RealSpeechStillTalkingDoesNotTruncate"),
             live
         )
+        XCTAssertTrue(live.contains("mixedHarmonicSpeechPCM"), live)
         XCTAssertFalse(live.contains("TapSpeechEnergy"), live)
         XCTAssertTrue(live.contains("convenience init(session: VoiceSession, command: Data)"), live)
         XCTAssertTrue(live.contains("GrokVoiceService("), live)
