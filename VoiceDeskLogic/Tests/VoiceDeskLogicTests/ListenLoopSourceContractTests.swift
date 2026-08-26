@@ -310,17 +310,35 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopSocketHasSendTask"), service)
         XCTAssertTrue(service.contains("func attachListenLoopSendTaskForTests()"), service)
         XCTAssertTrue(service.contains("listenLoopDeliveredAudioPCM"), service)
+        XCTAssertTrue(service.contains("listenLoopDeliveredSendTypes"), service)
+        XCTAssertTrue(service.contains("func simulateListenLoopSocketDidOpenThenSessionReady()"), service)
         XCTAssertTrue(service.contains("dropOutbound"), service)
+        XCTAssertTrue(service.contains("markSessionReadyAndFlush"), service)
+        let updated = speakSlice(service, from: "case .sessionUpdated:", to: "case .speechStarted:")
+        XCTAssertTrue(updated.contains("markSessionReadyAndFlush"), updated)
+        let didOpenService = speakSlice(service, from: "func grokWebSocketDidOpen()", to: "func grokWebSocketDidClose")
+        XCTAssertTrue(didOpenService.contains("sendSessionUpdate"), didOpenService)
+        XCTAssertFalse(
+            didOpenService.contains("markSessionReadyAndFlush"),
+            "DidOpen is not session-ready — 19c1b33 flushed too early"
+        )
         let client = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoice.swift"))
         XCTAssertTrue(client.contains("outboundQueue"), client)
         XCTAssertTrue(client.contains("func attachTestSendTask()"), client)
+        XCTAssertTrue(client.contains("func attachTestSendRecorder()"), client)
+        XCTAssertTrue(client.contains("func markSessionReadyAndFlush()"), client)
         XCTAssertTrue(client.contains("func dropOutbound()"), client)
-        let sendRaw = speakSlice(client, from: "func sendRaw(_ string: String) {", to: "func sendBinary")
-        XCTAssertTrue(sendRaw.contains("outboundQueue"), sendRaw)
+        let sendRaw = speakSlice(client, from: "func sendRaw(_ string: String) {", to: "func attachTestSendTask()")
+        XCTAssertTrue(sendRaw.contains("sessionReady"), sendRaw)
+        XCTAssertTrue(sendRaw.contains("isAudioAppend"), sendRaw)
         XCTAssertFalse(sendRaw.contains("task?.send"), sendRaw)
         let didOpen = speakSlice(client, from: "nonisolated func notifyOpen()", to: "nonisolated func notifyClose")
-        XCTAssertTrue(didOpen.contains("outboundQueue"), didOpen)
-        XCTAssertTrue(didOpen.contains("task?.send"), didOpen)
+        XCTAssertFalse(
+            didOpen.contains("outboundQueue"),
+            "19c1b33 flushed the queue on notifyOpen before session.update"
+        )
+        XCTAssertFalse(didOpen.contains("task?.send"), didOpen)
+        XCTAssertTrue(didOpen.contains("grokWebSocketDidOpen"), didOpen)
         let didClose = speakSlice(
             service,
             from: "func grokWebSocketDidClose",
@@ -427,6 +445,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000SessionReadyFlushSendsQueuedCommand"),
             live
         )
         XCTAssertTrue(live.contains("convenience init(session: VoiceSession, command: Data)"), live)
@@ -559,7 +581,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let deadSocket = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000SessionReadyFlushSendsQueuedCommand"
         )
         XCTAssertTrue(deadSocket.contains("GrokVoiceService("), deadSocket)
         XCTAssertTrue(deadSocket.contains("AppModel("), deadSocket)
@@ -590,6 +612,40 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("dead-socket gate must DidClose, feed PCM 2, then attach-send-task")
+        }
+        let sessionReady = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000SessionReadyFlushSendsQueuedCommand",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(sessionReady.contains("GrokVoiceService("), sessionReady)
+        XCTAssertTrue(sessionReady.contains("AppModel("), sessionReady)
+        XCTAssertTrue(sessionReady.contains("simulateListenLoopSocketClose1000"), sessionReady)
+        XCTAssertTrue(sessionReady.contains("feedTapPCM16(command2)"), sessionReady)
+        XCTAssertTrue(sessionReady.contains("simulateListenLoopSocketDidOpenThenSessionReady"), sessionReady)
+        XCTAssertTrue(sessionReady.contains("listenLoopDeliveredSendTypes"), sessionReady)
+        XCTAssertTrue(sessionReady.contains("session.update"), sessionReady)
+        XCTAssertTrue(sessionReady.contains("19c1b33"), sessionReady)
+        XCTAssertTrue(sessionReady.contains("interruptResponse"), sessionReady)
+        XCTAssertFalse(sessionReady.contains("emitUser"), sessionReady)
+        XCTAssertFalse(sessionReady.contains("FakeLiveVoiceService"), sessionReady)
+        XCTAssertFalse(sessionReady.contains("attachListenLoopSendTaskForTests"), sessionReady)
+        XCTAssertFalse(sessionReady.contains("simulateHALTapYankLeavingInstalledFlagTrue"), sessionReady)
+        if let closeAt = sessionReady.range(of: "simulateListenLoopSocketClose1000"),
+           let secondFeed = sessionReady.range(of: "feedTapPCM16(command2)"),
+           let openAt = sessionReady.range(of: "simulateListenLoopSocketDidOpenThenSessionReady") {
+            XCTAssertLessThan(
+                closeAt.lowerBound,
+                secondFeed.lowerBound,
+                "command PCM 2 must be fed in the dead-socket window"
+            )
+            XCTAssertLessThan(
+                secondFeed.lowerBound,
+                openAt.lowerBound,
+                "19c1b33 flushed those appends on DidOpen before session.update"
+            )
+        } else {
+            XCTFail("session-ready gate must DidClose, feed PCM 2, then DidOpen + session.updated")
         }
     }
 

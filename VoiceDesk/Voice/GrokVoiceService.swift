@@ -510,6 +510,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .sessionUpdated:
             startAudioIfNeeded()
             finishReady()
+            client.markSessionReadyAndFlush()
         case .speechStarted:
             break
         case .speechStopped:
@@ -622,9 +623,20 @@ extension GrokVoiceService {
 
     var listenLoopDeliveredAudioPCM: [Data] { client.deliveredAppendPCM }
 
+    var listenLoopDeliveredSendTypes: [String] { client.deliveredSendTypes }
+
     /// Tiny hook. Not a mock Grok client. Flushes the dead-socket queue.
     func attachListenLoopSendTaskForTests() {
         client.attachTestSendTask()
+    }
+
+    /// Real DidOpen + session.updated. Not attach-send-task flush.
+    /// 19c1b33 flushed appends on notifyOpen before session.update.
+    func simulateListenLoopSocketDidOpenThenSessionReady() {
+        client.attachTestSendRecorder()
+        client.notifyOpen()
+        grokWebSocketDidOpen()
+        grokWebSocketDidReceive(json: ["type": "session.updated"], type: "session.updated")
     }
 }
 

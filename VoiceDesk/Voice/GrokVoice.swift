@@ -202,10 +202,12 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var sessionDelegate: WebSocketBridge?
     private var timeoutTask: Task<Void, Never>?
     private var opened = false
-    /// Mic appends during a dead socket. Flushed on DidOpen / test attach.
+    /// Mic appends during a dead or unconfigured socket. Flushed after
+    /// session.update is acknowledged (`session.updated`), not on raw DidOpen.
     /// Not a second listen loop.
     private var outboundQueue: [String] = []
     private var testSendSink = false
+    private var sessionReady = false
     private var deliveredForTests: [String] = []
     private static let maxOutbound = 64
 
@@ -234,6 +236,13 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         let payloads = deliveredForTests
         lock.unlock()
         return payloads.compactMap { Self.pcmFromAppendJSON($0) }
+    }
+
+    var deliveredSendTypes: [String] {
+        lock.lock()
+        let payloads = deliveredForTests
+        lock.unlock()
+        return payloads.compactMap { Self.typeOfSend($0) }
     }
 
     /// Dogfood: API key in `Authorization` plus `xai-client-secret.<key>` protocol.
@@ -281,6 +290,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         session = nil
         sessionDelegate = nil
         opened = false
+        sessionReady = false
         lock.unlock()
     }
 
@@ -292,9 +302,14 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     }
 
     /// Called from the audio render thread with a prebuilt JSON string.
-    /// Dead socket (`!opened`, no test attach): short queue, not a drop.
+    /// Appends hold until the session is ready. `session.update` goes now.
     func sendRaw(_ string: String) {
         lock.lock()
+        if Self.isAudioAppend(string), !sessionReady {
+            enqueueLocked(string)
+            lock.unlock()
+            return
+        }
         if testSendSink {
             deliveredForTests.append(string)
             lock.unlock()
@@ -305,22 +320,43 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
             task.send(.string(string)) { _ in }
             return
         }
-        if outboundQueue.count >= Self.maxOutbound {
-            outboundQueue.removeFirst()
-        }
-        outboundQueue.append(string)
+        enqueueLocked(string)
         lock.unlock()
     }
 
     /// Test hook. Not a mock Grok network client. Makes send live and
-    /// flushes the dead-socket queue. Same flush DidOpen uses.
+    /// flushes. The DidOpen / session-ready path is separate.
     func attachTestSendTask() {
         lock.lock()
         testSendSink = true
+        sessionReady = true
+        flushLockedToTestSink()
+        lock.unlock()
+    }
+
+    /// Record later sends. Do not flush — session-ready does that.
+    func attachTestSendRecorder() {
+        lock.lock()
+        testSendSink = true
+        lock.unlock()
+    }
+
+    func markSessionReadyAndFlush() {
+        lock.lock()
+        sessionReady = true
         let queued = outboundQueue
         outboundQueue.removeAll()
-        deliveredForTests.append(contentsOf: queued)
+        let task = self.task
+        let sink = testSendSink
+        if sink {
+            deliveredForTests.append(contentsOf: queued)
+        }
         lock.unlock()
+        if !sink {
+            for item in queued {
+                task?.send(.string(item)) { _ in }
+            }
+        }
     }
 
     func dropOutbound() {
@@ -328,6 +364,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         outboundQueue.removeAll()
         deliveredForTests.removeAll()
         testSendSink = false
+        sessionReady = false
         lock.unlock()
     }
 
@@ -361,6 +398,30 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         return token
     }
 
+    private func enqueueLocked(_ string: String) {
+        if outboundQueue.count >= Self.maxOutbound {
+            outboundQueue.removeFirst()
+        }
+        outboundQueue.append(string)
+    }
+
+    private func flushLockedToTestSink() {
+        deliveredForTests.append(contentsOf: outboundQueue)
+        outboundQueue.removeAll()
+    }
+
+    static func isAudioAppend(_ raw: String) -> Bool {
+        raw.contains("input_audio_buffer.append")
+    }
+
+    static func typeOfSend(_ raw: String) -> String? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = object["type"] as? String
+        else { return nil }
+        return type
+    }
+
     static func pcmFromAppendJSON(_ raw: String) -> Data? {
         guard let data = raw.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -381,25 +442,14 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     }
 
     /// URLSession delivers these on a background queue. Hop Sendable values only.
+    /// Socket is open. Do not flush appends — session is not ready yet.
     nonisolated func notifyOpen() {
         lock.lock()
         opened = true
         let timeout = timeoutTask
         timeoutTask = nil
-        let queued = outboundQueue
-        outboundQueue.removeAll()
-        let task = self.task
-        let sink = testSendSink
-        if sink {
-            deliveredForTests.append(contentsOf: queued)
-        }
         lock.unlock()
         timeout?.cancel()
-        if !sink {
-            for item in queued {
-                task?.send(.string(item)) { _ in }
-            }
-        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.delegate?.grokWebSocketDidOpen()
