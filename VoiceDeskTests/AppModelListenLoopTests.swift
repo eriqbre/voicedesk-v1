@@ -928,7 +928,7 @@ final class AppModelListenLoopTests: XCTestCase {
         }
 
         var closedDuringSilence = false
-        for _ in 0..<20 {
+        for _ in 0..<35 {
             engine.feedTapPCM16(silence)
             if voice.listenLoopDeliveredSendTypes.contains("input_audio_buffer.commit") {
                 closedDuringSilence = true
@@ -1078,7 +1078,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
 
         var closedDuringAmbient = false
-        for _ in 0..<20 {
+        for _ in 0..<35 {
             engine.feedTapPCM16(noise)
             if voice.listenLoopDeliveredSendTypes.contains("input_audio_buffer.commit") {
                 closedDuringAmbient = true
@@ -1391,6 +1391,143 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// 6264a07 only postponed 120–220 Hz sines. Real speech ZCR is
+    /// not a 160 Hz tone. Same recover path, but the continued tail
+    /// is mixed-harmonic / speech-shaped — not a 140–180 Hz sine.
+    /// Keep feeding > quietCommitMs (≥250ms). Commit must not land
+    /// before the last continued frame. After it stops, commit may
+    /// fire. Radio still must not block. `startCount` stays 1.
+    func testLiveConversationLoopDidClose1000RealSpeechStillTalkingDoesNotTruncate() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-real-speech-still-talking")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let continued = Self.mixedHarmonicSpeechPCM()
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(
+            session: session,
+            commands: [command1, command2, command3],
+            noise: noise
+        )
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        voice.startListenLoopAudioForTests()
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command1)
+        XCTAssertEqual(sink.turns, [command1])
+
+        await voice.speak(InboxGlance.spokenListAck())
+        XCTAssertEqual(engine.pendingPlaybackCount, 0)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+
+        await voice.simulateListenLoopSocketClose1000()
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertFalse(voice.listenLoopSocketHasSendTask)
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink.turns, [command1, command2])
+
+        voice.simulateListenLoopSocketDidOpenThenSessionReady()
+        XCTAssertTrue(voice.listenLoopDeliveredAudioPCM.contains(command2))
+
+        for _ in 0..<15 {
+            engine.feedTapPCM16(continued)
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(engine.isRunning)
+
+        let pcm = voice.listenLoopDeliveredAudioPCM
+        let types = voice.listenLoopDeliveredSendTypes
+        let appendSlots = types.enumerated().compactMap { $0.element == "input_audio_buffer.append" ? $0.offset : nil }
+        let paired = Array(zip(appendSlots, pcm))
+        guard let command2At = paired.last(where: { $0.1 == command2 })?.0,
+              let lastContinuedAt = paired.last(where: { $0.1 == continued })?.0
+        else {
+            XCTFail("queued command 2 and the real-speech tail must both be sent")
+            voice.cancel()
+            return
+        }
+        XCTAssertLessThan(command2At, lastContinuedAt)
+        XCTAssertGreaterThanOrEqual(
+            paired.filter { $0.1 == continued }.count,
+            12,
+            "must keep feeding real-speech PCM longer than quietCommitMs"
+        )
+        if let commitAt = types.firstIndex(of: "input_audio_buffer.commit") {
+            XCTAssertFalse(
+                command2At < commitAt && commitAt < lastContinuedAt,
+                "6264a07 Hz-band missed real speech — 80ms commit truncated the tail"
+            )
+        }
+
+        await voice.waitUntilListenLoopQueuedTurnClosed()
+        let after = voice.listenLoopDeliveredSendTypes
+        guard let commitAt = after.firstIndex(of: "input_audio_buffer.commit") else {
+            XCTFail("after real-speech PCM stops, the queued command must still close")
+            voice.cancel()
+            return
+        }
+        XCTAssertGreaterThan(commitAt, lastContinuedAt, "commit belongs after the last continued frame")
+        XCTAssertEqual(engine.startCount, 1)
+
+        XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
+
+        let speaking = Task { await voice.speak(Self.laterDeskReply) }
+        await waitUntilPending(engine)
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
+        engine.feedTapPCM16(noise)
+        XCTAssertEqual(sink.ambient.last, noise)
+        XCTAssertEqual(sink.turns, [command1, command2], "ambient / radio / other-room is not a turn")
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "ambient must not cancel write→player")
+        XCTAssertTrue(engine.isPlayerPlaying)
+
+        model.voice.interruptResponse()
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "command intent drops playback")
+        XCTAssertTrue(engine.isRunning)
+        sink.startCount = engine.startCount
+        engine.feedTapPCM16(command3)
+        XCTAssertEqual(sink.turns.last, command3)
+        XCTAssertEqual(sink.turns, [command1, command2, command3])
+        XCTAssertEqual(engine.startCount, 1)
+        await speaking.value
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.count,
+            0,
+            "transcript injects do not count"
+        )
+
+        voice.cancel()
+    }
+
     private func waitUntilPending(_ engine: GrokVoiceAudioEngine) async {
         for _ in 0..<50 {
             if engine.pendingPlaybackCount > 0 { return }
@@ -1417,6 +1554,29 @@ final class AppModelListenLoopTests: XCTestCase {
 
     private static func speechShapedPCM(hertz: Double) -> Data {
         pcm16(seconds: 0.12, hertz: hertz)
+    }
+
+    /// Broadband command tail. Mixed formants + deterministic noise.
+    /// Zero-crossing is ~1.3 kHz — outside the 6264a07 120–220 Hz sine band.
+    private static func mixedHarmonicSpeechPCM() -> Data {
+        let seconds = 0.12
+        let rate = GrokVoiceAudioEngine.sampleRate
+        let count = Int(rate * seconds)
+        var samples = [Int16](repeating: 0, count: count)
+        for index in 0..<count {
+            let t = Double(index) / rate
+            let harmonic =
+                0.12 * sin(2 * .pi * 180 * t) +
+                0.10 * sin(2 * .pi * 650 * t) +
+                0.07 * sin(2 * .pi * 2200 * t) +
+                0.05 * sin(2 * .pi * 3500 * t)
+            let noise = Double((index * 17 + 31) % 200) / 200.0 * 0.04 - 0.02
+            let value = (harmonic + noise) * Double(Int16.max)
+            samples[index] = Int16(
+                max(Double(Int16.min), min(Double(Int16.max), value.rounded()))
+            )
+        }
+        return samples.withUnsafeBufferPointer { Data(buffer: $0) }
     }
 
     /// Live-tap silence: frames still arrive. RMS stays far below speech.

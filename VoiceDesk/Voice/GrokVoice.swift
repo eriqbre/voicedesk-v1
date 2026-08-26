@@ -209,13 +209,18 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var testSendSink = false
     private var sessionReady = false
     private var deliveredForTests: [String] = []
-    /// Close a flushed command after they stop talking it. Command-
-    /// shaped PCM postpones the one-shot. Radio / silence must not —
-    /// same split as ListenInterrupt, not RMS.
+    /// Close a flushed command after they stop talking it. Any live
+    /// append may be a tail — do not classify tones. Give up so
+    /// radio / other-room cannot sit on the close. Server VAD is
+    /// the speech detector.
     private var pendingQuietCommit = false
     private var quietCommitGeneration = 0
+    private var quietCommitArmedAt: Date?
     private static let maxOutbound = 64
     private static let quietCommitMs = 80
+    /// Longer than quietCommitMs so a real-speech tail is not cut
+    /// at 80ms. Shorter than a radio that never ends.
+    private static let quietCommitMaxPostponeMs = 400
 
     var isConnected: Bool {
         lock.lock()
@@ -304,6 +309,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         opened = false
         sessionReady = false
         pendingQuietCommit = false
+        quietCommitArmedAt = nil
         quietCommitGeneration += 1
         lock.unlock()
     }
@@ -325,10 +331,12 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
             return
         }
         var rescheduleQuiet: Int?
-        if Self.isAudioAppend(string), sessionReady, pendingQuietCommit,
-           let pcm = Self.pcmFromAppendJSON(string), QueuedTurnClose.shouldPostpone(pcm) {
-            quietCommitGeneration += 1
-            rescheduleQuiet = quietCommitGeneration
+        if Self.isAudioAppend(string), sessionReady, pendingQuietCommit {
+            let elapsedMs = quietCommitArmedAt.map { Date().timeIntervalSince($0) * 1000 } ?? 0
+            if elapsedMs < Double(Self.quietCommitMaxPostponeMs) {
+                quietCommitGeneration += 1
+                rescheduleQuiet = quietCommitGeneration
+            }
         }
         if testSendSink {
             deliveredForTests.append(string)
@@ -387,6 +395,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         if shouldCloseTurn {
             lock.lock()
             pendingQuietCommit = true
+            quietCommitArmedAt = Date()
             quietCommitGeneration += 1
             let gen = quietCommitGeneration
             lock.unlock()
@@ -408,6 +417,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
             return
         }
         pendingQuietCommit = false
+        quietCommitArmedAt = nil
         lock.unlock()
         sendJSON(GrokRealtime.commitAudioBufferObject())
     }
@@ -419,6 +429,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         testSendSink = false
         sessionReady = false
         pendingQuietCommit = false
+        quietCommitArmedAt = nil
         quietCommitGeneration += 1
         lock.unlock()
     }
