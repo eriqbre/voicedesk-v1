@@ -37,7 +37,9 @@ final class LaunchSmokeTests: XCTestCase {
         waitForCard("card.connectGoogle")
         XCTAssertTrue(app.buttons["google.connect"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["suggestion.connectGoogle"].waitForExistence(timeout: 5))
-        let coach = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Connect Google so I can see'")).firstMatch
+        // Matches `ConversationPresence.connectCoach`. The old assertion looked
+        // for copy that only ever existed in the README, so it could not pass.
+        let coach = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Tap Connect Google on the card below'")).firstMatch
         XCTAssertTrue(coach.waitForExistence(timeout: 5))
     }
 

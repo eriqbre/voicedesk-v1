@@ -20,7 +20,9 @@ jobs:
 
   ios-macos:
     name: iOS unit + UI smoke (macOS)
-    if: github.event_name == 'workflow_dispatch'
+    # The Linux job only covers VoiceDeskLogic, so nothing was compiling the
+    # AVFoundation voice path or running these tests on a PR.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
