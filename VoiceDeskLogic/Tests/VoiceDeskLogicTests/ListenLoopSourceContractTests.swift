@@ -344,19 +344,21 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let sendRaw = speakSlice(client, from: "func sendRaw(_ string: String) {", to: "func attachTestSendTask()")
         XCTAssertTrue(sendRaw.contains("sessionReady"), sendRaw)
         XCTAssertTrue(sendRaw.contains("isAudioAppend"), sendRaw)
-        XCTAssertTrue(sendRaw.contains("pendingQuietCommit"), sendRaw)
-        XCTAssertTrue(sendRaw.contains("TapSpeechEnergy.isSpeech"), sendRaw)
         XCTAssertFalse(sendRaw.contains("task?.send"), sendRaw)
-        let energy = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/TapSpeechEnergy.swift"))
-        XCTAssertTrue(energy.contains("func isSpeech"), energy)
-        XCTAssertTrue(energy.contains("rmsThreshold"), energy)
-        XCTAssertFalse(energy.contains("watchdog"), energy)
-        XCTAssertFalse(energy.contains("rearmTap"), energy)
-        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
         XCTAssertFalse(
-            app.contains("TapSpeechEnergy"),
-            "quiet-commit energy is not barge-in"
+            sendRaw.contains("TapSpeechEnergy"),
+            "2679792 postponed quiet-commit on RMS — radio never closed the turn"
         )
+        XCTAssertFalse(
+            sendRaw.contains("quietCommitGeneration"),
+            "live appends must not reschedule quiet-commit; ambient is not a command"
+        )
+        XCTAssertFalse(sendRaw.contains("scheduleQuietCommit"), sendRaw)
+        XCTAssertNil(
+            repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/TapSpeechEnergy.swift"),
+            "RMS quiet-commit was the wrong part"
+        )
+        XCTAssertFalse(client.contains("TapSpeechEnergy"), client)
         let interrupt = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/ListenInterrupt.swift"))
         XCTAssertTrue(interrupt.contains("no energy-only interrupt"), interrupt)
         XCTAssertFalse(interrupt.contains("TapSpeechEnergy"), interrupt)
@@ -491,6 +493,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live.contains("testLiveConversationLoopDidClose1000SilenceTapStillClosesQueuedTurn"),
             live
         )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000AmbientTapStillClosesQueuedTurn"),
+            live
+        )
+        XCTAssertFalse(live.contains("TapSpeechEnergy"), live)
         XCTAssertTrue(live.contains("convenience init(session: VoiceSession, command: Data)"), live)
         XCTAssertTrue(live.contains("GrokVoiceService("), live)
         XCTAssertTrue(live.contains("AppModel("), live)
@@ -758,7 +765,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let silenceTap = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000SilenceTapStillClosesQueuedTurn",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000AmbientTapStillClosesQueuedTurn"
         )
         XCTAssertTrue(silenceTap.contains("GrokVoiceService("), silenceTap)
         XCTAssertTrue(silenceTap.contains("AppModel("), silenceTap)
@@ -794,6 +801,48 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("silence-tap gate must flush, feed speech, then keep feeding silence")
+        }
+        let ambientTap = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000AmbientTapStillClosesQueuedTurn",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(ambientTap.contains("GrokVoiceService("), ambientTap)
+        XCTAssertTrue(ambientTap.contains("AppModel("), ambientTap)
+        XCTAssertTrue(ambientTap.contains("simulateListenLoopSocketClose1000"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("feedTapPCM16(command2)"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("simulateListenLoopSocketDidOpenThenSessionReady"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("feedTapPCM16(continued)"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("feedTapPCM16(noise)"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("speechShapedPCM(hertz: 90)"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("2679792"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("input_audio_buffer.commit"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("interruptResponse"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("closedDuringAmbient"), ambientTap)
+        XCTAssertTrue(ambientTap.contains("ListenInterrupt.isCommand"), ambientTap)
+        XCTAssertFalse(ambientTap.contains("nearSilentPCM"), ambientTap)
+        XCTAssertFalse(ambientTap.contains("emitUser"), ambientTap)
+        XCTAssertFalse(ambientTap.contains("FakeLiveVoiceService"), ambientTap)
+        XCTAssertFalse(ambientTap.contains("attachListenLoopSendTaskForTests"), ambientTap)
+        XCTAssertFalse(
+            ambientTap.contains("waitUntilListenLoopQueuedTurnClosed"),
+            "2679792 paper-greens if we stop feeding radio and then wait"
+        )
+        if let openAt = ambientTap.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
+           let continuedAt = ambientTap.range(of: "feedTapPCM16(continued)"),
+           let noiseAt = ambientTap.range(of: "feedTapPCM16(noise)") {
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                continuedAt.lowerBound,
+                "command-shaped PCM must arrive after the session-ready flush"
+            )
+            XCTAssertLessThan(
+                continuedAt.lowerBound,
+                noiseAt.lowerBound,
+                "ambient / radio follows the still-talking tail, like a live tap"
+            )
+        } else {
+            XCTFail("ambient-tap gate must flush, feed command PCM, then keep feeding radio")
         }
     }
 
