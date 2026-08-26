@@ -209,8 +209,9 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var testSendSink = false
     private var sessionReady = false
     private var deliveredForTests: [String] = []
-    /// Close a flushed command only after the tap goes quiet. A commit
-    /// on flush cuts a still-talking utterance in half.
+    /// Close a flushed command only after speech energy drops. A live
+    /// tap never stops delivering frames — silence PCM is not talking.
+    /// A commit on flush cuts a still-talking utterance in half.
     private var pendingQuietCommit = false
     private var quietCommitGeneration = 0
     private static let maxOutbound = 64
@@ -318,7 +319,8 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
             return
         }
         var rescheduleQuiet: Int?
-        if Self.isAudioAppend(string), sessionReady, pendingQuietCommit {
+        if Self.isAudioAppend(string), sessionReady, pendingQuietCommit,
+           let pcm = Self.pcmFromAppendJSON(string), TapSpeechEnergy.isSpeech(pcm) {
             quietCommitGeneration += 1
             rescheduleQuiet = quietCommitGeneration
         }

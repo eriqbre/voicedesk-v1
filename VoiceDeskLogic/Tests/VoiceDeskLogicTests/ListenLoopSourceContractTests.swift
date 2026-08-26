@@ -345,7 +345,21 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(sendRaw.contains("sessionReady"), sendRaw)
         XCTAssertTrue(sendRaw.contains("isAudioAppend"), sendRaw)
         XCTAssertTrue(sendRaw.contains("pendingQuietCommit"), sendRaw)
+        XCTAssertTrue(sendRaw.contains("TapSpeechEnergy.isSpeech"), sendRaw)
         XCTAssertFalse(sendRaw.contains("task?.send"), sendRaw)
+        let energy = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/TapSpeechEnergy.swift"))
+        XCTAssertTrue(energy.contains("func isSpeech"), energy)
+        XCTAssertTrue(energy.contains("rmsThreshold"), energy)
+        XCTAssertFalse(energy.contains("watchdog"), energy)
+        XCTAssertFalse(energy.contains("rearmTap"), energy)
+        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
+        XCTAssertFalse(
+            app.contains("TapSpeechEnergy"),
+            "quiet-commit energy is not barge-in"
+        )
+        let interrupt = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/ListenInterrupt.swift"))
+        XCTAssertTrue(interrupt.contains("no energy-only interrupt"), interrupt)
+        XCTAssertFalse(interrupt.contains("TapSpeechEnergy"), interrupt)
         let didOpen = speakSlice(client, from: "nonisolated func notifyOpen()", to: "nonisolated func notifyClose")
         XCTAssertFalse(
             didOpen.contains("outboundQueue"),
@@ -471,6 +485,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000StillTalkingDoesNotCommitMidUtterance"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000SilenceTapStillClosesQueuedTurn"),
             live
         )
         XCTAssertTrue(live.contains("convenience init(session: VoiceSession, command: Data)"), live)
@@ -714,7 +732,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let stillTalking = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000StillTalkingDoesNotCommitMidUtterance",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000SilenceTapStillClosesQueuedTurn"
         )
         XCTAssertTrue(stillTalking.contains("GrokVoiceService("), stillTalking)
         XCTAssertTrue(stillTalking.contains("AppModel("), stillTalking)
@@ -736,6 +754,46 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("still-talking gate must flush, then feed more speech-shaped PCM")
+        }
+        let silenceTap = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000SilenceTapStillClosesQueuedTurn",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(silenceTap.contains("GrokVoiceService("), silenceTap)
+        XCTAssertTrue(silenceTap.contains("AppModel("), silenceTap)
+        XCTAssertTrue(silenceTap.contains("simulateListenLoopSocketClose1000"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("feedTapPCM16(command2)"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("simulateListenLoopSocketDidOpenThenSessionReady"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("feedTapPCM16(continued)"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("feedTapPCM16(silence)"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("nearSilentPCM"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("00297ee"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("input_audio_buffer.commit"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("interruptResponse"), silenceTap)
+        XCTAssertTrue(silenceTap.contains("closedDuringSilence"), silenceTap)
+        XCTAssertFalse(silenceTap.contains("emitUser"), silenceTap)
+        XCTAssertFalse(silenceTap.contains("FakeLiveVoiceService"), silenceTap)
+        XCTAssertFalse(silenceTap.contains("attachListenLoopSendTaskForTests"), silenceTap)
+        XCTAssertFalse(
+            silenceTap.contains("waitUntilListenLoopQueuedTurnClosed"),
+            "00297ee paper-greens if we stop feeding and then wait — silence must keep arriving"
+        )
+        if let openAt = silenceTap.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
+           let continuedAt = silenceTap.range(of: "feedTapPCM16(continued)"),
+           let silenceAt = silenceTap.range(of: "feedTapPCM16(silence)") {
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                continuedAt.lowerBound,
+                "speech-shaped PCM must arrive after the session-ready flush"
+            )
+            XCTAssertLessThan(
+                continuedAt.lowerBound,
+                silenceAt.lowerBound,
+                "silence frames follow the still-talking tail, like a live tap"
+            )
+        } else {
+            XCTFail("silence-tap gate must flush, feed speech, then keep feeding silence")
         }
     }
 

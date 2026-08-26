@@ -841,6 +841,152 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// Live tap never stops. After drain + DidClose 1000, command PCM 2
+    /// while dead, DidOpen → session.updated flush, then keep feeding
+    /// near-silent tap PCM. 00297ee treated those frames as still-talking
+    /// and never sent `input_audio_buffer.commit`. Speech-shaped PCM
+    /// still postpones. `startCount` stays 1.
+    func testLiveConversationLoopDidClose1000SilenceTapStillClosesQueuedTurn() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-silence-tap")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let continued = Self.speechShapedPCM(hertz: 170)
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+        let silence = Self.nearSilentPCM()
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(
+            session: session,
+            commands: [command1, command2, command3],
+            noise: noise
+        )
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        voice.startListenLoopAudioForTests()
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command1)
+        XCTAssertEqual(sink.turns, [command1])
+
+        await voice.speak(InboxGlance.spokenListAck())
+        XCTAssertEqual(engine.pendingPlaybackCount, 0)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+
+        await voice.simulateListenLoopSocketClose1000()
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertFalse(voice.listenLoopSocketHasSendTask)
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink.turns, [command1, command2])
+
+        voice.simulateListenLoopSocketDidOpenThenSessionReady()
+        XCTAssertTrue(voice.listenLoopDeliveredAudioPCM.contains(command2))
+        engine.feedTapPCM16(continued)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(engine.isRunning)
+
+        let pcm = voice.listenLoopDeliveredAudioPCM
+        let types = voice.listenLoopDeliveredSendTypes
+        let appendSlots = types.enumerated().compactMap { $0.element == "input_audio_buffer.append" ? $0.offset : nil }
+        let paired = Array(zip(appendSlots, pcm))
+        guard let command2At = paired.last(where: { $0.1 == command2 })?.0,
+              let continuedAt = paired.first(where: { $0.1 == continued })?.0
+        else {
+            XCTFail("queued command 2 and the still-talking tail must both be sent")
+            voice.cancel()
+            return
+        }
+        XCTAssertLessThan(command2At, continuedAt)
+        if let commitAt = types.firstIndex(of: "input_audio_buffer.commit") {
+            XCTAssertFalse(
+                command2At < commitAt && commitAt < continuedAt,
+                "speech-shaped PCM must still postpone commit"
+            )
+        }
+
+        var closedDuringSilence = false
+        for _ in 0..<20 {
+            engine.feedTapPCM16(silence)
+            if voice.listenLoopDeliveredSendTypes.contains("input_audio_buffer.commit") {
+                closedDuringSilence = true
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(
+            closedDuringSilence,
+            "00297ee treated silence frames as still-talking — commit never fired while the live tap kept delivering"
+        )
+        XCTAssertTrue(
+            voice.listenLoopDeliveredAudioPCM.contains(silence),
+            "silence frames must go out; quiet is energy dropped, not a stopped tap"
+        )
+        let after = voice.listenLoopDeliveredSendTypes
+        guard let commitAt = after.firstIndex(of: "input_audio_buffer.commit") else {
+            XCTFail("silence frames must still let the queued command close")
+            voice.cancel()
+            return
+        }
+        XCTAssertGreaterThan(commitAt, continuedAt, "commit belongs after the still-talking tail")
+        XCTAssertEqual(engine.startCount, 1, "silence-tap commit must not audio.start")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(sink.turns, [command1, command2], "silence PCM is not a turn")
+
+        XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
+
+        let speaking = Task { await voice.speak(Self.laterDeskReply) }
+        await waitUntilPending(engine)
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
+        engine.feedTapPCM16(noise)
+        XCTAssertEqual(sink.ambient.last, noise)
+        XCTAssertEqual(sink.turns, [command1, command2], "ambient / radio / other-room is not a turn")
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "ambient must not cancel write→player")
+        XCTAssertTrue(engine.isPlayerPlaying)
+
+        model.voice.interruptResponse()
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "command intent drops playback")
+        XCTAssertTrue(engine.isRunning)
+        sink.startCount = engine.startCount
+        engine.feedTapPCM16(command3)
+        XCTAssertEqual(sink.turns.last, command3)
+        XCTAssertEqual(sink.turns, [command1, command2, command3])
+        XCTAssertEqual(engine.startCount, 1)
+        await speaking.value
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.count,
+            0,
+            "transcript injects do not count"
+        )
+
+        voice.cancel()
+    }
+
     private func waitUntilPending(_ engine: GrokVoiceAudioEngine) async {
         for _ in 0..<50 {
             if engine.pendingPlaybackCount > 0 { return }
@@ -867,6 +1013,16 @@ final class AppModelListenLoopTests: XCTestCase {
 
     private static func speechShapedPCM(hertz: Double) -> Data {
         pcm16(seconds: 0.12, hertz: hertz)
+    }
+
+    /// Live-tap silence: frames still arrive. RMS stays far below speech.
+    private static func nearSilentPCM() -> Data {
+        let count = Int(GrokVoiceAudioEngine.sampleRate * 0.04)
+        var samples = [Int16](repeating: 0, count: count)
+        for index in 0..<count {
+            samples[index] = Int16(index.isMultiple(of: 2) ? 12 : -12)
+        }
+        return samples.withUnsafeBufferPointer { Data(buffer: $0) }
     }
 
     private static let laterDeskReply = "Here they are. Murray's note is on the screen. I'll keep listening."
