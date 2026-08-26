@@ -108,10 +108,10 @@ final class GrokVoiceService: VoiceServicing {
         echoGate.beginSpeaking(trimmed)
         apply(.speakStarted)
         await ClientVoiceSpeech.shared.speak(trimmed)
-        if echoGate.lastSpokenLine == trimmed {
-            echoGate.finishSpeaking()
-            armListenIfSessionLive(reason: "client tts")
-        }
+        // Always rearm after client TTS. lastSpokenLine is leftover-only —
+        // never skip listen because the spoken line changed mid-playback.
+        echoGate.finishSpeaking()
+        armListenIfSessionLive(reason: "client tts")
     }
 
     func sendTextTurn(_ text: String) async {

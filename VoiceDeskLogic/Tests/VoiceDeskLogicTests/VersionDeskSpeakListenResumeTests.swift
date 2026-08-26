@@ -162,6 +162,8 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
         XCTAssertTrue(tts.contains("didCancel"), tts)
         XCTAssertFalse(source.contains("verbatimSpeakSessionUpdateObject"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"desk speak\")"), source)
+        XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
+        XCTAssertTrue(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
         XCTAssertFalse(source.contains("shouldSpeakViaRealtime"), source)
         XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
         XCTAssertFalse(

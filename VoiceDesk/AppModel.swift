@@ -1061,9 +1061,7 @@ final class AppModel {
         lastSpokenDeskReply = spoken
         echoGate.beginSpeaking(spoken)
         await voice.speak(spoken)
-        if echoGate.lastSpokenLine == spoken {
-            echoGate.finishSpeaking()
-        }
+        echoGate.finishSpeaking()
     }
 
     private func rememberUserTurn(_ text: String, source: String) {
