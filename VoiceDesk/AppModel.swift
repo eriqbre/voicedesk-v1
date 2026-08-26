@@ -1131,11 +1131,7 @@ final class AppModel {
     }
 
     private func matchesCancel(_ text: String) -> Bool {
-        matches(text.lowercased(), ["stop", "cancel", "nevermind", "never mind", "abort"])
-    }
-
-    private func matches(_ lower: String, _ keys: [String]) -> Bool {
-        keys.contains { lower.contains($0) }
+        VoiceStopIntent.matches(text)
     }
 
     private func pause(_ milliseconds: UInt64) async {
