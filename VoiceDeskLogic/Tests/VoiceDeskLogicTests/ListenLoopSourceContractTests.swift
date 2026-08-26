@@ -139,6 +139,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             sim.contains("testFlagLiesAfterTTSDrainSilentTapWhileRunningReinstallsSameTap"),
             sim
         )
+        XCTAssertTrue(
+            sim.contains("testDelayedYankAfterReturnToListenConfigChangeReinstallsSameTap"),
+            sim
+        )
         let noInterrupt = speakSlice(
             sim,
             from: "func testDetachAfterTTSDrainSilentTapWhileRunningReinstallsWithoutInterruption",
@@ -151,13 +155,57 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let flagLies = speakSlice(
             sim,
             from: "func testFlagLiesAfterTTSDrainSilentTapWhileRunningReinstallsSameTap",
-            to: "private func waitUntilDrained"
+            to: "func testDelayedYankAfterReturnToListenConfigChangeReinstallsSameTap"
         )
         XCTAssertFalse(flagLies.contains("postInterruption"), flagLies)
         XCTAssertTrue(flagLies.contains("simulateHALTapYankLeavingInstalledFlagTrue"), flagLies)
         XCTAssertTrue(flagLies.contains("bf0af19ShouldReinstallTapIfSilentWhileRunning"), flagLies)
         XCTAssertTrue(flagLies.contains("reinstallTapIfSilentWhileRunning"), flagLies)
         XCTAssertTrue(flagLies.contains("returnToListenAfterDeskTTS"), flagLies)
+        let delayedYank = speakSlice(
+            sim,
+            from: "func testDelayedYankAfterReturnToListenConfigChangeReinstallsSameTap",
+            to: "private func waitUntilDrained"
+        )
+        XCTAssertFalse(delayedYank.contains("postInterruption"), delayedYank)
+        XCTAssertTrue(delayedYank.contains("simulateHALTapYankLeavingInstalledFlagTrue"), delayedYank)
+        XCTAssertTrue(delayedYank.contains("returnToListenAfterDeskTTS"), delayedYank)
+        XCTAssertTrue(delayedYank.contains("AVAudioEngineConfigurationChange"), delayedYank)
+        if let listenAt = delayedYank.range(of: "returnToListenAfterDeskTTS"),
+           let yankAt = delayedYank.range(of: "simulateHALTapYankLeavingInstalledFlagTrue") {
+            XCTAssertLessThan(
+                listenAt.lowerBound,
+                yankAt.lowerBound,
+                "573f654 drain-time repair must run before the delayed yank"
+            )
+        } else {
+            XCTFail("delayed-yank gate must returnToListen then yank")
+        }
+        if let repairAt = delayedYank.range(of: "reinstallTapIfSilentWhileRunning"),
+           let yankAt = delayedYank.range(of: "simulateHALTapYankLeavingInstalledFlagTrue") {
+            XCTAssertLessThan(
+                repairAt.lowerBound,
+                yankAt.lowerBound,
+                "drain-only reinstall must not run after the delayed yank"
+            )
+        } else {
+            XCTFail("delayed-yank gate must allow 573f654 repair before the yank")
+        }
+        XCTAssertEqual(
+            delayedYank.components(separatedBy: "reinstallTapIfSilentWhileRunning").count,
+            2,
+            "only the drain-time 573f654 repair; config change is the delayed-yank recovery"
+        )
+        if let yankAt = delayedYank.range(of: "simulateHALTapYankLeavingInstalledFlagTrue"),
+           let configAt = delayedYank.range(of: "AVAudioEngineConfigurationChange") {
+            XCTAssertLessThan(
+                yankAt.lowerBound,
+                configAt.lowerBound,
+                "configuration change must arrive after the delayed yank"
+            )
+        } else {
+            XCTFail("delayed-yank gate must post configuration change after the yank")
+        }
         XCTAssertTrue(sim.contains("returnToListenAfterDeskTTS"), sim)
         XCTAssertTrue(sim.contains("plantSpeakStarted"), sim)
         let product = speakSlice(
@@ -193,6 +241,16 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("detachAfterTTSDrainNoInterruptionThenReinstallSameTap"), loop)
         XCTAssertTrue(loop.contains("bf0af19415c955FlagLiesAfterTTSDrainDropsThird"), loop)
         XCTAssertTrue(loop.contains("flagLiesAfterTTSDrainThenReinstallSameTap"), loop)
+        XCTAssertTrue(loop.contains("drainOnly573f654DelayedYankAfterReturnToListenDropsThird"), loop)
+        XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenConfigChangeReinstallsSameTap"), loop)
+        XCTAssertTrue(
+            loopTests.contains("testDrainOnly573f654DelayedYankAfterReturnToListenDropsThird"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("testDelayedYankAfterReturnToListenThenConfigChangeLandsThird"),
+            loopTests
+        )
         XCTAssertTrue(
             loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955DetachAfterTTSDrainNoInterruptionDropsThird"),
             loopTests
@@ -221,9 +279,23 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("reinstallTapIfSilentWhileRunning"), engine)
         XCTAssertTrue(engine.contains("simulateSystemTapDetachLeavingEngineRunning"), engine)
         XCTAssertTrue(engine.contains("simulateHALTapYankLeavingInstalledFlagTrue"), engine)
+        XCTAssertTrue(engine.contains("AVAudioEngineConfigurationChange"), engine)
         XCTAssertTrue(engine.contains("guard tap != nil, tapInstalled"), engine)
         XCTAssertTrue(engine.contains("interruptionNotification"), engine)
         XCTAssertTrue(engine.contains("mediaServicesWereResetNotification"), engine)
+        let stop = engineSlice(engine, from: "func stop() {", to: "func interruptPlayback()")
+        XCTAssertTrue(stop.contains("setActive(false"), stop)
+        XCTAssertTrue(stop.contains("!self.wantsCapture"), stop)
+        let speak = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
+        let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "func sendTextTurn")
+        XCTAssertFalse(speakFn.contains("setCategory"), speakFn)
+        XCTAssertFalse(speakFn.contains("setActive(false"), speakFn)
+        let tts = try XCTUnwrap(repoFile("VoiceDesk/Voice/ClientVoiceSpeech.swift"))
+        XCTAssertFalse(tts.contains("setCategory"), tts)
+        XCTAssertFalse(tts.contains("setActive"), tts)
+        let reinstall = engineSlice(engine, from: "private func reinstallTap() {", to: "private func teardownGraph()")
+        XCTAssertFalse(reinstall.contains("setCategory"), reinstall)
+        XCTAssertFalse(reinstall.contains("setActive(false"), reinstall)
         let detach = engineSlice(
             engine,
             from: "func simulateSystemTapDetachLeavingEngineRunning()",

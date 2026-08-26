@@ -235,6 +235,65 @@ final class FirstHearTapLoopTests: XCTestCase {
         )
     }
 
+    func testDrainOnly573f654DelayedYankAfterReturnToListenDropsThird() {
+        XCTAssertFalse(
+            FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: true),
+            "415c955-class startAudioIfNeeded must no-op while isRunning"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
+                engineRunning: true,
+                wantsCapture: true
+            ),
+            "573f654 drain-time repair would run while the tap is still live"
+        )
+        var interrupted = false
+        XCTAssertEqual(
+            AudioTapLifecycle.action(
+                for: .engineConfigurationChanged,
+                wantsCapture: true,
+                isInterrupted: &interrupted
+            ),
+            .reinstallTap,
+            "product recovery is configuration change, not a second drain repair"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.drainOnly573f654DelayedYankAfterReturnToListenDropsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second], "drain-only 573f654 misses a yank after returnToListen")
+        XCTAssertFalse(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1)
+        XCTAssertTrue(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
+        )
+    }
+
+    func testDelayedYankAfterReturnToListenThenConfigChangeLandsThird() {
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.delayedYankAfterReturnToListenThenConfigChangeReinstallsSameTap(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1, "config-change reinstall must not audio.start")
+        XCTAssertFalse(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
+        )
+    }
+
     func testDetachAfterTTSDrainNoInterruptionThenReinstallLandsThird() {
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)

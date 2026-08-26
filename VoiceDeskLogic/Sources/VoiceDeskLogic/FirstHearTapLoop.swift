@@ -343,6 +343,41 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         )
     }
 
+    /// 573f654 / 415c955: drain-time repair ran while the tap was
+    /// still live. A beat later HAL yanked it, flag still true, no
+    /// interruption, no configuration change. start no-ops. Third
+    /// is not a turn.
+    public static func drainOnly573f654DelayedYankAfterReturnToListenDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .drainThenDelayedYankNoConfigChange
+        )
+    }
+
+    /// After drain + 573f654 repair, delayed HAL yank (flag still
+    /// true, no interruption). Configuration change reinstalls the
+    /// same tap. Third command PCM is the next turn. `startCount` stays 1.
+    public static func delayedYankAfterReturnToListenThenConfigChangeReinstallsSameTap(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .drainThenDelayedYankThenConfigChange
+        )
+    }
+
     /// Product: same detach, then same-engine reinstall (not `audio.start`).
     /// Third command PCM is the next turn. `startCount` stays 1.
     public static func detachWhileRunningThenReinstallSameTap(
@@ -375,6 +410,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case detachAfterTTSDrainNoInterruptionThenReinstall
         case flagLiesAfterTTSDrain
         case flagLiesAfterTTSDrainThenReinstall
+        case drainThenDelayedYankNoConfigChange
+        case drainThenDelayedYankThenConfigChange
         case returnToListenAfterTTS
         case close1000AfterTTSStayIdle
         case close1000AfterTTSStayLive
@@ -510,6 +547,41 @@ public struct FirstHearTapLoop: Equatable, Sendable {
                 tapLive = true
             } else if oldRepair {
                 tapLive = true
+            }
+        case .drainThenDelayedYankNoConfigChange, .drainThenDelayedYankThenConfigChange:
+            // 573f654: returnToListen + reinstall while the tap is still live.
+            let after = ListenResumePolicy.afterClientTTSFinished(
+                session: &session,
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                captureRunning: tapLive
+            )
+            stayLive = after.stayLive
+            close1000 = after.close1000
+            if after.startAgain {
+                startCount += 1
+            }
+            if shouldReinstallTapIfSilentWhileRunning(
+                engineRunning: true,
+                wantsCapture: true
+            ) {
+                tapLive = true
+            }
+            // Delayed HAL yank AFTER drain-time repair. Flag stays true.
+            tapLive = false
+            if startAudioIfNeededWouldStart(engineRunning: true) {
+                startCount += 1
+                tapLive = true
+            }
+            if afterDrain == .drainThenDelayedYankThenConfigChange {
+                var interrupted = false
+                if AudioTapLifecycle.action(
+                    for: .engineConfigurationChanged,
+                    wantsCapture: true,
+                    isInterrupted: &interrupted
+                ) == .reinstallTap {
+                    tapLive = true
+                }
             }
         case .returnToListenAfterTTS:
             let after = ListenResumePolicy.afterClientTTSFinished(

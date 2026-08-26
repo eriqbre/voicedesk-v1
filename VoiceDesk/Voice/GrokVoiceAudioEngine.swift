@@ -337,6 +337,8 @@ final class GrokVoiceAudioEngine {
             }
         )
 
+        // Real iOS often posts this when the HAL tap dies after we
+        // already returned to listen. Same-engine reinstall. Not a watchdog.
         observers.append(
             center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil) { [weak self] _ in
                 Task { @MainActor in
