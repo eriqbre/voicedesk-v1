@@ -366,6 +366,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live.contains("testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"),
             live
         )
+        XCTAssertTrue(live.contains("convenience init(session: VoiceSession, command: Data)"), live)
         XCTAssertTrue(live.contains("GrokVoiceService("), live)
         XCTAssertTrue(live.contains("AppModel("), live)
         XCTAssertTrue(live.contains("applyUserTurn(\"what version are we on\")"), live)
