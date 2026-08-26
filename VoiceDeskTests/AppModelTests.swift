@@ -1301,11 +1301,16 @@ final class FakeLiveVoiceService: VoiceServicing {
     var sentTurns: [String] = []
     var spoken: [String] = []
     var assistantOutputSuppressed = false
+    /// Mic tap. Client TTS must not tear this down (fe1ffc8 resumeCapture).
+    var tapLive = true
+    /// Fired while client TTS is in-flight. Inject at this boundary once.
+    var onClientTTS: (() -> Void)?
 
     var state: VoiceState { session.state }
 
     func startListening() async -> String {
         started = true
+        tapLive = true
         session.apply(.cancel)
         session.apply(.tapTalk)
         eventHandler?(.state(session.state))
@@ -1314,6 +1319,24 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func speak(_ text: String) async {
         spoken.append(text)
+        let during = ListenResumePolicy.afterClientTTS(
+            ttsFinished: false,
+            userWantsVoiceOff: false,
+            socketConnected: true,
+            captureRunning: tapLive
+        )
+        if during != .keepListening {
+            tapLive = false
+        }
+        onClientTTS?()
+        let after = ListenResumePolicy.afterDeskSpeak(
+            userWantsVoiceOff: false,
+            socketConnected: true,
+            captureRunning: tapLive
+        )
+        if after == .resumeCapture {
+            tapLive = true
+        }
     }
 
     func sendTextTurn(_ text: String) async {
@@ -1327,6 +1350,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     }
 
     func emitUser(_ text: String, itemID: String? = nil) {
+        guard tapLive else { return }
         eventHandler?(.userTranscript(text, isFinal: true, itemID: itemID))
     }
 
