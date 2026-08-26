@@ -1100,9 +1100,10 @@ final class AppModelTests: XCTestCase {
             "glance is cards-only: \(onScreen)"
         )
         let digest = fake.spoken.last ?? ""
-        XCTAssertTrue(InboxGlance.isShortSpokenAck(digest), digest)
-        XCTAssertFalse(digest.contains("Murray Mitchell"), digest)
-        XCTAssertFalse(digest.contains("Steve Brown"), digest)
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(digest), digest)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(digest), digest)
+        XCTAssertFalse(InboxGlance.isMultiline(digest), digest)
+        XCTAssertFalse(InboxGlance.repeatsGlanceLines(digest), digest)
         XCTAssertNotEqual(digest, onScreen)
         XCTAssertFalse(digest.contains("<html"))
         XCTAssertFalse(EmailSummary.containsUIChrome(digest))
@@ -1927,7 +1928,8 @@ final class GoogleSliceTests: XCTestCase {
             "cards are the list; bubble must not reprint Eve: \(model.turns.last?.text ?? "")"
         )
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Massimo showing"))
-        XCTAssertTrue(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
+        XCTAssertTrue(voice.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(voice.spoken)")
+        XCTAssertFalse(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
         XCTAssertEqual(model.turns.last?.cards.count, 1)
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.title, "Massimo showing")
@@ -1963,7 +1965,8 @@ final class GoogleSliceTests: XCTestCase {
             "cards are the list; bubble must not reprint Eve: \(model.turns.last?.text ?? "")"
         )
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Massimo showing"))
-        XCTAssertTrue(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
+        XCTAssertTrue(voice.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(voice.spoken)")
+        XCTAssertFalse(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.title, "Massimo showing")
         } else {
