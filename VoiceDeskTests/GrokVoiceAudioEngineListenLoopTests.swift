@@ -2,18 +2,45 @@ import XCTest
 import VoiceDeskLogic
 @testable import VoiceDesk
 
-/// One real engine. Tap stays up across player PCM, barge-in, and write→player.
-/// Transcript injects are not hear proof. Simulator AEC quality is not the claim.
+/// One real engine. First-hear gate: two tap turns, desk TTS drain,
+/// then a third command PCM through the SAME tap is the next turn.
+/// Tap-rate-during-playback is not that gate. Transcript injects are not
+/// hear proof. Simulator AEC quality is not the claim.
 @MainActor
 final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
     func testTapStaysLiveAcrossPlayerPlaybackBargeInAndWriteTTS() async throws {
-        let engine = GrokVoiceAudioEngine()
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        var stayLive = true
         var tapFires = 0
         var sink: [Data] = []
+        var turns: [Data] = []
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+
+        let engine = GrokVoiceAudioEngine()
+        func acceptIfTurn(_ pcm: Data) {
+            let isFed = pcm == command1 || pcm == command2 || pcm == command3 || pcm == noise
+            guard isFed else { return }
+            sink.append(pcm)
+            guard pcm != noise else { return }
+            if let turn = FirstHearTapLoop.accept(
+                pcm: pcm,
+                tapLive: engine.isRunning,
+                session: session,
+                stayLive: stayLive,
+                startCount: engine.startCount
+            ) {
+                turns.append(turn)
+            }
+        }
+
         let logs = engine.start(echoCancellation: true) { base64 in
             tapFires += 1
             if let data = Data(base64Encoded: base64) {
-                sink.append(data)
+                acceptIfTurn(data)
             }
         }
         guard engine.isRunning else {
@@ -21,57 +48,66 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         }
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertFalse(engine.interruptRemovesTap)
+        XCTAssertTrue(ListenResumePolicy.isListenArmed(state: session.state))
 
-        let firesBeforePlay = tapFires
-        await playUntilDrained(engine, pcm: Self.pcm16(seconds: 2, hertz: 220))
-        XCTAssertGreaterThan(tapFires, firesBeforePlay, "tap callback rate must stay non-zero during/after player PCM")
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("listen-loop-third.pcm")
+        try command3.write(to: fileURL)
+        let thirdFromFile = try Data(contentsOf: fileURL)
+
+        engine.feedTapPCM16(command1)
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink, [command1, command2])
+        XCTAssertEqual(turns, [command1, command2], "first two command-shaped PCM chunks must be turns")
         XCTAssertEqual(engine.startCount, 1)
-
-        let commandPCM = Self.speechShapedPCM(hertz: 140)
-        let noisePCM = Self.speechShapedPCM(hertz: 90)
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("listen-loop-speech.pcm")
-        try commandPCM.write(to: fileURL)
-        let fromFile = try Data(contentsOf: fileURL)
-        engine.feedTapPCM16(fromFile)
-        XCTAssertEqual(sink.last, fromFile, "command-shaped PCM file through the same tap callback is the next turn")
 
         XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
         XCTAssertFalse(ListenInterrupt.isCommand("Can you hear me?"))
         XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
 
-        let firesBeforeNoise = tapFires
-        engine.playPCM16(Self.pcm16(seconds: 5, hertz: 180))
-        try await Task.sleep(for: .milliseconds(300))
-        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
-        engine.feedTapPCM16(noisePCM)
-        XCTAssertEqual(sink.last, noisePCM, "non-command noise still reaches the same tap")
-        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "non-command noise must not cancel her")
-        XCTAssertTrue(engine.isPlayerPlaying, "player stays play()-ing through ambient speech")
-        try await Task.sleep(for: .milliseconds(150))
-        XCTAssertGreaterThan(tapFires, firesBeforeNoise, "tap still firing through non-command noise")
-
-        let firesBeforeCommand = tapFires
-        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"), "Eve decides command vs not")
-        engine.interruptPlayback()
-        XCTAssertEqual(engine.pendingPlaybackCount, 0)
-        XCTAssertTrue(engine.isPlayerPlaying, "command interrupt stops buffers but player stays play()-ing")
-        try await Task.sleep(for: .milliseconds(150))
-        XCTAssertGreaterThan(tapFires, firesBeforeCommand, "tap still firing after command interrupt")
-        engine.feedTapPCM16(commandPCM)
-        XCTAssertEqual(sink.last, commandPCM, "command-shaped PCM in the tap is the next turn")
-
-        let firesBeforeWrite = tapFires
-        await ClientVoiceSpeech.shared.speak("Here they are.") { pcm in
+        let firesBeforeTTS = tapFires
+        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
             engine.playPCM16(pcm)
         }
-        try await Task.sleep(for: .milliseconds(400))
-        XCTAssertGreaterThan(tapFires, firesBeforeWrite, "after write→player, tap rate still non-zero")
+        await waitUntilDrained(engine)
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "desk TTS must drain before the next tap turn")
+        XCTAssertEqual(engine.startCount, 1, "drain must not audio.start")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertTrue(ListenResumePolicy.isListenArmed(state: session.state), "after drain, listen must still be armed")
+        XCTAssertTrue(stayLive)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertGreaterThan(tapFires, firesBeforeTTS, "if the tap is silent after TTS, fail")
+
+        engine.feedTapPCM16(thirdFromFile)
+        XCTAssertEqual(sink.last, thirdFromFile, "third command PCM must go through the same tap callback")
+        XCTAssertEqual(turns.last, thirdFromFile, "after drain, that PCM is the next turn — not just a callback count")
+        XCTAssertEqual(turns.count, 3)
+        XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
+
+        let firesBeforeAmbient = tapFires
+        engine.playPCM16(Self.pcm16(seconds: 5, hertz: 200))
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
+        engine.feedTapPCM16(noise)
+        XCTAssertEqual(sink.last, noise)
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "ambient / can-you-hear-me / weather must not interruptPlayback")
+        XCTAssertTrue(engine.isPlayerPlaying)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertGreaterThan(tapFires, firesBeforeAmbient)
+
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
+        engine.interruptPlayback()
+        XCTAssertEqual(engine.pendingPlaybackCount, 0)
+        XCTAssertTrue(engine.isPlayerPlaying)
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink.last, command2)
+        XCTAssertEqual(turns.last, command2, "a later command-shaped PCM may interrupt and is the next turn")
         XCTAssertEqual(engine.startCount, 1)
 
         engine.stop()
     }
 
-    private func playUntilDrained(_ engine: GrokVoiceAudioEngine, pcm: Data) async {
+    private func waitUntilDrained(_ engine: GrokVoiceAudioEngine) async {
+        if engine.pendingPlaybackCount == 0 { return }
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             var resumed = false
             let finish = {
@@ -81,9 +117,8 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
                 cont.resume()
             }
             engine.onPlaybackDrained = finish
-            engine.playPCM16(pcm)
             Task { @MainActor in
-                try? await Task.sleep(for: .seconds(4))
+                try? await Task.sleep(for: .seconds(8))
                 finish()
             }
         }

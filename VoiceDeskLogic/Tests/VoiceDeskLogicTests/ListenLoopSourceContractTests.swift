@@ -87,9 +87,17 @@ final class ListenLoopSourceContractTests: XCTestCase {
     func testSimGateCancelsPlaybackOnlyOnCommand() throws {
         let sim = try XCTUnwrap(repoFile("VoiceDeskTests/GrokVoiceAudioEngineListenLoopTests.swift"))
         XCTAssertTrue(sim.contains("ListenInterrupt.isCommand"), sim)
-        XCTAssertTrue(sim.contains("must not cancel"), sim)
+        XCTAssertTrue(sim.contains("must not interruptPlayback"), sim)
         XCTAssertTrue(sim.contains("feedTapPCM16"), sim)
         XCTAssertFalse(sim.contains("synthesizer.speak("), sim)
+        XCTAssertTrue(sim.contains("FirstHearTapLoop.accept"), sim)
+        XCTAssertTrue(sim.contains("waitUntilDrained"), sim)
+        XCTAssertTrue(sim.contains("spokenListAck"), sim)
+        XCTAssertTrue(sim.contains("turns.last"), sim)
+        XCTAssertTrue(sim.contains("turns.count, 3"), sim)
+        XCTAssertFalse(sim.contains("keepListeningAfterClientTTS"), sim)
+        XCTAssertFalse(sim.contains("resumeCapture"), sim)
+        XCTAssertFalse(sim.contains("rearmTap"), sim)
     }
 
     private func speakSlice(_ source: String, from: String, to: String) -> String {
