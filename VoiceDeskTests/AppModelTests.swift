@@ -1191,6 +1191,53 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
+    /// Live service path after version + glance write→player. Same loop
+    /// as `FirstHearTapLoop.versionThenGlanceWritePlayerThenThird`.
+    func testVersionThenGlanceWritePlayerStayLiveThirdCommandIsATurn() async {
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        await model.applyUserTurn("what version are we on")
+        XCTAssertTrue(fake.spoken.contains { $0.contains("VoiceDesk") })
+        XCTAssertTrue(fake.stayLiveAfterSpeak)
+        XCTAssertTrue(fake.listenArmedAfterSpeak)
+        XCTAssertFalse(fake.parkedSpeaking)
+        XCTAssertNotEqual(fake.close1000AfterSpeak, .stayIdle)
+        XCTAssertEqual(fake.startCount, 0)
+
+        await model.applyUserTurn("show me my emails")
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
+        XCTAssertTrue(fake.stayLiveAfterSpeak, "glance write→player must stayLive")
+        XCTAssertTrue(fake.listenArmedAfterSpeak)
+        XCTAssertFalse(fake.parkedSpeaking, "leftover created/done must not park speaking")
+        XCTAssertNotEqual(fake.close1000AfterSpeak, .stayIdle, "close 1000 stayIdle after glance is a fail")
+        XCTAssertEqual(fake.startCount, 0, "write→player must not audio.start")
+
+        let afterGlanceUsers = model.turns.filter { $0.role == .user }.map(\.text)
+        fake.emitUser("what's on my calendar")
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.map(\.text),
+            afterGlanceUsers + ["what's on my calendar"],
+            "third command after glance is the next turn"
+        )
+
+        fake.hasPendingPlayback = true
+        let turns = model.turns.count
+        fake.emitUser("Can you hear me?")
+        XCTAssertEqual(fake.interruptCount, 0, "ambient must not interruptPlayback")
+        XCTAssertEqual(model.turns.count, turns)
+        fake.emitUser("show calendar")
+        XCTAssertEqual(fake.interruptCount, 1, "command intent drops playback")
+        XCTAssertGreaterThan(model.turns.count, turns)
+    }
+
     func testSpokenSentenceContainingStopDoesNotKillTheSession() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)
@@ -1328,6 +1375,8 @@ final class FakeLiveVoiceService: VoiceServicing {
     /// Product startListening. Client TTS must not increment this.
     var startCount = 0
     var stayLiveAfterSpeak = false
+    var listenArmedAfterSpeak = false
+    var parkedSpeaking = false
     var close1000AfterSpeak: ListenResumeDecision = .stayIdle
 
     var state: VoiceState { session.state }
@@ -1344,13 +1393,7 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func speak(_ text: String) async {
         spoken.append(text)
-        let during = ListenResumePolicy.afterDeskSpeak(
-            userWantsVoiceOff: false,
-            socketConnected: true
-        )
-        if during != .keepListening {
-            tapLive = false
-        }
+        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
         let after = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: false,
@@ -1358,6 +1401,8 @@ final class FakeLiveVoiceService: VoiceServicing {
             captureRunning: tapLive
         )
         stayLiveAfterSpeak = after.stayLive
+        listenArmedAfterSpeak = after.listenArmed
+        parkedSpeaking = session.state == .speaking
         close1000AfterSpeak = after.close1000
         if after.startAgain {
             startCount += 1

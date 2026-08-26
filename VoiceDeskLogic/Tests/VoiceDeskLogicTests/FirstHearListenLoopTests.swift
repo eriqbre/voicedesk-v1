@@ -66,6 +66,9 @@ final class FirstHearListenLoopTests: XCTestCase {
         let engine = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceAudioEngine.swift"))
         XCTAssertFalse(engine.contains("func resumeCapture"), engine)
         XCTAssertFalse(engine.contains("func rearmTap"), engine)
+        let loop = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/FirstHearListenLoop.swift"))
+        XCTAssertTrue(loop.contains("applyLeftoverGrokDuringClientTTS"), loop)
+        XCTAssertFalse(loop.contains("afterDeskSpeak"), loop)
     }
 
     func testFa72e1cSpeakStartedWithoutKeepListenDropsTheNextAsk() {

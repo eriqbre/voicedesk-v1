@@ -28,6 +28,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(speakFn.contains("waitUntilPlaybackDrained"), speakFn)
         XCTAssertTrue(speakFn.contains("returnToListenAfterDeskTTS"), speakFn)
         XCTAssertTrue(speak.contains("afterClientTTSFinished"), speak)
+        XCTAssertTrue(speak.contains("applyLeftoverGrokDuringClientTTS"), speak)
         XCTAssertTrue(speak.contains("clientTTSInFlight"), speak)
         if let writeAt = speakFn.range(of: "ClientVoiceSpeech.shared.speak") {
             let afterWrite = String(speakFn[writeAt.upperBound...])
@@ -64,6 +65,12 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(app.contains("shouldTakeLiveTurn"), app)
         XCTAssertTrue(app.contains("voice.interruptResponse()"), app)
         XCTAssertTrue(app.contains("handleLiveUser(event.text, itemID: event.itemID)"), app)
+        XCTAssertFalse(app.contains("speakStarted"), app)
+        XCTAssertFalse(app.contains("stayIdle"), app)
+        XCTAssertFalse(app.contains("resumeCapture"), app)
+        XCTAssertFalse(app.contains("applyLeftoverGrokDuringClientTTS"), app)
+        XCTAssertFalse(app.contains("afterClientTTSFinished"), app)
+        XCTAssertFalse(app.contains("armListenIfSessionLive"), app)
         let live = speakSlice(app, from: "private func handleLiveTranscript", to: "private func handleLiveUser")
         XCTAssertTrue(live.contains("guard event.isFinal else { return }"), live)
         XCTAssertFalse(live.contains("voice.interruptResponse()"), live)
@@ -75,6 +82,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let interrupt = speakSlice(tests, from: "func interruptResponse() {", to: "func suppressAssistantOutput")
         XCTAssertTrue(interrupt.contains("guard hasPendingPlayback else { return }"), interrupt)
         XCTAssertTrue(interrupt.contains("interruptCount += 1"), interrupt)
+        let speak = speakSlice(tests, from: "func speak(_ text: String) async {", to: "func sendTextTurn")
+        XCTAssertTrue(speak.contains("applyLeftoverGrokDuringClientTTS"), speak)
+        XCTAssertTrue(speak.contains("afterClientTTSFinished"), speak)
+        XCTAssertFalse(speak.contains("afterDeskSpeak"), speak)
+        XCTAssertTrue(tests.contains("testVersionThenGlanceWritePlayerStayLiveThirdCommandIsATurn"), tests)
     }
 
     func testSpeechStartedAndTranscriptDoNotCancelPlayback() throws {
@@ -144,6 +156,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTS"), loop)
         XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSStayIdleDropsThird"), loop)
         XCTAssertTrue(loop.contains("close1000AfterTTSStayLiveThenThird"), loop)
+        XCTAssertTrue(loop.contains("versionThenGlanceWritePlayerThenThird"), loop)
+        XCTAssertTrue(loop.contains("applyLeftoverGrokDuringClientTTS"), loop)
         XCTAssertTrue(loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSMustNotStayIdle"), loopTests)
         XCTAssertTrue(loop.contains("detachWhileRunningThenReinstallSameTap"), loop)
         XCTAssertTrue(loop.contains("startAudioIfNeededWouldStart"), loop)

@@ -6,6 +6,28 @@ import XCTest
 /// fe1ffc8 / fa72e1c / 18d5878 / 415c955: tap detached, isRunning true,
 /// startAudioIfNeeded no-ops — that walk must drop the third.
 final class FirstHearTapLoopTests: XCTestCase {
+    func testVersionThenGlanceWritePlayerThenThirdIsATurn() {
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.versionThenGlanceWritePlayerThenThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertNotEqual(walk.close1000, .stayIdle, "close 1000 stayIdle after version/glance is a fail")
+        XCTAssertEqual(walk.startCount, 1)
+        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
+        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true))
+        XCTAssertFalse(ListenInterrupt.isCommand("Can you hear me?"))
+        XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
+        XCTAssertTrue(ListenInterrupt.isCommand("what's on my calendar"))
+    }
+
     func testProductThirdPCMAfterDrainIsATurnWithoutSecondStart() {
         // Product path: speakStarted slips during TTS, afterClientTTSFinished
         // returns to listen. Close 1000 stayIdle is a fail.

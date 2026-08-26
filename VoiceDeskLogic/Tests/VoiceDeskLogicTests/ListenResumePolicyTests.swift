@@ -50,6 +50,14 @@ final class ListenResumePolicyTests: XCTestCase {
         )
     }
 
+    func testLeftoverGrokDuringClientTTSDoesNotParkSpeaking() {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
+        XCTAssertEqual(session.state, .listening, "leftover created/done must not park speaking")
+        XCTAssertTrue(ListenResumePolicy.isListenArmed(state: session.state))
+    }
+
     func testAfterClientTTSFinishedStaysLiveWithoutSecondStart() {
         var session = VoiceSession()
         session.apply(.tapTalk)

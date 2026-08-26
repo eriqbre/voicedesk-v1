@@ -112,6 +112,18 @@ public enum ListenResumePolicy: Sendable {
         !clientTTSSpeaking
     }
 
+    /// Leftover `response.created` / `response.done` during write→player.
+    /// Must not park `.speaking`. Same step as GrokVoiceService + the
+    /// live fixtures. Not a skip flag — the leftover events are ignored.
+    public static func applyLeftoverGrokDuringClientTTS(_ session: inout VoiceSession) {
+        if shouldApplyGrokSpeakStarted(clientTTSSpeaking: true) {
+            session.apply(.speakStarted)
+        }
+        if shouldApplyGrokTurnFinished(clientTTSSpeaking: true) {
+            session.apply(.turnFinished)
+        }
+    }
+
     /// After on-device desk TTS. Return to listen. Desk speak is not
     /// user-stop. Close 1000 reconnects. Does not start audio again.
     public static func afterClientTTSFinished(

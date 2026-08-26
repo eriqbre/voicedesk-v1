@@ -29,6 +29,8 @@ final class FirstHearListenLoopTests: XCTestCase {
         XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertTrue(fake.tapLive, "client TTS must not tear down the tap")
         XCTAssertTrue(fake.stayLiveAfterSpeak)
+        XCTAssertTrue(fake.listenArmedAfterSpeak)
+        XCTAssertFalse(fake.parkedSpeaking, "leftover created/done must not park speaking")
         XCTAssertNotEqual(fake.close1000AfterSpeak, .stayIdle)
         XCTAssertEqual(fake.startCount, 0, "client TTS must not relaunch audio.start")
         XCTAssertEqual(
@@ -64,6 +66,8 @@ final class FirstHearListenLoopTests: XCTestCase {
             XCTAssertEqual(injects, 1, line)
             XCTAssertTrue(fake.tapLive, line)
             XCTAssertTrue(fake.stayLiveAfterSpeak, line)
+            XCTAssertTrue(fake.listenArmedAfterSpeak, line)
+            XCTAssertFalse(fake.parkedSpeaking, line)
             XCTAssertNotEqual(fake.close1000AfterSpeak, .stayIdle, line)
             XCTAssertEqual(fake.startCount, 0, "no second audio.start: \(line)")
             XCTAssertEqual(

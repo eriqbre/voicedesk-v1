@@ -168,6 +168,78 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         close1000AfterTTSStayLiveThenThird(first: first, second: second, third: third)
     }
 
+    /// AppModel version then glance write→player, then the next command.
+    /// Same live loop as `GrokVoiceService.returnToListenAfterDeskTTS`.
+    /// Close 1000 stayIdle is a fail. `startCount` stays 1.
+    public static func versionThenGlanceWritePlayerThenThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        var tapLive = true
+        var stayLive = true
+        var startCount = 1
+        var turns: [Data] = []
+        var close1000 = ListenResumePolicy.afterSocketClose(
+            userWantsVoiceOff: false,
+            sessionShouldStayLive: true,
+            closeCode: 1000,
+            voiceState: session.state
+        )
+
+        func take(_ pcm: Data) {
+            if let accepted = accept(
+                pcm: pcm,
+                tapLive: tapLive,
+                session: session,
+                stayLive: stayLive,
+                startCount: startCount
+            ) {
+                turns.append(accepted)
+            }
+        }
+
+        take(first)
+        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
+        var after = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: false,
+            liveSessionArmed: true,
+            captureRunning: tapLive
+        )
+        stayLive = after.stayLive
+        close1000 = after.close1000
+        if after.startAgain {
+            startCount += 1
+        }
+
+        take(second)
+        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
+        after = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: false,
+            liveSessionArmed: true,
+            captureRunning: tapLive
+        )
+        stayLive = after.stayLive
+        close1000 = after.close1000
+        if after.startAgain {
+            startCount += 1
+        }
+
+        take(third)
+        return FirstHearTapLoop(
+            turns: turns,
+            tapLive: tapLive,
+            listenArmed: ListenResumePolicy.isListenArmed(state: session.state),
+            stayLive: stayLive,
+            close1000: close1000,
+            startCount: startCount
+        )
+    }
+
     /// Product: leftover response.created/done during TTS, then close 1000.
     /// stayLive stays true, listen is re-armed on the same tap, third lands.
     public static func close1000AfterTTSStayLiveThenThird(
@@ -260,12 +332,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case .applySpeakStarted:
             session.apply(.speakStarted)
         case .leftoverGrokSpeakAndDone:
-            if ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true) {
-                session.apply(.speakStarted)
-            }
-            if ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true) {
-                session.apply(.turnFinished)
-            }
+            ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
         }
 
         switch afterDrain {
