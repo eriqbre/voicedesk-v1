@@ -385,7 +385,6 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         )
         XCTAssertTrue(
             FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
-                tapInstalled: engine.isTapInstalled,
                 engineRunning: engine.isRunning,
                 wantsCapture: true
             )
@@ -422,6 +421,117 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         engine.feedTapPCM16(thirdFromFile)
         XCTAssertEqual(listen.sink.last, thirdFromFile, "third command PCM must go through the repaired tap")
         XCTAssertEqual(listen.turns.last, thirdFromFile, "after drain+no-interrupt repair, that PCM is the next turn")
+        XCTAssertEqual(listen.turns.count, 3)
+        XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
+
+        engine.stop()
+    }
+
+    /// Honesty gate for bf0af19 / 415c955: HAL yanked the tap after
+    /// write→player drain, `isRunning` stayed true, and `tapInstalled`
+    /// stayed true. The old repair required `!tapInstalled` and no-oped.
+    ///
+    /// This test yanks the real tap, leaves the flag true, does **not**
+    /// post interruption, then runs the live drain path. Third command
+    /// PCM through the repaired tap is the next turn. Transcript injects
+    /// do not count. `startCount` stays 1.
+    func testFlagLiesAfterTTSDrainSilentTapWhileRunningReinstallsSameTap() async throws {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+        let listen = TapListenBox(
+            session: session,
+            stayLive: true,
+            startCount: 1,
+            tapLive: false,
+            command1: command1,
+            command2: command2,
+            command3: command3,
+            noise: noise
+        )
+
+        let engine = GrokVoiceAudioEngine()
+        let logs = engine.start(echoCancellation: true) { base64 in
+            listen.onTap(base64)
+        }
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one engine: \(logs.joined(separator: "; "))")
+        }
+        listen.tapLive = true
+        listen.startCount = engine.startCount
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(engine.isTapInstalled)
+
+        engine.feedTapPCM16(command1)
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(listen.turns, [command1, command2])
+
+        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
+            engine.playPCM16(pcm)
+        }
+        await waitUntilDrained(engine)
+        XCTAssertEqual(engine.pendingPlaybackCount, 0)
+        XCTAssertEqual(engine.startCount, 1, "drain must not audio.start")
+        XCTAssertTrue(engine.isRunning)
+
+        engine.simulateHALTapYankLeavingInstalledFlagTrue()
+        XCTAssertTrue(engine.isTapInstalled, "bf0af19: flag still says installed after HAL yank")
+        XCTAssertTrue(engine.isRunning, "415c955-class yank leaves isRunning true")
+        XCTAssertEqual(engine.startCount, 1, "yank must not audio.start")
+        XCTAssertFalse(
+            FirstHearTapLoop.bf0af19ShouldReinstallTapIfSilentWhileRunning(
+                tapInstalled: engine.isTapInstalled,
+                engineRunning: engine.isRunning,
+                wantsCapture: true
+            ),
+            "bf0af19 trusted the flag and would no-op here"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
+                engineRunning: engine.isRunning,
+                wantsCapture: true
+            )
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: engine.isRunning),
+            "old loop no-ops here; a second start is not the repair"
+        )
+
+        engine.feedTapPCM16(command3)
+        XCTAssertEqual(listen.sink, [command1, command2], "lying flag must not paper-green the third")
+        XCTAssertEqual(listen.turns, [command1, command2], "bf0af19 would stay deaf here")
+
+        listen.returnToListenAfterDeskTTS()
+        engine.reinstallTapIfSilentWhileRunning()
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertTrue(engine.isTapInstalled)
+        XCTAssertEqual(engine.startCount, 1, "reinstall must not audio.start")
+        listen.tapLive = true
+        listen.startCount = engine.startCount
+
+        let firesAfterReinstall = listen.tapFires
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertGreaterThan(
+            listen.tapFires,
+            firesAfterReinstall,
+            "same tap must emit new buffers after flag-lies reinstall"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.silentTapWhileEngineRunning(
+                tapEmitting: listen.tapFires > firesAfterReinstall,
+                engineRunning: engine.isRunning
+            )
+        )
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("flag-lies-repair-third.pcm")
+        try command3.write(to: fileURL)
+        let thirdFromFile = try Data(contentsOf: fileURL)
+        engine.feedTapPCM16(thirdFromFile)
+        XCTAssertEqual(listen.sink.last, thirdFromFile, "third command PCM must go through the repaired tap")
+        XCTAssertEqual(listen.turns.last, thirdFromFile, "after drain+flag-lies repair, that PCM is the next turn")
         XCTAssertEqual(listen.turns.count, 3)
         XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
 

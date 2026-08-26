@@ -33,8 +33,19 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     }
 
     /// After drain. Silent tap while running must reinstall the same tap.
-    /// Do not wait for interruption. Do not start a second engine.
+    /// Do not trust `tapInstalled` — real iOS yanks the HAL tap and
+    /// leaves the flag true. Do not wait for interruption. Do not start
+    /// a second engine.
     public static func shouldReinstallTapIfSilentWhileRunning(
+        engineRunning: Bool,
+        wantsCapture: Bool
+    ) -> Bool {
+        wantsCapture && engineRunning
+    }
+
+    /// bf0af19 / 415c955: trusted `tapInstalled`. HAL yank left the
+    /// flag true, so the repair no-oped and the third never landed.
+    public static func bf0af19ShouldReinstallTapIfSilentWhileRunning(
         tapInstalled: Bool,
         engineRunning: Bool,
         wantsCapture: Bool
@@ -300,6 +311,38 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         )
     }
 
+    /// bf0af19 / 415c955: HAL tap yanked after drain, installed flag
+    /// still true, start no-ops, old repair no-ops. Third is not a turn.
+    public static func bf0af19415c955FlagLiesAfterTTSDrainDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .flagLiesAfterTTSDrain
+        )
+    }
+
+    /// After drain, HAL yank leaves the installed flag true. Product
+    /// reinstalls anyway. Third command PCM is the next turn.
+    public static func flagLiesAfterTTSDrainThenReinstallSameTap(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .flagLiesAfterTTSDrainThenReinstall
+        )
+    }
+
     /// Product: same detach, then same-engine reinstall (not `audio.start`).
     /// Third command PCM is the next turn. `startCount` stays 1.
     public static func detachWhileRunningThenReinstallSameTap(
@@ -330,6 +373,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case detachWhileRunningThenReinstall
         case detachAfterTTSDrainNoInterruption
         case detachAfterTTSDrainNoInterruptionThenReinstall
+        case flagLiesAfterTTSDrain
+        case flagLiesAfterTTSDrainThenReinstall
         case returnToListenAfterTTS
         case close1000AfterTTSStayIdle
         case close1000AfterTTSStayLive
@@ -428,10 +473,42 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             }
             if afterDrain == .detachAfterTTSDrainNoInterruptionThenReinstall,
                shouldReinstallTapIfSilentWhileRunning(
-                tapInstalled: tapLive,
                 engineRunning: true,
                 wantsCapture: true
                ) {
+                tapLive = true
+            }
+        case .flagLiesAfterTTSDrain, .flagLiesAfterTTSDrainThenReinstall:
+            let after = ListenResumePolicy.afterClientTTSFinished(
+                session: &session,
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                captureRunning: true
+            )
+            stayLive = after.stayLive
+            close1000 = after.close1000
+            if after.startAgain {
+                startCount += 1
+            }
+            // HAL yank. Installed flag stays true. Actual tap is dead.
+            let flagInstalled = true
+            tapLive = false
+            if startAudioIfNeededWouldStart(engineRunning: true) {
+                startCount += 1
+                tapLive = true
+            }
+            let oldRepair = bf0af19ShouldReinstallTapIfSilentWhileRunning(
+                tapInstalled: flagInstalled,
+                engineRunning: true,
+                wantsCapture: true
+            )
+            let productRepair = shouldReinstallTapIfSilentWhileRunning(
+                engineRunning: true,
+                wantsCapture: true
+            )
+            if afterDrain == .flagLiesAfterTTSDrainThenReinstall, productRepair {
+                tapLive = true
+            } else if oldRepair {
                 tapLive = true
             }
         case .returnToListenAfterTTS:

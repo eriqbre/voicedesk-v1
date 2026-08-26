@@ -81,21 +81,20 @@ final class GrokVoiceAudioEngine {
     }
 
     /// Same callback the mic tap uses. Speech-shaped PCM is a turn, not a string.
-    /// After an iOS detach (`tapInstalled == false`) this must no-op so a
-    /// silent tap cannot be paper-greened by feeding PCM.
+    /// A lying `tapInstalled` with no HAL tap must no-op so a silent tap
+    /// cannot be paper-greened by feeding PCM.
     func feedTapPCM16(_ pcm: Data) {
-        guard tapInstalled, let onMicAudio else { return }
+        guard tap != nil, tapInstalled, let onMicAudio else { return }
         onMicAudio(pcm.base64EncodedString())
     }
 
     var isTapInstalled: Bool { tapInstalled }
 
-    /// After write→player drain. iOS can yank the tap and leave
-    /// `isRunning` true without ever posting interruption. Put the
-    /// same tap back. Do not increment `startCount`.
+    /// After write→player drain. iOS can yank the HAL tap and leave
+    /// `isRunning` true and `tapInstalled` true without posting
+    /// interruption. Put the same tap back. Do not increment `startCount`.
     func reinstallTapIfSilentWhileRunning() {
         guard FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
-            tapInstalled: tapInstalled,
             engineRunning: engine?.isRunning ?? false,
             wantsCapture: wantsCapture
         ) else { return }
@@ -108,9 +107,20 @@ final class GrokVoiceAudioEngine {
     /// This is that detach. It must not increment `startCount`.
     func simulateSystemTapDetachLeavingEngineRunning() {
         guard let engine else { return }
-        if tapInstalled {
+        if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
+        }
+        tapInstalled = false
+        tap?.detach()
+        tap = nil
+    }
+
+    /// Real iOS (415c955 / bf0af19): HAL tap is gone, `isRunning` stays
+    /// true, and our installed flag still says true. No interruption.
+    func simulateHALTapYankLeavingInstalledFlagTrue() {
+        guard let engine else { return }
+        if tap != nil {
+            engine.inputNode.removeTap(onBus: 0)
         }
         tap?.detach()
         tap = nil
@@ -253,11 +263,12 @@ final class GrokVoiceAudioEngine {
             }
             return
         }
-        if tapInstalled {
+        if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
         }
+        tapInstalled = false
         tap?.detach()
+        tap = nil
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0,

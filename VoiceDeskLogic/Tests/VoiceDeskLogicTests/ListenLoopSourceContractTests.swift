@@ -135,15 +135,29 @@ final class ListenLoopSourceContractTests: XCTestCase {
             sim.contains("testDetachAfterTTSDrainSilentTapWhileRunningReinstallsWithoutInterruption"),
             sim
         )
+        XCTAssertTrue(
+            sim.contains("testFlagLiesAfterTTSDrainSilentTapWhileRunningReinstallsSameTap"),
+            sim
+        )
         let noInterrupt = speakSlice(
             sim,
             from: "func testDetachAfterTTSDrainSilentTapWhileRunningReinstallsWithoutInterruption",
-            to: "private func waitUntilDrained"
+            to: "func testFlagLiesAfterTTSDrainSilentTapWhileRunningReinstallsSameTap"
         )
         XCTAssertFalse(noInterrupt.contains("postInterruption"), noInterrupt)
         XCTAssertTrue(noInterrupt.contains("reinstallTapIfSilentWhileRunning"), noInterrupt)
         XCTAssertTrue(noInterrupt.contains("simulateSystemTapDetachLeavingEngineRunning"), noInterrupt)
         XCTAssertTrue(noInterrupt.contains("415c955"), noInterrupt)
+        let flagLies = speakSlice(
+            sim,
+            from: "func testFlagLiesAfterTTSDrainSilentTapWhileRunningReinstallsSameTap",
+            to: "private func waitUntilDrained"
+        )
+        XCTAssertFalse(flagLies.contains("postInterruption"), flagLies)
+        XCTAssertTrue(flagLies.contains("simulateHALTapYankLeavingInstalledFlagTrue"), flagLies)
+        XCTAssertTrue(flagLies.contains("bf0af19ShouldReinstallTapIfSilentWhileRunning"), flagLies)
+        XCTAssertTrue(flagLies.contains("reinstallTapIfSilentWhileRunning"), flagLies)
+        XCTAssertTrue(flagLies.contains("returnToListenAfterDeskTTS"), flagLies)
         XCTAssertTrue(sim.contains("returnToListenAfterDeskTTS"), sim)
         XCTAssertTrue(sim.contains("plantSpeakStarted"), sim)
         let product = speakSlice(
@@ -174,12 +188,16 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSMustNotStayIdle"), loopTests)
         XCTAssertTrue(loop.contains("detachWhileRunningThenReinstallSameTap"), loop)
         XCTAssertTrue(loop.contains("shouldReinstallTapIfSilentWhileRunning"), loop)
+        XCTAssertTrue(loop.contains("bf0af19ShouldReinstallTapIfSilentWhileRunning"), loop)
         XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955DetachAfterTTSDrainNoInterruptionDropsThird"), loop)
         XCTAssertTrue(loop.contains("detachAfterTTSDrainNoInterruptionThenReinstallSameTap"), loop)
+        XCTAssertTrue(loop.contains("bf0af19415c955FlagLiesAfterTTSDrainDropsThird"), loop)
+        XCTAssertTrue(loop.contains("flagLiesAfterTTSDrainThenReinstallSameTap"), loop)
         XCTAssertTrue(
             loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955DetachAfterTTSDrainNoInterruptionDropsThird"),
             loopTests
         )
+        XCTAssertTrue(loopTests.contains("testBf0af19415c955FlagLiesAfterTTSDrainDropsThird"), loopTests)
         XCTAssertTrue(loop.contains("startAudioIfNeededWouldStart"), loop)
         XCTAssertTrue(loop.contains("415c955"), loop)
         XCTAssertTrue(loop.contains("18d5878"), loop)
@@ -202,6 +220,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("reinstallTap"), engine)
         XCTAssertTrue(engine.contains("reinstallTapIfSilentWhileRunning"), engine)
         XCTAssertTrue(engine.contains("simulateSystemTapDetachLeavingEngineRunning"), engine)
+        XCTAssertTrue(engine.contains("simulateHALTapYankLeavingInstalledFlagTrue"), engine)
+        XCTAssertTrue(engine.contains("guard tap != nil, tapInstalled"), engine)
         XCTAssertTrue(engine.contains("interruptionNotification"), engine)
         XCTAssertTrue(engine.contains("mediaServicesWereResetNotification"), engine)
         let detach = engineSlice(

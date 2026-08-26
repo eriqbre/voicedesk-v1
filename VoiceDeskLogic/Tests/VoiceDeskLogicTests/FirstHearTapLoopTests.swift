@@ -152,18 +152,17 @@ final class FirstHearTapLoopTests: XCTestCase {
         )
         XCTAssertTrue(
             FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
-                tapInstalled: false,
                 engineRunning: true,
                 wantsCapture: true
             )
         )
         XCTAssertFalse(
-            FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
+            FirstHearTapLoop.bf0af19ShouldReinstallTapIfSilentWhileRunning(
                 tapInstalled: true,
                 engineRunning: true,
                 wantsCapture: true
             ),
-            "a live tap must not be torn down"
+            "bf0af19 trusted tapInstalled and no-oped"
         )
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)
@@ -179,6 +178,59 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertTrue(walk.stayLive)
         XCTAssertEqual(walk.startCount, 1)
         XCTAssertTrue(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
+        )
+    }
+
+    func testBf0af19415c955FlagLiesAfterTTSDrainDropsThird() {
+        XCTAssertFalse(
+            FirstHearTapLoop.bf0af19ShouldReinstallTapIfSilentWhileRunning(
+                tapInstalled: true,
+                engineRunning: true,
+                wantsCapture: true
+            ),
+            "bf0af19 / 415c955: flag still true after HAL yank"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
+                engineRunning: true,
+                wantsCapture: true
+            ),
+            "product must reinstall even when the flag still says installed"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.bf0af19415c955FlagLiesAfterTTSDrainDropsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second], "bf0af19 trusted the flag and stayed deaf")
+        XCTAssertFalse(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1)
+        XCTAssertTrue(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
+        )
+    }
+
+    func testFlagLiesAfterTTSDrainThenReinstallLandsThird() {
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.flagLiesAfterTTSDrainThenReinstallSameTap(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1, "reinstall must not audio.start")
+        XCTAssertFalse(
             FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
         )
     }
