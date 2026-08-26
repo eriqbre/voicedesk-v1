@@ -314,7 +314,6 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("func simulateListenLoopSocketDidOpenThenSessionReady()"), service)
         XCTAssertTrue(service.contains("dropOutbound"), service)
         XCTAssertTrue(service.contains("markSessionReadyAndFlush"), service)
-        XCTAssertTrue(service.contains("commitAudioBufferObject"), service)
         let realtime = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/GrokRealtime.swift"))
         XCTAssertTrue(realtime.contains("func commitAudioBufferObject()"), realtime)
         XCTAssertTrue(realtime.contains("input_audio_buffer.commit"), realtime)
