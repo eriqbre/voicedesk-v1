@@ -101,7 +101,7 @@ final class AppModelListenLoopTests: XCTestCase {
     /// or deactivate and yank the tap. After version + glance drain,
     /// the session stays playAndRecord + voiceChat. A delayed HAL yank
     /// with zero notifications is not recovered here — that is not
-    /// paper-greened. No watchdog.
+    /// paper-greened. Do not poll for a silent tap.
     func testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession() async throws {
         let voice = GrokVoiceService(apiKey: "test-listen-loop-session")
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
