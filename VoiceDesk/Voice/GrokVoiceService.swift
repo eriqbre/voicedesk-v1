@@ -43,6 +43,8 @@ final class GrokVoiceService: VoiceServicing {
     /// From `speak()` until player drain + return-to-listen. Blocks a
     /// leftover `response.created` from parking the session in `.speaking`.
     private var clientTTSInFlight = false
+    /// Same frames the live tap sends to Grok. Tests only — not a second loop.
+    var onMicFrame: ((Data) -> Void)?
 
     var state: VoiceState { session.state }
     var hasPendingPlayback: Bool { audio.hasPendingPlayback }
@@ -285,8 +287,11 @@ final class GrokVoiceService: VoiceServicing {
     private func startAudioIfNeeded() {
         guard !userWantsVoiceOff, !audio.isRunning else { return }
         let socket = client
-        let logs = audio.start(echoCancellation: true) { base64 in
+        let logs = audio.start(echoCancellation: true) { [weak self] base64 in
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
+            if let pcm = Data(base64Encoded: base64) {
+                self?.onMicFrame?(pcm)
+            }
         }
         if audio.isRunning {
             liveSessionArmed = true
@@ -555,5 +560,23 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .ignored:
             break
         }
+    }
+}
+
+extension GrokVoiceService {
+    /// Same engine `speak()` owns. Delayed-yank tests must use this instance.
+    var listenLoopEngine: GrokVoiceAudioEngine { audio }
+
+    var listenLoopStayLive: Bool { sessionShouldStayLive }
+
+    var listenLoopArmed: Bool { ListenResumePolicy.isListenArmed(state: session.state) }
+
+    var listenLoopClose1000: ListenResumeDecision {
+        ListenResumePolicy.afterSocketClose(
+            userWantsVoiceOff: userWantsVoiceOff,
+            sessionShouldStayLive: sessionShouldStayLive,
+            closeCode: 1000,
+            voiceState: session.state
+        )
     }
 }

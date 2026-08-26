@@ -87,6 +87,9 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(speak.contains("afterClientTTSFinished"), speak)
         XCTAssertFalse(speak.contains("afterDeskSpeak"), speak)
         XCTAssertTrue(tests.contains("testVersionThenGlanceWritePlayerStayLiveThirdCommandIsATurn"), tests)
+        XCTAssertFalse(tests.contains("simulateHALTapYankLeavingInstalledFlagTrue"), tests)
+        XCTAssertFalse(tests.contains("AVAudioEngineConfigurationChange"), tests)
+        XCTAssertFalse(tests.contains("GrokVoiceService("), tests)
     }
 
     func testSpeechStartedAndTranscriptDoNotCancelPlayback() throws {
@@ -143,6 +146,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
             sim.contains("testDelayedYankAfterReturnToListenConfigChangeReinstallsSameTap"),
             sim
         )
+        XCTAssertFalse(sim.contains("AppModel("), sim)
+        XCTAssertFalse(sim.contains("GrokVoiceService("), sim)
         let noInterrupt = speakSlice(
             sim,
             from: "func testDetachAfterTTSDrainSilentTapWhileRunningReinstallsWithoutInterruption",
@@ -274,6 +279,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(start.contains("!audio.isRunning"), start)
         XCTAssertTrue(service.contains("returnToListenAfterDeskTTS"), service)
         XCTAssertTrue(service.contains("reinstallTapIfSilentWhileRunning"), service)
+        XCTAssertTrue(service.contains("var listenLoopEngine"), service)
+        XCTAssertTrue(service.contains("onMicFrame"), service)
+        XCTAssertFalse(service.contains("MicLivenessMonitor"), service)
+        XCTAssertFalse(service.contains("watchdog"), service)
         XCTAssertTrue(service.contains("clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight"), service)
         XCTAssertTrue(service.contains("shouldApplyGrokTurnFinished"), service)
         XCTAssertTrue(service.contains("clientTTSInFlight: clientTTSInFlight"), service)
@@ -331,6 +340,54 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(fixture.contains("EchoTranscriptGate"), fixture)
         XCTAssertFalse(fixture.contains("EchoBargeIn"), fixture)
         XCTAssertTrue(fixture.contains("ListenInterrupt.isCommand"), fixture)
+    }
+
+    func testLivePathDelayedYankDrivesAppModelAndGrokVoiceService() throws {
+        let live = try XCTUnwrap(repoFile("VoiceDeskTests/AppModelListenLoopTests.swift"))
+        XCTAssertTrue(
+            live.contains("testVersionThenGlanceLivePathDelayedYankConfigChangeThirdCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(live.contains("GrokVoiceService("), live)
+        XCTAssertTrue(live.contains("AppModel("), live)
+        XCTAssertTrue(live.contains("applyUserTurn(\"what version are we on\")"), live)
+        XCTAssertTrue(live.contains("applyUserTurn(\"show me my emails\")"), live)
+        XCTAssertTrue(live.contains("listenLoopEngine"), live)
+        XCTAssertTrue(live.contains("simulateHALTapYankLeavingInstalledFlagTrue"), live)
+        XCTAssertTrue(live.contains("AVAudioEngineConfigurationChange"), live)
+        XCTAssertTrue(live.contains("feedTapPCM16"), live)
+        XCTAssertTrue(live.contains("FirstHearTapLoop.accept"), live)
+        XCTAssertTrue(live.contains("listenLoopClose1000"), live)
+        XCTAssertTrue(live.contains("stayIdle"), live)
+        XCTAssertFalse(live.contains("FakeLiveVoiceService"), live)
+        XCTAssertFalse(live.contains("emitUser"), live)
+        XCTAssertFalse(live.contains("func rearmTap"), live)
+        XCTAssertFalse(live.contains("watchdog"), live)
+        XCTAssertFalse(live.contains("MicLivenessMonitor"), live)
+        if let glanceAt = live.range(of: "applyUserTurn(\"show me my emails\")"),
+           let yankAt = live.range(of: "simulateHALTapYankLeavingInstalledFlagTrue") {
+            XCTAssertLessThan(
+                glanceAt.lowerBound,
+                yankAt.lowerBound,
+                "delayed yank must be after live version/glance returnToListen"
+            )
+        } else {
+            XCTFail("live-path gate must glance then yank")
+        }
+        if let yankAt = live.range(of: "simulateHALTapYankLeavingInstalledFlagTrue"),
+           let configAt = live.range(of: "AVAudioEngineConfigurationChange") {
+            XCTAssertLessThan(
+                yankAt.lowerBound,
+                configAt.lowerBound,
+                "configuration change must arrive after the delayed yank"
+            )
+        } else {
+            XCTFail("live-path gate must post configuration change after the yank")
+        }
+        XCTAssertFalse(
+            live.contains("shouldReinstallTapIfSilentWhileRunning"),
+            "do not add another engine-only shouldX helper for this slice"
+        )
     }
 
     private func speakSlice(_ source: String, from: String, to: String) -> String {
