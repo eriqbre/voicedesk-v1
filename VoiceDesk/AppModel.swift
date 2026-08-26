@@ -54,8 +54,6 @@ final class AppModel {
     /// Leftover of on-device desk TTS only. Same EchoBargeIn policy as
     /// GrokVoiceService. FakeLive / sim emit hits this ingress, not the socket.
     private var echoGate = EchoTranscriptGate()
-    /// ASR early-final of a lone “what’s” / “what” — hold, don’t send to Grok.
-    private var earlyFinal = EarlyFinalHold()
     private var lastUserUtterance = ""
     private var lastUserSource = "text"
     private var hadFocusedEmailAtTurnStart = false
@@ -193,7 +191,6 @@ final class AppModel {
         case .listening, .speaking, .thinking:
             VoiceEarcon.listenEnded()
             voiceListeningVisual = false
-            earlyFinal.reset()
             voice.cancel()
             liveAssistantID = nil
             cancelPendingDraftsFromVoice()
@@ -345,30 +342,18 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            // One policy, any ingress: leftover of lastSpokenLine only.
-            // Never drop because Grok is speaking or lastSpokenLine is empty.
-            // Accepted live ask deletes leftover desk speak.
+            // Leftover of lastSpokenLine only. An accepted first ask is a
+            // turn — do not hold it for a later stem. EarlyFinalHold was
+            // a leftover protector; first speech after desk TTS vanished.
             if EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate) == nil {
                 return
             }
             echoGate.cancelSpeaking()
             if !event.isFinal {
-                if EarlyFinalHold.shouldHold(event.text) {
-                    claimLocalAssistantReply()
-                    return
-                }
-                if let held = earlyFinal.heldPrefix {
-                    preemptGrokIfDeskTurn(EarlyFinalHold.stitch(held, onto: event.text))
-                    return
-                }
                 preemptGrokIfDeskTurn(event.text)
                 return
             }
-            guard let accepted = earlyFinal.accept(event.text, context: deskContext) else {
-                claimLocalAssistantReply()
-                return
-            }
-            handleLiveUser(accepted, itemID: event.itemID)
+            handleLiveUser(event.text, itemID: event.itemID)
         case .assistant:
             upsertLiveAssistant(event.text, isFinal: event.isFinal)
         }

@@ -166,8 +166,6 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
         }
         for ask in Self.firstAskAfterAckFamily {
             XCTAssertEqual(EchoBargeIn.acceptedUserTranscript(ask, gate: gate), ask, ask)
-            var hold = EarlyFinalHold()
-            XCTAssertEqual(hold.accept(ask, context: desk), ask, ask)
         }
     }
 
@@ -204,8 +202,6 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
             let decision = gate.decide(ask, voiceState: session.state, context: desk)
             XCTAssertFalse(decision.isDropped, ask)
             XCTAssertNotEqual(decision.intent, "dropped", ask)
-            var hold = EarlyFinalHold()
-            XCTAssertEqual(hold.accept(ask, context: desk), ask, ask)
             var dedupe = TranscriptDedupe()
             XCTAssertEqual(dedupe.accept(text: ask), ask, ask)
         }
@@ -234,22 +230,25 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
     }
 
     func testFirstAcceptedLiveTranscriptBecomesATurn() {
-        let desk = VoiceRegressionDesk.greenacreFirst
         for ask in Self.firstAskAfterAckFamily {
             var gate = EchoTranscriptGate()
             gate.beginSpeaking(glanceLine)
             gate.finishSpeaking()
             guard let accepted = EchoBargeIn.acceptedUserTranscript(ask, gate: gate) else {
-                XCTFail("Grok ingress must accept first ask: \(ask)")
-                continue
-            }
-            var hold = EarlyFinalHold()
-            guard let held = hold.accept(accepted, context: desk) else {
-                XCTFail("AppModel early-final must not hold first ask: \(ask)")
+                XCTFail("leftover-echo must not eat first ask: \(ask)")
                 continue
             }
             var dedupe = TranscriptDedupe()
-            XCTAssertEqual(dedupe.accept(text: held), held, ask)
+            XCTAssertEqual(dedupe.accept(text: accepted), accepted, ask)
+        }
+        var leftoverGate = EchoTranscriptGate()
+        leftoverGate.beginSpeaking(glanceLine)
+        leftoverGate.finishSpeaking()
+        for leftover in Self.leftoverFamily {
+            XCTAssertNil(
+                EchoBargeIn.acceptedUserTranscript(leftover, gate: leftoverGate),
+                leftover
+            )
         }
     }
 
@@ -264,7 +263,9 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
         XCTAssertTrue(app.contains("echoGate.cancelSpeaking()"), app)
         XCTAssertTrue(app.contains("EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate)"), app)
-        XCTAssertTrue(app.contains("handleLiveUser(accepted, itemID: event.itemID)"), app)
+        XCTAssertTrue(app.contains("handleLiveUser(event.text, itemID: event.itemID)"), app)
+        XCTAssertFalse(app.contains("earlyFinal.accept"), app)
+        XCTAssertFalse(app.contains("EarlyFinalHold.shouldHold"), app)
         XCTAssertFalse(app.contains("if echoGate.lastSpokenLine == spoken"), app)
     }
 
