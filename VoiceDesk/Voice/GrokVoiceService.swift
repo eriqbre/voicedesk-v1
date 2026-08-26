@@ -35,7 +35,7 @@ final class GrokVoiceService: VoiceServicing {
     /// catches a failure that never announced itself.
     private var watchdog: Task<Void, Never>?
     private var turnTimeout = VoiceTurnTimeout()
-    static let watchdogInterval: Duration = .seconds(1)
+    nonisolated static let watchdogInterval: Duration = .seconds(1)
     /// User tap-stop / cancel / explicit voice off. Blocks auto-reconnect and
     /// auto `startListening` until the next Tap to talk.
     private var userWantsVoiceOff = false
@@ -216,7 +216,7 @@ final class GrokVoiceService: VoiceServicing {
 
     private func startWatchdog() {
         guard watchdog == nil else { return }
-        watchdog = Task { [weak self] in
+        watchdog = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.watchdogInterval)
                 guard !Task.isCancelled, let self else { return }
