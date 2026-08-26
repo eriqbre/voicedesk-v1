@@ -34,6 +34,7 @@ final class GrokVoiceService: VoiceServicing {
     /// Everything else here is edge-triggered, so this is the only thing that
     /// catches a failure that never announced itself.
     private var watchdog: Task<Void, Never>?
+    private var turnTimeout = VoiceTurnTimeout()
     static let watchdogInterval: Duration = .seconds(1)
     /// User tap-stop / cancel / explicit voice off. Blocks auto-reconnect and
     /// auto `startListening` until the next Tap to talk.
@@ -232,6 +233,13 @@ final class GrokVoiceService: VoiceServicing {
     private func watchdogTick() {
         guard !userWantsVoiceOff, !isTearingDown, session.state != .idle else { return }
         audio.checkCaptureHealth()
+
+        // A silent desk turn produces no response at all. Hand the turn back
+        // rather than sitting in `.thinking` until the user taps.
+        if currentResponseID == nil, turnTimeout.hasStalled() {
+            apply(.turnFinished)
+        }
+
         guard !client.isConnected, !isRecovering else { return }
         Task { await recoverAfterDrop(reason: "watchdog") }
     }
@@ -271,6 +279,7 @@ final class GrokVoiceService: VoiceServicing {
 
     private func apply(_ event: VoiceSessionEvent) {
         session.apply(event)
+        turnTimeout.stateChanged(to: session.state)
         eventHandler?(.state(session.state))
     }
 

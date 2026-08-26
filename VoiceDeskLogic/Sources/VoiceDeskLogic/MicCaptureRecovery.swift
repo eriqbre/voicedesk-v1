@@ -84,8 +84,13 @@ public struct MicCaptureRecovery: Equatable, Sendable {
             guard wantsCapture, !isInterrupted else { return .none }
             return Self.needsRestart(for: reason) ? .restart : .none
         case .appBecameActive:
-            guard wantsCapture, !isInterrupted else { return .none }
-            return .verify
+            // iOS does not always deliver `.ended` — a suspended app can miss
+            // it entirely. Being frontmost and active means any interruption is
+            // over, so clear the flag rather than staying deaf forever.
+            let wasInterrupted = isInterrupted
+            isInterrupted = false
+            guard wantsCapture else { return .none }
+            return wasInterrupted ? .restart : .verify
         case .micFramesStalled:
             guard wantsCapture, !isInterrupted else { return .none }
             return .restart
@@ -101,6 +106,35 @@ public struct MicCaptureRecovery: Equatable, Sendable {
         case .categoryChange, .override, .routeConfigurationChange, .unknown:
             return false
         }
+    }
+}
+
+/// Paces repeated repairs. Rebuilding the graph also stops the player node, so
+/// a mic that cannot be revived — OS-level mute, another app holding input —
+/// would otherwise chop Eve's playback into pieces once a second. Back off, but
+/// never give up: a voice-first app that stops trying is just broken.
+public enum MicRepairBackoff: Sendable {
+    public static let minInterval: TimeInterval = 2
+    public static let maxInterval: TimeInterval = 10
+    /// Tell the user after this many failed repairs in a row.
+    public static let failureReportThreshold = 3
+
+    public static func interval(consecutiveRepairs: Int) -> TimeInterval {
+        guard consecutiveRepairs > 1 else { return minInterval }
+        let scaled = minInterval * pow(2, Double(consecutiveRepairs - 1))
+        return min(scaled, maxInterval)
+    }
+
+    /// `forced` covers a media-services reset, which is rare and must not wait.
+    public static func shouldRepair(
+        now: Date,
+        lastRepairAt: Date?,
+        consecutiveRepairs: Int,
+        forced: Bool = false
+    ) -> Bool {
+        if forced { return true }
+        guard let lastRepairAt else { return true }
+        return now.timeIntervalSince(lastRepairAt) >= interval(consecutiveRepairs: consecutiveRepairs)
     }
 }
 

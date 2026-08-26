@@ -33,7 +33,27 @@ final class MicCaptureRecoveryTests: XCTestCase {
         XCTAssertEqual(recovery.action(for: .engineConfigurationChanged), .none)
         XCTAssertEqual(recovery.action(for: .routeChanged(.oldDeviceUnavailable)), .none)
         XCTAssertEqual(recovery.action(for: .micFramesStalled), .none)
-        XCTAssertEqual(recovery.action(for: .appBecameActive), .none)
+    }
+
+    /// A suspended app can miss `.ended` entirely. Without this the session
+    /// stays flagged as interrupted and the mic never comes back at all.
+    func testForegroundingRecoversFromAMissedInterruptionEnd() {
+        var recovery = live()
+        _ = recovery.action(for: .interruptionBegan)
+        XCTAssertEqual(recovery.action(for: .appBecameActive), .restart)
+        XCTAssertFalse(recovery.isInterrupted)
+        XCTAssertEqual(recovery.action(for: .micFramesStalled), .restart)
+    }
+
+    /// The whole point of the type, walked end to end.
+    func testCallThenHeadphonesThenForegroundAllLeaveTheMicLive() {
+        var recovery = live()
+        XCTAssertEqual(recovery.action(for: .interruptionBegan), .suspend)
+        XCTAssertEqual(recovery.action(for: .interruptionEnded(shouldResume: true)), .restart)
+        XCTAssertEqual(recovery.action(for: .routeChanged(.oldDeviceUnavailable)), .restart)
+        XCTAssertEqual(recovery.action(for: .engineConfigurationChanged), .restart)
+        XCTAssertEqual(recovery.action(for: .appBecameActive), .verify)
+        XCTAssertFalse(recovery.isInterrupted)
     }
 
     func testMediaServicesResetRebuildsEverythingEvenMidInterruption() {
@@ -71,6 +91,13 @@ final class MicCaptureRecoveryTests: XCTestCase {
         XCTAssertEqual(recovery.action(for: .micFramesStalled), .restart)
     }
 
+    func testTurningVoiceBackOnResumesRepairs() {
+        var recovery = MicCaptureRecovery(wantsCapture: false)
+        XCTAssertEqual(recovery.action(for: .engineConfigurationChanged), .none)
+        recovery.wantsCapture = true
+        XCTAssertEqual(recovery.action(for: .engineConfigurationChanged), .restart)
+    }
+
     func testVoiceOffMakesEveryEventANoOp() {
         var recovery = MicCaptureRecovery(wantsCapture: false)
         for event: AudioLifecycleEvent in [
@@ -90,6 +117,64 @@ final class MicCaptureRecoveryTests: XCTestCase {
         XCTAssertTrue(MicRecoveryAction.suspend < .verify)
         XCTAssertTrue(MicRecoveryAction.verify < .restart)
         XCTAssertTrue(MicRecoveryAction.restart < .rebuild)
+    }
+}
+
+final class MicRepairBackoffTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 3_000)
+
+    func testFirstRepairIsImmediate() {
+        XCTAssertTrue(
+            MicRepairBackoff.shouldRepair(now: now, lastRepairAt: nil, consecutiveRepairs: 0)
+        )
+    }
+
+    func testRepeatedRepairsAreThrottled() {
+        XCTAssertFalse(
+            MicRepairBackoff.shouldRepair(
+                now: now.addingTimeInterval(1),
+                lastRepairAt: now,
+                consecutiveRepairs: 1
+            )
+        )
+        XCTAssertTrue(
+            MicRepairBackoff.shouldRepair(
+                now: now.addingTimeInterval(2.5),
+                lastRepairAt: now,
+                consecutiveRepairs: 1
+            )
+        )
+    }
+
+    func testBackoffGrowsThenCaps() {
+        XCTAssertEqual(MicRepairBackoff.interval(consecutiveRepairs: 0), 2)
+        XCTAssertEqual(MicRepairBackoff.interval(consecutiveRepairs: 1), 2)
+        XCTAssertEqual(MicRepairBackoff.interval(consecutiveRepairs: 2), 4)
+        XCTAssertEqual(MicRepairBackoff.interval(consecutiveRepairs: 3), 8)
+        XCTAssertEqual(MicRepairBackoff.interval(consecutiveRepairs: 99), MicRepairBackoff.maxInterval)
+    }
+
+    /// A media-services reset is rare and unrecoverable without a rebuild.
+    func testForcedRepairsSkipTheThrottle() {
+        XCTAssertTrue(
+            MicRepairBackoff.shouldRepair(
+                now: now,
+                lastRepairAt: now,
+                consecutiveRepairs: 20,
+                forced: true
+            )
+        )
+    }
+
+    /// Backing off is not the same as giving up.
+    func testThrottleNeverBecomesPermanent() {
+        XCTAssertTrue(
+            MicRepairBackoff.shouldRepair(
+                now: now.addingTimeInterval(MicRepairBackoff.maxInterval),
+                lastRepairAt: now,
+                consecutiveRepairs: 500
+            )
+        )
     }
 }
 

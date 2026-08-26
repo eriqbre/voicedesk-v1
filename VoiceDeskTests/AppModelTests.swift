@@ -875,6 +875,34 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.voice.state, .idle)
     }
 
+    /// A substring match on "stop" / "cancel" used to hard-stop the session and
+    /// set `userWantsVoiceOff`, which also blocks auto-reconnect. The app went
+    /// deaf until the user tapped again.
+    func testSpokenSentenceContainingStopDoesNotKillTheSession() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        model.tapTalk()
+        await waitUntil { fake.started }
+
+        fake.emitUser("I need to stop by the office at five", itemID: "item-1")
+        XCTAssertFalse(fake.cancelled, "an ordinary sentence must not stop voice")
+        XCTAssertNotEqual(model.voice.state, .idle)
+
+        fake.emitUser("Can you cancel the Saturday showing?", itemID: "item-2")
+        XCTAssertFalse(fake.cancelled)
+    }
+
+    func testBareStopStillStopsTheSession() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        model.tapTalk()
+        await waitUntil { fake.started }
+
+        fake.emitUser("Stop", itemID: "item-1")
+        XCTAssertTrue(fake.cancelled)
+        XCTAssertTrue(model.turns.contains { $0.text == "Stopped. Nothing was sent." })
+    }
+
     func testClientSecretExtraction() {
         XCTAssertEqual(
             LiveGrokVoiceClient.extractClientSecret(from: ["value": "tok_1"]),

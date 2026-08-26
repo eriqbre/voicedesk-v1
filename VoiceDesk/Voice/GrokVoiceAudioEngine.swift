@@ -48,14 +48,13 @@ final class GrokVoiceAudioEngine {
     private var observers: [any NSObjectProtocol] = []
     private var isRepairing = false
     private var hasReportedFailure = false
+    private var lastRepairAt: Date?
+    private var consecutiveRepairs = 0
     /// Bumped on every start and stop. A deferred session deactivation from an
     /// earlier stop must not silence a session that has restarted since.
     private var generation = 0
 
     var isRunning: Bool { engine?.isRunning ?? false }
-
-    /// The user asked for voice and we have not been told to stand down.
-    var wantsCapture: Bool { recovery.wantsCapture }
 
     /// True only when the tap is attached *and* buffers are still arriving.
     /// `isRunning` alone cannot tell a live graph from a detached tap.
@@ -71,6 +70,8 @@ final class GrokVoiceAudioEngine {
         self.onMicAudio = onMicAudio
         recovery.wantsCapture = true
         hasReportedFailure = false
+        consecutiveRepairs = 0
+        lastRepairAt = nil
         generation += 1
         observeAudioLifecycle()
         teardownGraph()
@@ -139,7 +140,13 @@ final class GrokVoiceAudioEngine {
             return
         }
         syncLivenessFromTap()
-        guard !isRunning || liveness.isStalled() else { return }
+        guard !isRunning || liveness.isStalled() else {
+            // Only a delivered buffer clears the backoff. Clearing it during
+            // the post-start grace would let a tap that never attaches rebuild
+            // the graph every few seconds forever.
+            if liveness.lastFrameAt != nil { noteCaptureIsHealthy() }
+            return
+        }
         handle(.micFramesStalled)
     }
 
@@ -170,10 +177,20 @@ final class GrokVoiceAudioEngine {
 
     private func repairCapture(fullRebuild: Bool) {
         guard recovery.wantsCapture, onMicAudio != nil, !isRepairing else { return }
+        let now = Date()
+        guard MicRepairBackoff.shouldRepair(
+            now: now,
+            lastRepairAt: lastRepairAt,
+            consecutiveRepairs: consecutiveRepairs,
+            forced: fullRebuild
+        ) else { return }
+
         isRepairing = true
         defer { isRepairing = false }
-
+        lastRepairAt = now
+        consecutiveRepairs += 1
         generation += 1
+
         teardownGraph()
         if fullRebuild {
             // The media daemon died — drop the stale session before rebuilding.
@@ -181,12 +198,17 @@ final class GrokVoiceAudioEngine {
         }
 
         let logs = startGraph()
-        if isRunning {
-            hasReportedFailure = false
-        } else if !hasReportedFailure {
+        guard !isRunning else { return }
+        if consecutiveRepairs >= MicRepairBackoff.failureReportThreshold, !hasReportedFailure {
             hasReportedFailure = true
             onCaptureFailure?(logs.last ?? "Microphone could not be restarted")
         }
+    }
+
+    /// A buffer actually arrived, so whatever we did last time worked.
+    private func noteCaptureIsHealthy() {
+        consecutiveRepairs = 0
+        hasReportedFailure = false
     }
 
     private func observeAudioLifecycle() {
@@ -225,8 +247,9 @@ final class GrokVoiceAudioEngine {
                 queue: nil
             ) { [weak self] note in
                 let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+                let reason = GrokVoiceAudioEngine.routeReason(raw)
                 Task { @MainActor in
-                    self?.handle(.routeChanged(Self.routeReason(raw)))
+                    self?.handle(.routeChanged(reason))
                 }
             }
         )
