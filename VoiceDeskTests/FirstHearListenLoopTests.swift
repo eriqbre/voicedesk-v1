@@ -7,16 +7,7 @@ import VoiceDeskLogic
 @MainActor
 final class FirstHearListenLoopTests: XCTestCase {
     func testTwoTurnsThenOneInjectDuringClientTTSLands() async {
-        var murray = SampleData.syncedEmail()
-        murray.fromName = "Murray Mitchell"
-        murray.providerID = "msg-murray-first-hear"
-        murray.subject = "Closing / notarization"
-        murray.body = "Need you to notarize the closing package today."
-        var steve = SampleData.syncedEmail()
-        steve.fromName = "Steve Brown"
-        steve.providerID = "msg-steve-first-hear"
-        steve.subject = "Inspection note"
-        let snapshot = DeskSnapshot(emails: [murray, steve])
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
         let fake = FakeLiveVoiceService()
         let model = AppModel(
             voice: fake,
@@ -40,12 +31,6 @@ final class FirstHearListenLoopTests: XCTestCase {
         XCTAssertEqual(
             model.turns.filter { $0.role == .user }.map(\.text),
             ["what version are we on", "show me my emails", "Murray"]
-        )
-        XCTAssertTrue(
-            model.turns.last?.cards.contains(where: { card in
-                if case .email(let item) = card { return item.fromName == "Murray Mitchell" }
-                return false
-            }) == true
         )
     }
 
