@@ -127,14 +127,6 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
         XCTAssertFalse(EchoTranscriptGate.isLeftoverEcho("show my latest emails", of: ""))
     }
 
-    func testDroppedTranscriptIsEngineListenResumeNote() {
-        let entry = ListenResumeLog.droppedTranscript()
-        XCTAssertEqual(entry.source, "engine")
-        XCTAssertEqual(entry.intent, ListenResumeLog.intent)
-        XCTAssertTrue(entry.routingNotes.contains { $0.contains(ListenResumeLog.droppedTranscriptNote) })
-        XCTAssertEqual(entry.userTranscript, "")
-    }
-
     func testOneGateAndDroppedTranscriptIsLogged() throws {
         let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
         XCTAssertFalse(source.contains("EchoBargeIn.acceptedUserTranscript"))

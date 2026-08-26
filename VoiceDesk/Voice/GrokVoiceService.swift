@@ -302,8 +302,7 @@ final class GrokVoiceService: VoiceServicing {
         eventHandler?(.state(session.state))
         let decision = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: userWantsVoiceOff,
-            socketConnected: client.isConnected,
-            captureRunning: audio.isRunning
+            socketConnected: client.isConnected
         )
         logListenResume(
             note: "after \(reason): \(decision) state=\(session.state.rawValue) capture=\(audio.isRunning)"
@@ -311,7 +310,7 @@ final class GrokVoiceService: VoiceServicing {
         switch decision {
         case .stayIdle:
             return
-        case .keepListening, .resumeCapture:
+        case .keepListening:
             reconnectsUsed = 0
             startAudioIfNeeded()
         case .reconnect:

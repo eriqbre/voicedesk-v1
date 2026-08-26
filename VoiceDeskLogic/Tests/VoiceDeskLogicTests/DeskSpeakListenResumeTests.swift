@@ -85,7 +85,6 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         XCTAssertTrue(during.listenArmed)
         XCTAssertTrue(during.captureArmed)
         XCTAssertEqual(during.voiceState, .listening)
-        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: during.ttsFinished))
         XCTAssertTrue(during.nextAccepted)
 
         let after = DeskSpeakListenResume.afterCompletedDeskSpeak(
@@ -230,8 +229,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             spokenLine: "Massimo’s on Thursday.",
             nextAsk: "Tell me about my emails.",
             context: connected,
-            socketConnected: false,
-            captureRunningAfterSpeak: false
+            socketConnected: false
         )
         XCTAssertTrue(walk.listenArmed)
         XCTAssertTrue(walk.captureArmed)
@@ -244,8 +242,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             ask: "Tell me about my emails.",
             spokenLine: "Five emails in the last sync.",
             nextAsk: "What's on my calendar this week?",
-            context: connected,
-            captureRunningAfterSpeak: true
+            context: connected
         )
         XCTAssertTrue(walk.listenArmed)
         XCTAssertTrue(walk.captureArmed)
@@ -280,8 +277,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
                 ("What's on my calendar for the week?", "Massimo’s on Thursday.")
             ],
             nextAsk: "Tell me about my emails.",
-            context: desk,
-            captureRunningAfterSpeak: true
+            context: desk
         )
         XCTAssertEqual(walk.spokenIntent, "calendar")
         XCTAssertTrue(walk.listenArmed, "calendar TTS must leave listen armed")
@@ -321,8 +317,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
     func testUserStopAfterDeskSpeakDoesNotArm() {
         let decision = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: true,
-            socketConnected: true,
-            captureRunning: false
+            socketConnected: true
         )
         XCTAssertEqual(decision, .stayIdle)
         XCTAssertFalse(ListenResumePolicy.isArmed(decision))

@@ -57,11 +57,9 @@ final class FirstHearListenLoopTests: XCTestCase {
             source
         )
         XCTAssertEqual(
-            ListenResumePolicy.afterClientTTS(
-                ttsFinished: false,
+            ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true
+                socketConnected: true
             ),
             .keepListening
         )

@@ -46,7 +46,11 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
                 context: desk
             )
             XCTAssertTrue(walk.nextAccepted, followUp)
-            XCTAssertTrue(walk.cancelledSpeak, "accepted ask must stop leftover TTS: \(followUp)")
+            XCTAssertEqual(
+                walk.cancelledSpeak,
+                ListenInterrupt.isCommand(followUp, context: desk),
+                "playback cancel is Eve command, not leftover-echo: \(followUp)"
+            )
             XCTAssertNotEqual(walk.nextIntent, "dropped", followUp)
             XCTAssertFalse(walk.ttsFinished, followUp)
         }
@@ -83,7 +87,11 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
                 context: desk
             )
             XCTAssertTrue(walk.nextAccepted, followUp)
-            XCTAssertTrue(walk.cancelledSpeak, followUp)
+            XCTAssertEqual(
+                walk.cancelledSpeak,
+                ListenInterrupt.isCommand(followUp, context: desk),
+                followUp
+            )
         }
 
         var gate = EchoTranscriptGate()
@@ -215,7 +223,6 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
         gate.finishSpeaking()
         var session = VoiceSession()
         session.apply(.tapTalk)
-        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
         XCTAssertTrue(ListenResumePolicy.isListenArmed(state: session.state))
         XCTAssertFalse(gate.isSpeaking)
         XCTAssertEqual(gate.lastSpokenLine, "Murray on closing, and more.")

@@ -45,11 +45,9 @@ public struct FirstHearListenLoop: Equatable, Sendable {
         var landed: [String] = []
 
         func inject(_ text: String) -> Bool {
-            let decision = ListenResumePolicy.afterClientTTS(
-                ttsFinished: false,
+            let decision = ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: tapLive
+                socketConnected: true
             )
             if decision != .keepListening {
                 tapLive = false
@@ -64,11 +62,9 @@ public struct FirstHearListenLoop: Equatable, Sendable {
         _ = inject(first)
         _ = inject(second)
 
-        let during = ListenResumePolicy.afterClientTTS(
-            ttsFinished: false,
+        let during = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: false,
-            socketConnected: true,
-            captureRunning: tapLive
+            socketConnected: true
         )
         if during != .keepListening {
             tapLive = false

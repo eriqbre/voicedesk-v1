@@ -81,32 +81,17 @@ final class ListenResumePolicyTests: XCTestCase {
     }
 
     func testListenStaysLiveThroughClientTTS() {
-        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
-        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: true))
         XCTAssertEqual(
-            ListenResumePolicy.afterClientTTS(
-                ttsFinished: false,
+            ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true
+                socketConnected: true
             ),
             .keepListening
         )
         XCTAssertEqual(
-            ListenResumePolicy.afterClientTTS(
-                ttsFinished: true,
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: false
-            ),
-            .keepListening
-        )
-        XCTAssertEqual(
-            ListenResumePolicy.afterClientTTS(
-                ttsFinished: false,
+            ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: true,
-                socketConnected: true,
-                captureRunning: false
+                socketConnected: true
             ),
             .stayIdle
         )
@@ -170,16 +155,7 @@ final class ListenResumePolicyTests: XCTestCase {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: false
-            ),
-            .keepListening
-        )
-        XCTAssertEqual(
-            ListenResumePolicy.afterDeskSpeak(
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true
+                socketConnected: true
             ),
             .keepListening
         )
@@ -189,16 +165,7 @@ final class ListenResumePolicyTests: XCTestCase {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
-                socketConnected: false,
-                captureRunning: false
-            ),
-            .reconnect
-        )
-        XCTAssertEqual(
-            ListenResumePolicy.afterDeskSpeak(
-                userWantsVoiceOff: false,
-                socketConnected: false,
-                captureRunning: true
+                socketConnected: false
             ),
             .reconnect
         )
@@ -208,8 +175,7 @@ final class ListenResumePolicyTests: XCTestCase {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: true,
-                socketConnected: true,
-                captureRunning: false
+                socketConnected: true
             ),
             .stayIdle
         )
@@ -305,50 +271,6 @@ final class ListenResumePolicyTests: XCTestCase {
                 "after desk speak from \(start) must be listening, got \(session.state)"
             )
         }
-    }
-
-    func testCaptureArmedRequiresLiveSocketRunningMicAndListening() {
-        XCTAssertTrue(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true,
-                voiceState: .listening
-            )
-        )
-        XCTAssertFalse(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true,
-                voiceState: .speaking
-            ),
-            "still speaking is not armed listen"
-        )
-        XCTAssertFalse(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: false,
-                voiceState: .listening
-            )
-        )
-        XCTAssertFalse(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: false,
-                socketConnected: false,
-                captureRunning: true,
-                voiceState: .listening
-            )
-        )
-        XCTAssertFalse(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: true,
-                socketConnected: true,
-                captureRunning: true,
-                voiceState: .listening
-            )
-        )
     }
 
     func testEngineLogLineIsCompactAndNotAUserTurn() {

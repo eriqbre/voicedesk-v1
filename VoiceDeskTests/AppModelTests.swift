@@ -1344,11 +1344,9 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func speak(_ text: String) async {
         spoken.append(text)
-        let during = ListenResumePolicy.afterClientTTS(
-            ttsFinished: false,
+        let during = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: false,
-            socketConnected: true,
-            captureRunning: tapLive
+            socketConnected: true
         )
         if during != .keepListening {
             tapLive = false

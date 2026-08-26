@@ -3,9 +3,8 @@ import VoiceDeskLogic
 @testable import VoiceDesk
 
 /// No-user first-hear at the tap boundary. Does not start AVAudioEngine.
-/// Two PCM chunks land, mock TTS goes through resumeCapture / rearmTap
-/// (remove + reinstall callback), third chunk lands without a second start().
-/// fe1ffc8 failed here: rearm left the tap deaf until a new audio.start.
+/// Two PCM chunks land, mock write→player leaves the tap installed,
+/// third chunk lands without a second start().
 @MainActor
 final class GrokVoiceAudioEngineListenResumeTests: XCTestCase {
     func testThirdPCMLandsAfterMockTTSRearmWithoutSecondStart() {
@@ -26,7 +25,7 @@ final class GrokVoiceAudioEngineListenResumeTests: XCTestCase {
         XCTAssertEqual(tap.startCount, 1, "mock TTS must not call start() again")
 
         tap.injectPCM(Self.chunk(tag: 3))
-        XCTAssertEqual(landed.count, 3, "third chunk after TTS/rearm must land; count stayed at 2")
+        XCTAssertEqual(landed.count, 3, "third chunk after TTS must land; tap stayed")
         XCTAssertEqual(tap.startCount, 1)
         XCTAssertNotEqual(landed[0], landed[2])
         XCTAssertNotEqual(landed[1], landed[2])
@@ -75,8 +74,7 @@ final class GrokVoiceAudioEngineListenResumeTests: XCTestCase {
     }
 }
 
-/// Tap / rearm stand-in. Same remove + reinstall as fe1ffc8 `rearmTap`.
-/// No AVAudioEngine.start.
+/// Tap stand-in. write→player leaves the tap installed. No AVAudioEngine.start.
 @MainActor
 private final class MicTapDouble {
     private(set) var startCount = 0
@@ -98,19 +96,6 @@ private final class MicTapDouble {
         onMicAudio(data.base64EncodedString())
     }
 
-    /// fe1ffc8 client-TTS path: rip the tap and put the callback back.
-    /// Must not increment startCount.
-    func mockClientTTS() {
-        resumeCapture()
-    }
-
-    func resumeCapture() {
-        rearmTap()
-    }
-
-    func rearmTap() {
-        tapInstalled = false
-        guard onMicAudio != nil else { return }
-        tapInstalled = true
-    }
+    /// write→player. Tap stays. Must not increment startCount.
+    func mockClientTTS() {}
 }

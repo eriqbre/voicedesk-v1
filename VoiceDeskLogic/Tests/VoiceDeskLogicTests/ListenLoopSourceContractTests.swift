@@ -184,6 +184,17 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
         XCTAssertFalse(service.contains("watchdog"), service)
         XCTAssertFalse(service.contains("armListenIfSessionLive(reason: \"client tts\")"), service)
+        let policy = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/ListenResumePolicy.swift"))
+        XCTAssertFalse(policy.contains("case resumeCapture"), policy)
+        XCTAssertFalse(policy.contains("func afterClientTTS("), policy)
+        XCTAssertFalse(policy.contains("shouldArmListenAfterClientTTS"), policy)
+        XCTAssertFalse(policy.contains("isCaptureArmed"), policy)
+        XCTAssertFalse(policy.contains("leftover-echo"), policy)
+        XCTAssertFalse(policy.contains("droppedTranscript"), policy)
+        let fixture = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/DeskSpeakListenResume.swift"))
+        XCTAssertFalse(fixture.contains("EchoTranscriptGate"), fixture)
+        XCTAssertFalse(fixture.contains("EchoBargeIn"), fixture)
+        XCTAssertTrue(fixture.contains("ListenInterrupt.isCommand"), fixture)
     }
 
     private func speakSlice(_ source: String, from: String, to: String) -> String {

@@ -92,11 +92,9 @@ final class FirstHearListenLoopTests: XCTestCase {
         XCTAssertFalse(text.contains("resumeCaptureAfterDeskSpeak"), text)
         XCTAssertFalse(text.contains("armListenIfSessionLive(reason: \"client tts\")"), text)
         XCTAssertEqual(
-            ListenResumePolicy.afterClientTTS(
-                ttsFinished: false,
+            ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true
+                socketConnected: true
             ),
             .keepListening
         )

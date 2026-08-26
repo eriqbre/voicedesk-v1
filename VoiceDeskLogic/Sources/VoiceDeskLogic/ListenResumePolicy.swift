@@ -3,49 +3,25 @@ import Foundation
 public enum ListenResumeDecision: Equatable, Sendable {
     /// User tapped stop / cancel. Do not capture or reconnect.
     case stayIdle
-    /// Socket is open and the mic tap is already running. Stay in listen.
+    /// Socket is open. Mic tap stays. Stay in listen.
     case keepListening
-    /// Socket is open but capture is down. Start the mic tap again.
-    case resumeCapture
     /// Socket closed while the session should still be live. Reconnect — no new first-tap.
     case reconnect
 }
 
 /// After a local desk line, the live Grok socket must keep hearing.
 /// Desk speak is on-device TTS — it does not go through the socket.
-/// This policy is only “stay in listen / resume the tap / reconnect.”
+/// This policy is only “stay in listen / reconnect.”
 public enum ListenResumePolicy: Sendable {
     /// Client TTS never leaves listen. Socket open → keep hearing.
     /// Closed socket → reconnect. User stop → idle.
     public static func afterDeskSpeak(
         userWantsVoiceOff: Bool,
-        socketConnected: Bool,
-        captureRunning: Bool
+        socketConnected: Bool
     ) -> ListenResumeDecision {
-        _ = captureRunning
         if userWantsVoiceOff { return .stayIdle }
         if !socketConnected { return .reconnect }
         return .keepListening
-    }
-
-    /// Mic stays live through client TTS. `ttsFinished` is unused.
-    public static func afterClientTTS(
-        ttsFinished: Bool,
-        userWantsVoiceOff: Bool,
-        socketConnected: Bool,
-        captureRunning: Bool
-    ) -> ListenResumeDecision? {
-        _ = ttsFinished
-        return afterDeskSpeak(
-            userWantsVoiceOff: userWantsVoiceOff,
-            socketConnected: socketConnected,
-            captureRunning: captureRunning
-        )
-    }
-
-    public static func shouldArmListenAfterClientTTS(ttsFinished: Bool) -> Bool {
-        _ = ttsFinished
-        return true
     }
 
     /// Desk replies always use on-device TTS. Grok realtime is listen +
@@ -170,21 +146,9 @@ public enum ListenResumePolicy: Sendable {
         state == .listening
     }
 
-    public static func isCaptureArmed(
-        userWantsVoiceOff: Bool,
-        socketConnected: Bool,
-        captureRunning: Bool,
-        voiceState: VoiceState
-    ) -> Bool {
-        !userWantsVoiceOff
-            && socketConnected
-            && captureRunning
-            && isListenArmed(state: voiceState)
-    }
-
     public static func isArmed(_ decision: ListenResumeDecision) -> Bool {
         switch decision {
-        case .keepListening, .resumeCapture, .reconnect:
+        case .keepListening, .reconnect:
             return true
         case .stayIdle:
             return false
@@ -217,12 +181,6 @@ public struct ClientTTSListenResult: Equatable, Sendable {
 public enum ListenResumeLog: Sendable {
     public static let intent = "listen-resume"
     public static let source = "engine"
-
-    public static let droppedTranscriptNote = "dropped transcript"
-
-    public static func droppedTranscript(detail: String = "leftover-echo") -> VoiceInteractionEntry {
-        entry(note: "\(droppedTranscriptNote) \(detail)")
-    }
 
     public static func entry(note: String, errors: [String] = []) -> VoiceInteractionEntry {
         VoiceInteractionEntry(
