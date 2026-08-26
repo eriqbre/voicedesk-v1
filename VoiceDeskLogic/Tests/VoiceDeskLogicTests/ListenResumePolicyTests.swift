@@ -2,17 +2,17 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class ListenResumePolicyTests: XCTestCase {
-    func testListenIsNotArmedUntilClientTTSReportsDone() {
-        XCTAssertFalse(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
+    func testListenStaysLiveThroughClientTTS() {
+        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
         XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: true))
-        XCTAssertNil(
+        XCTAssertEqual(
             ListenResumePolicy.afterClientTTS(
                 ttsFinished: false,
                 userWantsVoiceOff: false,
                 socketConnected: true,
-                captureRunning: false
+                captureRunning: true
             ),
-            "do not rearm listen while AVSpeech is still talking"
+            .keepListening
         )
         XCTAssertEqual(
             ListenResumePolicy.afterClientTTS(
@@ -21,7 +21,7 @@ final class ListenResumePolicyTests: XCTestCase {
                 socketConnected: true,
                 captureRunning: false
             ),
-            .resumeCapture
+            .keepListening
         )
         XCTAssertEqual(
             ListenResumePolicy.afterClientTTS(
@@ -88,14 +88,14 @@ final class ListenResumePolicyTests: XCTestCase {
         )
     }
 
-    func testAfterDeskSpeakResumesCaptureWhenSocketOpen() {
+    func testAfterDeskSpeakKeepsListeningWhenSocketOpen() {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
                 socketConnected: true,
                 captureRunning: false
             ),
-            .resumeCapture
+            .keepListening
         )
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
@@ -103,8 +103,7 @@ final class ListenResumePolicyTests: XCTestCase {
                 socketConnected: true,
                 captureRunning: true
             ),
-            .resumeCapture,
-            "after desk TTS, isRunning is not proof the tap still hears"
+            .keepListening
         )
     }
 

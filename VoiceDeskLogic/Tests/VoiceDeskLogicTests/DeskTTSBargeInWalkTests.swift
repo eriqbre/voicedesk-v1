@@ -207,7 +207,7 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
         }
     }
 
-    func testListenRearmsAfterClientTTSEvenIfLastSpokenLineChanged() {
+    func testListenStaysLiveAndLeftoverIsCurrentLineOnly() {
         var gate = EchoTranscriptGate()
         gate.beginSpeaking(glanceLine)
         gate.beginSpeaking("Murray on closing, and more.")
@@ -215,10 +215,7 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
         gate.finishSpeaking()
         var session = VoiceSession()
         session.apply(.tapTalk)
-        session.apply(.listenFinished)
-        session.apply(.speakStarted)
-        ListenResumePolicy.applySessionAfterDeskSpeak(&session)
-        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: true))
+        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
         XCTAssertTrue(ListenResumePolicy.isListenArmed(state: session.state))
         XCTAssertFalse(gate.isSpeaking)
         XCTAssertEqual(gate.lastSpokenLine, "Murray on closing, and more.")
@@ -259,7 +256,12 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
         XCTAssertTrue(source.contains("ClientVoiceSpeech.shared.stop()"), source)
         XCTAssertTrue(source.contains("eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))"), source)
         XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
-        XCTAssertTrue(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
+        XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
+        XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
+        XCTAssertFalse(
+            source.contains("echoGate.beginSpeaking(trimmed)\n        apply(.speakStarted)"),
+            source
+        )
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
         XCTAssertTrue(app.contains("echoGate.cancelSpeaking()"), app)
         XCTAssertTrue(app.contains("EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate)"), app)

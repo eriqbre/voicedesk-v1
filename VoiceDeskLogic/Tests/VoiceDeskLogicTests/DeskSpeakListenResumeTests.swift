@@ -74,7 +74,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         VoiceRegressionDesk.connected
     }
 
-    func testListenStaysUnarmedUntilClientTTSReportsDone() {
+    func testListenStaysLiveThroughClientTTSAndNextAskIsAccepted() {
         let during = DeskSpeakListenResume.whileClientTTSSpeaking(
             ask: "What's on my calendar for the week?",
             spokenLine: "Massimo’s on Thursday.",
@@ -82,10 +82,11 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             context: connected
         )
         XCTAssertFalse(during.ttsFinished)
-        XCTAssertFalse(during.listenArmed)
-        XCTAssertFalse(during.captureArmed)
-        XCTAssertEqual(during.voiceState, .speaking)
-        XCTAssertFalse(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: during.ttsFinished))
+        XCTAssertTrue(during.listenArmed)
+        XCTAssertTrue(during.captureArmed)
+        XCTAssertEqual(during.voiceState, .listening)
+        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: during.ttsFinished))
+        XCTAssertTrue(during.nextAccepted)
 
         let after = DeskSpeakListenResume.afterCompletedDeskSpeak(
             ask: "What's on my calendar for the week?",
@@ -96,7 +97,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         XCTAssertTrue(after.ttsFinished)
         XCTAssertTrue(after.listenArmed)
         XCTAssertTrue(after.captureArmed)
-        XCTAssertEqual(after.decision, .resumeCapture)
+        XCTAssertEqual(after.decision, .keepListening)
         XCTAssertTrue(after.nextAccepted)
     }
 
@@ -111,7 +112,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             XCTAssertEqual(walk.spokenIntent, "inbox-overview", ask)
             XCTAssertTrue(walk.listenArmed, ask)
             XCTAssertTrue(walk.captureArmed, ask)
-            XCTAssertEqual(walk.decision, .resumeCapture, ask)
+            XCTAssertEqual(walk.decision, .keepListening, ask)
             XCTAssertEqual(walk.voiceState, .listening, ask)
             XCTAssertTrue(walk.nextAccepted, ask)
             XCTAssertEqual(walk.nextIntent, "calendar", ask)
@@ -138,7 +139,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             XCTAssertEqual(walk.spokenIntent, "calendar", calendar)
             XCTAssertTrue(walk.listenArmed, "calendar after named-sender must arm listen: \(calendar)")
             XCTAssertTrue(walk.captureArmed, calendar)
-            XCTAssertEqual(walk.decision, .resumeCapture, calendar)
+            XCTAssertEqual(walk.decision, .keepListening, calendar)
             XCTAssertTrue(walk.nextAccepted, calendar)
         }
     }
@@ -180,7 +181,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             XCTAssertEqual(walk.spokenIntent, "calendar", ask)
             XCTAssertTrue(walk.listenArmed, ask)
             XCTAssertTrue(walk.captureArmed, ask)
-            XCTAssertEqual(walk.decision, .resumeCapture, ask)
+            XCTAssertEqual(walk.decision, .keepListening, ask)
             XCTAssertTrue(walk.nextAccepted, ask)
             XCTAssertEqual(walk.nextIntent, "inbox-overview", ask)
         }
@@ -199,7 +200,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             )
             XCTAssertTrue(walk.listenArmed, spoken)
             XCTAssertTrue(walk.captureArmed, spoken)
-            XCTAssertEqual(walk.decision, .resumeCapture, spoken)
+            XCTAssertEqual(walk.decision, .keepListening, spoken)
             XCTAssertEqual(walk.voiceState, .listening, spoken)
             XCTAssertTrue(walk.nextAccepted, spoken)
             XCTAssertEqual(walk.nextIntent, "task", spoken)
@@ -217,7 +218,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             XCTAssertEqual(walk.spokenIntent, "task", ask)
             XCTAssertTrue(walk.listenArmed, ask)
             XCTAssertTrue(walk.captureArmed, ask)
-            XCTAssertEqual(walk.decision, .resumeCapture, ask)
+            XCTAssertEqual(walk.decision, .keepListening, ask)
             XCTAssertTrue(walk.nextAccepted, ask)
             XCTAssertEqual(walk.nextIntent, "calendar", ask)
         }
@@ -248,7 +249,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         )
         XCTAssertTrue(walk.listenArmed)
         XCTAssertTrue(walk.captureArmed)
-        XCTAssertEqual(walk.decision, .resumeCapture)
+        XCTAssertEqual(walk.decision, .keepListening)
         XCTAssertTrue(walk.nextAccepted)
     }
 
@@ -285,7 +286,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         XCTAssertEqual(walk.spokenIntent, "calendar")
         XCTAssertTrue(walk.listenArmed, "calendar TTS must leave listen armed")
         XCTAssertTrue(walk.captureArmed, "must resume capture even if engine reports running")
-        XCTAssertEqual(walk.decision, .resumeCapture)
+        XCTAssertEqual(walk.decision, .keepListening)
         XCTAssertEqual(walk.voiceState, .listening)
         XCTAssertTrue(walk.nextAccepted)
         XCTAssertEqual(walk.nextIntent, "inbox-overview")
@@ -359,7 +360,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
         )
         XCTAssertTrue(walk.listenArmed)
         XCTAssertTrue(walk.captureArmed)
-        XCTAssertEqual(walk.decision, .resumeCapture)
+        XCTAssertEqual(walk.decision, .keepListening)
         XCTAssertTrue(walk.nextAccepted)
         XCTAssertEqual(walk.nextIntent, "calendar")
     }

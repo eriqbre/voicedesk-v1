@@ -37,21 +37,19 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         self.cancelledSpeak = cancelledSpeak
     }
 
-    /// Speak started; AVSpeech has not reported didFinish / cancelled.
-    /// Echo window stays open. Listen is not armed yet.
+    /// Client TTS is playing. Mic stays in listen. leftover-echo is open.
+    /// The next real ask is accepted the first time.
     public static func whileClientTTSSpeaking(
         ask: String,
         spokenLine: String,
         nextAsk: String,
         context: DeskContext,
         socketConnected: Bool = true,
-        captureRunning: Bool = false,
+        captureRunning: Bool = true,
         userWantsVoiceOff: Bool = false
     ) -> DeskSpeakListenResume {
         var session = VoiceSession()
         session.apply(.tapTalk)
-        session.apply(.listenFinished)
-        session.apply(.speakStarted)
 
         var gate = EchoTranscriptGate()
         gate.beginSpeaking(spokenLine)
@@ -72,8 +70,7 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         if next.acceptedText != nil {
             gate.cancelSpeaking()
         }
-        let listenArmed = ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false)
-            && ListenResumePolicy.isListenArmed(state: session.state)
+        let listenArmed = !userWantsVoiceOff && ListenResumePolicy.isListenArmed(state: session.state)
 
         return DeskSpeakListenResume(
             spokenIntent: spoken.intent,
@@ -101,13 +98,10 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
     ) -> DeskSpeakListenResume {
         var session = VoiceSession()
         session.apply(.tapTalk)
-        session.apply(.listenFinished)
-        session.apply(.speakStarted)
 
         var gate = EchoTranscriptGate()
         gate.beginSpeaking(spokenLine)
         gate.finishSpeaking()
-        ListenResumePolicy.applySessionAfterDeskSpeak(&session)
 
         let decision = ListenResumePolicy.afterClientTTS(
             ttsFinished: true,
@@ -146,11 +140,8 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         var lastAsk = ""
         for turn in turns {
             lastAsk = turn.ask
-            session.apply(.listenFinished)
-            session.apply(.speakStarted)
             gate.beginSpeaking(turn.spoken)
             gate.finishSpeaking()
-            ListenResumePolicy.applySessionAfterDeskSpeak(&session)
         }
         let decision = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: userWantsVoiceOff,

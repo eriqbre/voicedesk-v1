@@ -106,12 +106,8 @@ final class GrokVoiceService: VoiceServicing {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         echoGate.beginSpeaking(trimmed)
-        apply(.speakStarted)
         await ClientVoiceSpeech.shared.speak(trimmed)
-        // Always rearm after client TTS. lastSpokenLine is leftover-only —
-        // never skip listen because the spoken line changed mid-playback.
         echoGate.finishSpeaking()
-        armListenIfSessionLive(reason: "client tts")
     }
 
     func sendTextTurn(_ text: String) async {
@@ -256,24 +252,8 @@ final class GrokVoiceService: VoiceServicing {
         )
     }
 
-    /// Desk TTS can leave `engine.isRunning == true` with a silent tap.
-    /// Always reinstall the tap when the policy says resume.
-    private func resumeCaptureAfterDeskSpeak() {
-        guard !userWantsVoiceOff else { return }
-        let socket = client
-        let logs = audio.resumeCapture(echoCancellation: true) { base64 in
-            socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
-        }
-        logListenResume(
-            note: "audio.resume \(logs.joined(separator: "; ")) running=\(audio.isRunning)",
-            errors: audio.isRunning ? [] : logs
-        )
-    }
-
-    /// After on-device desk TTS (or a socket recover): keep hearing.
-    /// Do not send a session.update — desk speak never left listen mode.
-    /// Resume the mic tap if AVSpeech left it silent; reconnect if the
-    /// socket dropped and the user did not tap stop.
+    /// Socket recover only. Client TTS never leaves listen and must not
+    /// reinstall the mic tap.
     private func armListenIfSessionLive(reason: String) {
         guard !userWantsVoiceOff, !isTearingDown else { return }
         echoGate.finishSpeaking()
@@ -292,10 +272,10 @@ final class GrokVoiceService: VoiceServicing {
             return
         case .keepListening, .resumeCapture:
             reconnectsUsed = 0
-            resumeCaptureAfterDeskSpeak()
+            startAudioIfNeeded()
         case .reconnect:
             guard !isRecovering else {
-                resumeCaptureAfterDeskSpeak()
+                startAudioIfNeeded()
                 return
             }
             Task { await recoverAfterDrop(reason: "listen resume after \(reason)") }
@@ -481,9 +461,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .speechStarted:
             applyBargeInIfNeeded(event: .speechStarted)
         case .speechStopped:
-            if session.state == .listening {
-                apply(.listenFinished)
-            }
+            break
         case .audioCommitted:
             break
         case .userTranscript(let text, let itemID):

@@ -28,19 +28,6 @@ final class GrokVoiceAudioEngine {
     private var pendingPlaybackBuffers = 0
     private var playbackEpoch = 0
 
-    /// After desk TTS: reinstall the mic tap if the engine is up, otherwise start.
-    /// Do not call `stop()` — its delayed `setActive(false)` kills the next start.
-    @discardableResult
-    func resumeCapture(echoCancellation: Bool, onMicAudio: @escaping @Sendable (String) -> Void) -> [String] {
-        self.echoCancellation = echoCancellation
-        self.onMicAudio = onMicAudio
-        if engine?.isRunning == true {
-            return rearmTap()
-        }
-        discardDeadEngine()
-        return start(echoCancellation: echoCancellation, onMicAudio: onMicAudio)
-    }
-
     @discardableResult
     func start(echoCancellation: Bool, onMicAudio: @escaping @Sendable (String) -> Void) -> [String] {
         self.echoCancellation = echoCancellation
@@ -165,42 +152,6 @@ final class GrokVoiceAudioEngine {
                 }
             }
         }
-    }
-
-    /// Tear down a stopped engine without deactivating the audio session.
-    private func discardDeadEngine() {
-        guard let engine else { return }
-        if tapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-        playbackEpoch += 1
-        pendingPlaybackBuffers = 0
-        playerNode?.stop()
-        self.engine = nil
-        self.playerNode = nil
-    }
-
-    private func rearmTap() -> [String] {
-        guard let engine, let onMicAudio else {
-            return ["Audio tap rearm skipped"]
-        }
-        let inputNode = engine.inputNode
-        if tapInstalled {
-            inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        let sourceRate = inputFormat.sampleRate
-        guard sourceRate > 0 else {
-            return ["Mic input has zero sample rate"]
-        }
-        installMicTap(on: inputNode, format: inputFormat, sourceRate: sourceRate, onMicAudio: onMicAudio)
-        tapInstalled = true
-        if playerNode?.isPlaying != true {
-            playerNode?.play()
-        }
-        return ["Audio tap rearmed", "Audio engine running"]
     }
 
     private func installMicTap(

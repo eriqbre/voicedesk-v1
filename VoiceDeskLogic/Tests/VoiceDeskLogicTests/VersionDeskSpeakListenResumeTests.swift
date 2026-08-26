@@ -35,7 +35,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             XCTAssertFalse(walk.cardsAttached, "identity stays cards-only: \(ask)")
             XCTAssertTrue(walk.spokenLineCompleted, ask)
             XCTAssertFalse(walk.usesGrokVerbatim, ask)
-            XCTAssertFalse(walk.listenArmedDuringTTS, "listen waits for client TTS done: \(ask)")
+            XCTAssertTrue(walk.listenArmedDuringTTS, "mic stays live through client TTS: \(ask)")
             XCTAssertTrue(walk.listenArmedAfterSpeak, ask)
             XCTAssertTrue(walk.close1000StayLive, ask)
             XCTAssertEqual(walk.close1000Decision, .reconnect, ask)
@@ -50,7 +50,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             XCTAssertFalse(walk.cardsAttached, ask)
             XCTAssertTrue(walk.spokenLineCompleted, ask)
             XCTAssertFalse(walk.usesGrokVerbatim, ask)
-            XCTAssertFalse(walk.listenArmedDuringTTS, "listen waits for client TTS done: \(ask)")
+            XCTAssertTrue(walk.listenArmedDuringTTS, "mic stays live through client TTS: \(ask)")
             XCTAssertTrue(walk.listenArmedAfterSpeak, ask)
             XCTAssertEqual(walk.close1000Decision, .reconnect, ask)
         }
@@ -77,7 +77,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
                 snapshot: snapshot
             )
             XCTAssertEqual(walk.spokenIntent, "version", glance)
-            XCTAssertFalse(walk.listenArmedDuringTTS, glance)
+            XCTAssertTrue(walk.listenArmedDuringTTS, glance)
             XCTAssertTrue(walk.listenArmedAfterSpeak, glance)
             XCTAssertEqual(walk.close1000Decision, .reconnect, glance)
             XCTAssertEqual(walk.glanceIntent, "inbox-overview", glance)
@@ -106,9 +106,9 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
                 context: desk
             )
             XCTAssertFalse(during.ttsFinished, ask)
-            XCTAssertFalse(during.listenArmed, "listen waits for client TTS done: \(ask)")
-            XCTAssertFalse(during.captureArmed, ask)
-            XCTAssertEqual(during.voiceState, .speaking, ask)
+            XCTAssertTrue(during.listenArmed, "mic stays live through client TTS: \(ask)")
+            XCTAssertTrue(during.captureArmed, ask)
+            XCTAssertEqual(during.voiceState, .listening, ask)
             XCTAssertTrue(during.nextAccepted, ask)
             XCTAssertTrue(during.cancelledSpeak, "accepted follow-up must stop leftover TTS: \(ask)")
 
@@ -121,7 +121,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             XCTAssertTrue(walk.ttsFinished, ask)
             XCTAssertTrue(walk.listenArmed, ask)
             XCTAssertTrue(walk.captureArmed, ask)
-            XCTAssertEqual(walk.decision, .resumeCapture, ask)
+            XCTAssertEqual(walk.decision, .keepListening, ask)
             XCTAssertTrue(walk.nextAccepted, ask)
             XCTAssertNotEqual(walk.nextIntent, "dropped", ask)
         }
@@ -163,7 +163,8 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
         XCTAssertFalse(source.contains("verbatimSpeakSessionUpdateObject"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"desk speak\")"), source)
         XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
-        XCTAssertTrue(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
+        XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
+        XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
         XCTAssertFalse(source.contains("shouldSpeakViaRealtime"), source)
         XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
         XCTAssertFalse(

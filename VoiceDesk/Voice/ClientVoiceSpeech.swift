@@ -1,11 +1,11 @@
 import AVFoundation
 import Foundation
 
-/// On-device TTS for local desk replies. The live Grok socket stays in
-/// listen — desk speak never injects a fake user turn.
+/// On-device TTS for local desk replies. The live Grok socket and mic
+/// stay in listen. leftover-echo ignores this line. Desk speak never
+/// injects a fake user turn or rearms the tap.
 ///
 /// Callers await `speak` until AVSpeech reports didFinish or didCancel.
-/// Do not rearm the mic or close the echo window before that.
 @MainActor
 final class ClientVoiceSpeech: NSObject, AVSpeechSynthesizerDelegate {
     static let shared = ClientVoiceSpeech()
