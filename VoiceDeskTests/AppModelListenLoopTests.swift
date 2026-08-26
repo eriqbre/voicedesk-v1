@@ -255,6 +255,114 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// Same live conversation loop, plus the close the phone logged.
+    /// After write→player drain, fire `grokWebSocketDidClose(1000)`.
+    /// 18d5878 / 415c955 parked stayIdle and left sendRaw a no-op.
+    /// Today's recover-then-teardown killed the one engine. Either
+    /// path fails this. PCM 2 through the same tap is the next turn.
+    func testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-close-1000")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(
+            session: session,
+            commands: [command1, command2, command3],
+            noise: noise
+        )
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        voice.startListenLoopAudioForTests()
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command1)
+        XCTAssertEqual(sink.turns, [command1], "command PCM 1 through the live tap is a turn")
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertFalse(voice.listenLoopSocketHasSendTask, "startListenLoopAudioForTests does not open Grok")
+
+        await voice.speak(InboxGlance.spokenListAck())
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before DidClose")
+        XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
+        XCTAssertTrue(voice.listenLoopStayLive, "stayLive after drain must be armed+running, not a stuck TTS flag")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "policy close 1000 stayIdle after the answer is a fail")
+
+        await voice.simulateListenLoopSocketClose1000()
+        XCTAssertTrue(engine.isRunning, "DidClose 1000 after desk TTS must not audio.stop")
+        XCTAssertEqual(engine.startCount, 1, "reconnect must not audio.start")
+        XCTAssertTrue(voice.listenLoopStayLive, "18d5878 / 415c955 logged stayLive=false stayIdle")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "DidClose 1000 after drain is not user-stop")
+        XCTAssertGreaterThan(
+            voice.listenLoopRecoverCount,
+            0,
+            "close left the socket dead without tearing the tap — 415c955 stayIdle never recovered"
+        )
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+        XCTAssertTrue(sink.stayLive, "PCM 2 must not be accepted on a stayIdle sink")
+
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink.turns, [command1, command2], "command PCM 2 after DidClose 1000 is the next turn")
+        XCTAssertEqual(engine.startCount, 1, "talk again must not audio.start")
+        XCTAssertTrue(engine.isRunning)
+
+        XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
+        XCTAssertFalse(ListenInterrupt.isCommand("Can you hear me?"))
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
+        XCTAssertTrue(ListenInterrupt.isCommand("what's on my calendar"))
+
+        let speaking = Task { await voice.speak(Self.laterDeskReply) }
+        await waitUntilPending(engine)
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
+        engine.feedTapPCM16(noise)
+        XCTAssertEqual(sink.ambient.last, noise)
+        XCTAssertEqual(sink.turns, [command1, command2], "ambient / radio / other-room is not a turn")
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "ambient must not cancel write→player")
+        XCTAssertTrue(engine.isPlayerPlaying)
+
+        model.voice.interruptResponse()
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "command intent drops playback")
+        XCTAssertTrue(engine.isPlayerPlaying, "interruptPlayback must not rip the player")
+        XCTAssertTrue(engine.isRunning)
+        sink.startCount = engine.startCount
+        engine.feedTapPCM16(command3)
+        XCTAssertEqual(sink.turns.last, command3, "command-shaped PCM during TTS is the next turn")
+        XCTAssertEqual(sink.turns, [command1, command2, command3])
+        XCTAssertEqual(engine.startCount, 1)
+        await speaking.value
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.count,
+            0,
+            "transcript injects do not count"
+        )
+
+        voice.cancel()
+    }
+
     private func waitUntilPending(_ engine: GrokVoiceAudioEngine) async {
         for _ in 0..<50 {
             if engine.pendingPlaybackCount > 0 { return }

@@ -209,6 +209,14 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         return opened
     }
 
+    /// `sendRaw` no-ops when there is no task. Close-without-reconnect
+    /// leaves this false while the tap can still fire.
+    var hasSendTask: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return task != nil
+    }
+
     /// Dogfood: API key in `Authorization` plus `xai-client-secret.<key>` protocol.
     /// URLSession drops `Authorization` on the HTTP→WS upgrade (xAI VoiceTesterApp).
     /// Ephemeral tokens (`POST /v1/realtime/client_secrets`) are the next hardening — not a dogfood blocker.

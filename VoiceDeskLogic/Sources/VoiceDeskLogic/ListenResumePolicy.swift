@@ -42,8 +42,8 @@ public enum ListenResumePolicy: Sendable {
 
     /// Armed on first Tap to talk, warmUp, or `audio.start`. Cleared only on
     /// user stop. Audio flowing is live unless they tapped stop.
-    /// `clientTTSInFlight` keeps stayLive through desk TTS even if the
-    /// session is briefly unarmed (leftover `response.created`).
+    /// `clientTTSInFlight` keeps stayLive during write→player only.
+    /// After drain it is cleared; stayLive is then armed + running audio.
     public static func sessionShouldStayLive(
         userWantsVoiceOff: Bool,
         liveSessionArmed: Bool,

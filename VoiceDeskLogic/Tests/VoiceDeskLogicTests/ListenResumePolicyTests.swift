@@ -23,6 +23,15 @@ final class ListenResumePolicyTests: XCTestCase {
             ),
             "desk TTS in flight is stayLive even if listen looks unarmed"
         )
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                audioStarted: true,
+                clientTTSInFlight: false
+            ),
+            "after drain, stayLive is armed+running, not a stuck TTS flag"
+        )
         XCTAssertFalse(
             ListenResumePolicy.sha415c955StayLiveAfterClose1000(
                 userWantsVoiceOff: false,

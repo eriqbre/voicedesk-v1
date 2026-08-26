@@ -27,7 +27,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(speak.contains("resumeCaptureAfterDeskSpeak"), speak)
         XCTAssertFalse(speak.contains("armListenIfSessionLive(reason: \"client tts\")"), speak)
         XCTAssertFalse(speak.contains("EarlyFinalHold"), speak)
-        let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "func sendTextTurn")
+        let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "private func returnToListenAfterDeskTTS")
         XCTAssertFalse(speakFn.contains("echoGate.beginSpeaking"), speakFn)
         XCTAssertTrue(speakFn.contains("waitUntilPlaybackDrained"), speakFn)
         XCTAssertTrue(speakFn.contains("returnToListenAfterDeskTTS"), speakFn)
@@ -45,6 +45,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         } else {
             XCTFail("speak() must call ClientVoiceSpeech.shared.speak")
         }
+        let afterDrain = speakSlice(
+            speak,
+            from: "private func returnToListenAfterDeskTTS()",
+            to: "private func waitUntilPlaybackDrained"
+        )
+        XCTAssertTrue(
+            afterDrain.contains("clientTTSInFlight = false"),
+            "stayLive after drain is armed+running, not a stuck TTS flag"
+        )
     }
 
     func testInterruptPlaybackDoesNotRemoveTap() throws {
@@ -295,6 +304,39 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight"), service)
         XCTAssertTrue(service.contains("shouldApplyGrokTurnFinished"), service)
         XCTAssertTrue(service.contains("clientTTSInFlight: clientTTSInFlight"), service)
+        XCTAssertTrue(service.contains("func simulateListenLoopSocketClose1000()"), service)
+        XCTAssertTrue(service.contains("grokWebSocketDidClose(code: 1000, reason: nil)"), service)
+        XCTAssertTrue(service.contains("listenLoopRecoverCount"), service)
+        XCTAssertTrue(service.contains("listenLoopSocketHasSendTask"), service)
+        let didClose = speakSlice(
+            service,
+            from: "func grokWebSocketDidClose",
+            to: "func grokWebSocketDidFail"
+        )
+        XCTAssertTrue(didClose.contains("recoverAfterDrop"), didClose)
+        XCTAssertFalse(
+            didClose.contains("teardown"),
+            "DidClose 1000 after desk TTS must not kill the one engine"
+        )
+        let recover = speakSlice(
+            service,
+            from: "private func recoverAfterDrop",
+            to: "extension GrokVoiceService: LiveGrokVoiceClientDelegate"
+        )
+        XCTAssertTrue(recover.contains("connectAndConfigure"), recover)
+        XCTAssertFalse(
+            recover.contains("interruptPlayback"),
+            "socket recover is not a command and must not drop player buffers"
+        )
+        XCTAssertTrue(recover.contains("sessionShouldStayLive"), recover)
+        XCTAssertTrue(recover.contains("audio.isRunning"), recover)
+        let stayLiveClose = speakSlice(
+            loop,
+            from: "case .close1000AfterTTSStayLive:",
+            to: "take(third)"
+        )
+        XCTAssertTrue(stayLiveClose.contains("clientTTSInFlight: false"), stayLiveClose)
+        XCTAssertFalse(stayLiveClose.contains("clientTTSInFlight: true"), stayLiveClose)
     }
 
     func testEngineDoesNotTreatIsRunningAsTapLiveness() throws {
@@ -366,6 +408,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live.contains("testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"),
             live
         )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn"),
+            live
+        )
         XCTAssertTrue(live.contains("convenience init(session: VoiceSession, command: Data)"), live)
         XCTAssertTrue(live.contains("GrokVoiceService("), live)
         XCTAssertTrue(live.contains("AppModel("), live)
@@ -429,7 +475,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let conversation = speakSlice(
             live,
             from: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn"
         )
         XCTAssertTrue(conversation.contains("GrokVoiceService("), conversation)
         XCTAssertTrue(conversation.contains("AppModel("), conversation)
@@ -455,6 +501,45 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("conversation loop must answer then take PCM 2")
+        }
+        XCTAssertFalse(conversation.contains("simulateListenLoopSocketClose1000"), conversation)
+        XCTAssertFalse(conversation.contains("grokWebSocketDidClose"), conversation)
+        let close1000 = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(close1000.contains("GrokVoiceService("), close1000)
+        XCTAssertTrue(close1000.contains("AppModel("), close1000)
+        XCTAssertTrue(close1000.contains("startListenLoopAudioForTests"), close1000)
+        XCTAssertTrue(close1000.contains("simulateListenLoopSocketClose1000"), close1000)
+        XCTAssertTrue(close1000.contains("listenLoopRecoverCount"), close1000)
+        XCTAssertTrue(close1000.contains("listenLoopSocketHasSendTask"), close1000)
+        XCTAssertTrue(close1000.contains("feedTapPCM16(command2)"), close1000)
+        XCTAssertTrue(close1000.contains("interruptResponse"), close1000)
+        XCTAssertTrue(close1000.contains("ListenInterrupt.isCommand"), close1000)
+        XCTAssertTrue(close1000.contains("415c955"), close1000)
+        XCTAssertFalse(close1000.contains("emitUser"), close1000)
+        XCTAssertFalse(close1000.contains("FakeLiveVoiceService"), close1000)
+        XCTAssertFalse(close1000.contains("simulateHALTapYankLeavingInstalledFlagTrue"), close1000)
+        XCTAssertFalse(close1000.contains("postEngineConfigurationChange"), close1000)
+        XCTAssertFalse(close1000.contains("EchoBargeIn"), close1000)
+        XCTAssertFalse(close1000.contains("EarlyFinalHold"), close1000)
+        if let firstSpeak = close1000.range(of: "voice.speak"),
+           let closeAt = close1000.range(of: "simulateListenLoopSocketClose1000"),
+           let secondFeed = close1000.range(of: "feedTapPCM16(command2)") {
+            XCTAssertLessThan(
+                firstSpeak.lowerBound,
+                closeAt.lowerBound,
+                "DidClose 1000 must fire after write→player drain"
+            )
+            XCTAssertLessThan(
+                closeAt.lowerBound,
+                secondFeed.lowerBound,
+                "command PCM 2 must be after the live DidClose 1000"
+            )
+        } else {
+            XCTFail("DidClose 1000 gate must drain, fire close, then take PCM 2")
         }
     }
 

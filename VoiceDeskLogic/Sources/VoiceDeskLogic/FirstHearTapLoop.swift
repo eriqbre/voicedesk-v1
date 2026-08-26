@@ -262,7 +262,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     }
 
     /// Product: leftover response.created/done during TTS, then close 1000.
-    /// stayLive stays true, listen is re-armed on the same tap, third lands.
+    /// stayLive after drain is armed + running, not a stuck TTS flag.
+    /// Listen is re-armed on the same tap. Third lands. stayIdle is a fail.
     public static func close1000AfterTTSStayLiveThenThird(
         first: Data = commandPCM(1),
         second: Data = commandPCM(2),
@@ -617,7 +618,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
                 userWantsVoiceOff: false,
                 liveSessionArmed: true,
                 audioStarted: tapLive,
-                clientTTSInFlight: true
+                clientTTSInFlight: false
             )
             close1000 = ListenResumePolicy.afterSocketClose(
                 userWantsVoiceOff: false,

@@ -40,9 +40,12 @@ final class GrokVoiceService: VoiceServicing {
     /// First Tap to talk armed this live loop. Cleared only on user stop.
     /// Independent of VoiceSession flipping idle after TTS / timeout.
     private var liveSessionArmed = false
-    /// From `speak()` until player drain + return-to-listen. Blocks a
-    /// leftover `response.created` from parking the session in `.speaking`.
+    /// True only while `speak()` is writing and the player is draining.
+    /// Cleared in `returnToListenAfterDeskTTS`. stayLive after drain is
+    /// armed + running audio, not this flag.
     private var clientTTSInFlight = false
+    /// How many times socket recover ran. Tests only — not a second loop.
+    private var recoverAfterDropCount = 0
     /// Same frames the live tap sends to Grok. Tests only — not a second loop.
     /// The HAL tap is Sendable; this box is captured like `socket`, not read
     /// off `self` inside that closure.
@@ -134,6 +137,7 @@ final class GrokVoiceService: VoiceServicing {
             liveSessionArmed: liveSessionArmed,
             captureRunning: audio.isRunning
         )
+        clientTTSInFlight = false
         eventHandler?(.state(session.state))
         audio.reinstallTapIfSilentWhileRunning()
         logListenResume(
@@ -408,8 +412,8 @@ final class GrokVoiceService: VoiceServicing {
         _ = reason
         guard !userWantsVoiceOff, !isTearingDown, !isRecovering else { return }
         isRecovering = true
+        recoverAfterDropCount += 1
         client.disconnect()
-        audio.interruptPlayback()
         do {
             try await connectAndConfigure()
             guard !userWantsVoiceOff else {
@@ -427,7 +431,10 @@ final class GrokVoiceService: VoiceServicing {
             isRecovering = false
             guard !userWantsVoiceOff else { return }
             eventHandler?(.failed(error.localizedDescription))
-            teardown(sendCancel: false)
+            guard sessionShouldStayLive || liveSessionArmed || audio.isRunning else {
+                teardown(sendCancel: false)
+                return
+            }
         }
     }
 }
@@ -465,14 +472,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         }
         guard stayLive else { return }
         eventHandler?(.failed(detail))
-        teardown(sendCancel: false)
     }
 
     func grokWebSocketDidFail(error: String, httpStatus: Int?) {
         let detail = httpStatus.map { "\($0) \(error)" } ?? error
-        if !isRecovering {
-            failReady(GrokVoiceError.connectFailed(detail))
-        }
+        failReady(GrokVoiceError.connectFailed(detail))
         guard !isTearingDown, !isRecovering else { return }
         guard !userWantsVoiceOff else { return }
         if VoiceSocketRecovery.shouldReconnect(
@@ -485,7 +489,10 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             return
         }
         eventHandler?(.failed(detail))
-        teardown(sendCancel: false)
+        guard sessionShouldStayLive || liveSessionArmed || audio.isRunning else {
+            teardown(sendCancel: false)
+            return
+        }
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
@@ -592,6 +599,23 @@ extension GrokVoiceService {
         apply(.tapTalk)
         startAudioIfNeeded()
     }
+
+    /// Same close the phone logged after version/desk TTS.
+    /// `listenLoopClose1000` only computes policy. This fires DidClose.
+    func simulateListenLoopSocketClose1000() async {
+        grokWebSocketDidClose(code: 1000, reason: nil)
+        await Task.yield()
+        var spins = 0
+        while isRecovering, spins < 400 {
+            try? await Task.sleep(for: .milliseconds(50))
+            spins += 1
+        }
+    }
+
+    var listenLoopRecoverCount: Int { recoverAfterDropCount }
+
+    /// `LiveGrokVoiceClient.sendRaw` no-ops when this is false.
+    var listenLoopSocketHasSendTask: Bool { client.hasSendTask }
 }
 
 /// Same-thread tap observer. The HAL callback is Sendable; do not touch
