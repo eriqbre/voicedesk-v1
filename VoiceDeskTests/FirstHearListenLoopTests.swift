@@ -34,6 +34,33 @@ final class FirstHearListenLoopTests: XCTestCase {
         )
     }
 
+    func testEriqSpokenTapeOneInjectDuringClientTTSLands() async {
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+        for line in EriqSpokenTape.lines {
+            var injects = 0
+            fake.onClientTTS = {
+                injects += 1
+                fake.emitUser(line)
+            }
+            await model.applyUserTurn("show me my emails")
+            XCTAssertEqual(injects, 1, line)
+            XCTAssertTrue(fake.tapLive, line)
+            XCTAssertEqual(
+                model.turns.filter { $0.role == .user }.last?.text,
+                line,
+                line
+            )
+        }
+    }
+
     func testProductSpeakDoesNotRearmTapAfterClientTTS() throws {
         var url = URL(fileURLWithPath: #filePath)
         var source: String?
