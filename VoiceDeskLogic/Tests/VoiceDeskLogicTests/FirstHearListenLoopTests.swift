@@ -60,6 +60,9 @@ final class FirstHearListenLoopTests: XCTestCase {
             ),
             .keepListening
         )
+        let engine = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceAudioEngine.swift"))
+        XCTAssertFalse(engine.contains("func resumeCapture"), engine)
+        XCTAssertFalse(engine.contains("func rearmTap"), engine)
     }
 
     private func repoFile(_ relative: String) -> String? {
