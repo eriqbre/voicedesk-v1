@@ -371,16 +371,18 @@ final class ListenLoopSourceContractTests: XCTestCase {
             sendRaw.contains("TapSpeechEnergy"),
             "2679792 postponed quiet-commit on RMS — radio never closed the turn"
         )
-        XCTAssertFalse(
-            sendRaw.contains("quietCommitGeneration"),
-            "live appends must not reschedule quiet-commit; ambient is not a command"
-        )
-        XCTAssertFalse(sendRaw.contains("scheduleQuietCommit"), sendRaw)
+        XCTAssertTrue(sendRaw.contains("QueuedTurnClose.shouldPostpone"), sendRaw)
+        XCTAssertTrue(sendRaw.contains("quietCommitGeneration"), sendRaw)
         XCTAssertNil(
             repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/TapSpeechEnergy.swift"),
             "RMS quiet-commit was the wrong part"
         )
         XCTAssertFalse(client.contains("TapSpeechEnergy"), client)
+        let close = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/QueuedTurnClose.swift"))
+        XCTAssertTrue(close.contains("func shouldPostpone"), close)
+        XCTAssertTrue(close.contains("ListenInterrupt"), close)
+        XCTAssertFalse(close.contains("rmsThreshold"), close)
+        XCTAssertFalse(close.contains("watchdog"), close)
         let interrupt = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/ListenInterrupt.swift"))
         XCTAssertTrue(interrupt.contains("no energy-only interrupt"), interrupt)
         XCTAssertFalse(interrupt.contains("TapSpeechEnergy"), interrupt)
@@ -525,6 +527,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000QueuedCommandRequestsResponse"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000StillTalkingLongerThanQuietCommitDoesNotTruncate"),
             live
         )
         XCTAssertFalse(live.contains("TapSpeechEnergy"), live)
@@ -877,7 +883,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let requestResponse = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000QueuedCommandRequestsResponse",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000StillTalkingLongerThanQuietCommitDoesNotTruncate"
         )
         XCTAssertTrue(requestResponse.contains("GrokVoiceService("), requestResponse)
         XCTAssertTrue(requestResponse.contains("AppModel("), requestResponse)
@@ -909,6 +915,41 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("response-request gate must DidClose, feed PCM 2, DidOpen, then require create_response before commit")
+        }
+        let stillTalkingLong = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000StillTalkingLongerThanQuietCommitDoesNotTruncate",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(stillTalkingLong.contains("GrokVoiceService("), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("AppModel("), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("simulateListenLoopSocketClose1000"), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("feedTapPCM16(command2)"), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("simulateListenLoopSocketDidOpenThenSessionReady"), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("feedTapPCM16(continued)"), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("7350153"), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("quietCommitMs"), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("lastContinuedAt"), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("input_audio_buffer.commit"), stillTalkingLong)
+        XCTAssertTrue(stillTalkingLong.contains("interruptResponse"), stillTalkingLong)
+        XCTAssertFalse(stillTalkingLong.contains("emitUser"), stillTalkingLong)
+        XCTAssertFalse(stillTalkingLong.contains("FakeLiveVoiceService"), stillTalkingLong)
+        XCTAssertFalse(stillTalkingLong.contains("TapSpeechEnergy"), stillTalkingLong)
+        if let openAt = stillTalkingLong.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
+           let continuedAt = stillTalkingLong.range(of: "feedTapPCM16(continued)"),
+           let waitAt = stillTalkingLong.range(of: "waitUntilListenLoopQueuedTurnClosed") {
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                continuedAt.lowerBound,
+                "command-shaped PCM must keep arriving after the session-ready flush"
+            )
+            XCTAssertLessThan(
+                continuedAt.lowerBound,
+                waitAt.lowerBound,
+                "7350153 paper-greens if we feed one frame and then wait"
+            )
+        } else {
+            XCTFail("long still-talking gate must flush, keep feeding command PCM, then require commit after the tail")
         }
     }
 
