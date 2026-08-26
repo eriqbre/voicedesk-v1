@@ -7,6 +7,8 @@ import XCTest
 /// startAudioIfNeeded no-ops — that walk must drop the third.
 final class FirstHearTapLoopTests: XCTestCase {
     func testProductThirdPCMAfterDrainIsATurnWithoutSecondStart() {
+        // Product path: speakStarted slips during TTS, afterClientTTSFinished
+        // returns to listen. Close 1000 stayIdle is a fail.
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)
         let third = FirstHearTapLoop.commandPCM(3)

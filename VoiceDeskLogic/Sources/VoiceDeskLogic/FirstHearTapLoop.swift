@@ -50,7 +50,9 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         Data([tag, 0x24, 0xC0, 0xDE, tag])
     }
 
-    /// Product: two tap turns, write→player drain, do nothing, third tap is a turn.
+    /// Product: two tap turns, write→player drain, return to listen
+    /// (`afterClientTTSFinished`). A slipped `speakStarted` must not leave
+    /// the third unarmed. Close 1000 stayIdle is a fail. No second start.
     public static func twoTurnsDeskTTSDrainThenThird(
         first: Data = commandPCM(1),
         second: Data = commandPCM(2),
@@ -60,8 +62,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             first: first,
             second: second,
             third: third,
-            duringTTS: .keepListening,
-            afterDrain: .doNothing
+            duringTTS: .applySpeakStarted,
+            afterDrain: .returnToListenAfterTTS
         )
     }
 
@@ -165,6 +167,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case rearmWithoutStart
         case detachWhileRunningStartNoOps
         case detachWhileRunningThenReinstall
+        case returnToListenAfterTTS
     }
 
     private static func run(
@@ -239,6 +242,18 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case .detachWhileRunningThenReinstall:
             tapLive = false
             tapLive = true
+        case .returnToListenAfterTTS:
+            let after = ListenResumePolicy.afterClientTTSFinished(
+                session: &session,
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                captureRunning: tapLive
+            )
+            stayLive = after.stayLive
+            close1000 = after.close1000
+            if after.startAgain {
+                startCount += 1
+            }
         }
 
         take(third)

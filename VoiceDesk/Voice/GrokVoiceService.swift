@@ -40,6 +40,9 @@ final class GrokVoiceService: VoiceServicing {
     /// First Tap to talk armed this live loop. Cleared only on user stop.
     /// Independent of VoiceSession flipping idle after TTS / timeout.
     private var liveSessionArmed = false
+    /// From `speak()` until player drain + return-to-listen. Blocks a
+    /// leftover `response.created` from parking the session in `.speaking`.
+    private var clientTTSInFlight = false
 
     var state: VoiceState { session.state }
     var hasPendingPlayback: Bool { audio.hasPendingPlayback }
@@ -106,8 +109,47 @@ final class GrokVoiceService: VoiceServicing {
         if !audio.isRunning, !userWantsVoiceOff {
             startAudioIfNeeded()
         }
+        clientTTSInFlight = true
         await ClientVoiceSpeech.shared.speak(trimmed) { [weak self] pcm in
             self?.audio.playPCM16(pcm)
+        }
+        await waitUntilPlaybackDrained()
+        returnToListenAfterDeskTTS()
+        clientTTSInFlight = false
+    }
+
+    /// After write→player drain. Session back to listening. No second start.
+    private func returnToListenAfterDeskTTS() {
+        let result = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: userWantsVoiceOff,
+            liveSessionArmed: liveSessionArmed,
+            captureRunning: audio.isRunning
+        )
+        eventHandler?(.state(session.state))
+        logListenResume(
+            note: "after desk tts drain listenArmed=\(result.listenArmed) stayLive=\(result.stayLive) \(result.close1000) startAgain=\(result.startAgain) state=\(session.state.rawValue)"
+        )
+    }
+
+    private func waitUntilPlaybackDrained() async {
+        if !audio.hasPendingPlayback { return }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            var resumed = false
+            let finish = {
+                guard !resumed else { return }
+                resumed = true
+                self.audio.onPlaybackDrained = nil
+                cont.resume()
+            }
+            audio.onPlaybackDrained = finish
+            Task { @MainActor in
+                let deadline = ContinuousClock.now + .seconds(8)
+                while self.audio.hasPendingPlayback, ContinuousClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(40))
+                }
+                finish()
+            }
         }
     }
 
@@ -151,6 +193,7 @@ final class GrokVoiceService: VoiceServicing {
     func cancel() {
         userWantsVoiceOff = true
         liveSessionArmed = false
+        clientTTSInFlight = false
         teardown(sendCancel: true)
     }
 
@@ -461,7 +504,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             currentResponseID = id
             assistantGate.reset()
             guard ListenResumePolicy.shouldApplyGrokSpeakStarted(
-                clientTTSSpeaking: audio.hasPendingPlayback
+                clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight
             ) else { break }
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
