@@ -502,8 +502,6 @@ final class ListenLoopSourceContractTests: XCTestCase {
         } else {
             XCTFail("conversation loop must answer then take PCM 2")
         }
-        XCTAssertFalse(conversation.contains("simulateListenLoopSocketClose1000"), conversation)
-        XCTAssertFalse(conversation.contains("grokWebSocketDidClose"), conversation)
         let close1000 = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn",

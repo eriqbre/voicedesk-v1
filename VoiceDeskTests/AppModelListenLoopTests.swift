@@ -256,7 +256,7 @@ final class AppModelListenLoopTests: XCTestCase {
     }
 
     /// Same live conversation loop, plus the close the phone logged.
-    /// After write→player drain, fire `grokWebSocketDidClose(1000)`.
+    /// After write→player drain, fire the live DidClose 1000 hook.
     /// 18d5878 / 415c955 parked stayIdle and left sendRaw a no-op.
     /// Today's recover-then-teardown killed the one engine. Either
     /// path fails this. PCM 2 through the same tap is the next turn.
