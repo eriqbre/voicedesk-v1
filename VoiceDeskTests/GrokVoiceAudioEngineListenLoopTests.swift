@@ -113,7 +113,7 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
     /// This test forces the iOS-shaped detach, posts interruption *began*
     /// (lifecycle `.none`), and requires silent-tap-while-running. That is
     /// the old loop, and it must fail there. Then interruption *ended*
-    /// reinstalls the same tap — no second `audio.start`, no `synthesizer.speak()`.
+    /// reinstalls the same tap — no second `audio.start`, no speak-utterance path.
     /// Category-change / override must not be the repair. Third command PCM
     /// through the repaired tap is the next turn. `startCount` stays 1.
     func testIOSDetachAfterTTSDrainSilentTapWhileRunningThenSameEngineReinstall() async throws {
