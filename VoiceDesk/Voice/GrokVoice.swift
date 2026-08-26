@@ -202,6 +202,12 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var sessionDelegate: WebSocketBridge?
     private var timeoutTask: Task<Void, Never>?
     private var opened = false
+    /// Mic appends during a dead socket. Flushed on DidOpen / test attach.
+    /// Not a second listen loop.
+    private var outboundQueue: [String] = []
+    private var testSendSink = false
+    private var deliveredForTests: [String] = []
+    private static let maxOutbound = 64
 
     var isConnected: Bool {
         lock.lock()
@@ -209,12 +215,25 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         return opened
     }
 
-    /// `sendRaw` no-ops when there is no task. Close-without-reconnect
-    /// leaves this false while the tap can still fire.
+    /// Live send path: socket opened, or a test attach-send-task.
+    /// A leftover URLSession task that never opened is not live.
     var hasSendTask: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return task != nil
+        return opened || testSendSink
+    }
+
+    var deliveredSendCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return deliveredForTests.count
+    }
+
+    var deliveredAppendPCM: [Data] {
+        lock.lock()
+        let payloads = deliveredForTests
+        lock.unlock()
+        return payloads.compactMap { Self.pcmFromAppendJSON($0) }
     }
 
     /// Dogfood: API key in `Authorization` plus `xai-client-secret.<key>` protocol.
@@ -273,11 +292,43 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     }
 
     /// Called from the audio render thread with a prebuilt JSON string.
+    /// Dead socket (`!opened`, no test attach): short queue, not a drop.
     func sendRaw(_ string: String) {
         lock.lock()
-        let task = self.task
+        if testSendSink {
+            deliveredForTests.append(string)
+            lock.unlock()
+            return
+        }
+        if opened, let task {
+            lock.unlock()
+            task.send(.string(string)) { _ in }
+            return
+        }
+        if outboundQueue.count >= Self.maxOutbound {
+            outboundQueue.removeFirst()
+        }
+        outboundQueue.append(string)
         lock.unlock()
-        task?.send(.string(string)) { _ in }
+    }
+
+    /// Test hook. Not a mock Grok network client. Makes send live and
+    /// flushes the dead-socket queue. Same flush DidOpen uses.
+    func attachTestSendTask() {
+        lock.lock()
+        testSendSink = true
+        let queued = outboundQueue
+        outboundQueue.removeAll()
+        deliveredForTests.append(contentsOf: queued)
+        lock.unlock()
+    }
+
+    func dropOutbound() {
+        lock.lock()
+        outboundQueue.removeAll()
+        deliveredForTests.removeAll()
+        testSendSink = false
+        lock.unlock()
     }
 
     func sendBinary(_ data: Data) {
@@ -310,6 +361,15 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         return token
     }
 
+    static func pcmFromAppendJSON(_ raw: String) -> Data? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "input_audio_buffer.append",
+              let audio = object["audio"] as? String
+        else { return nil }
+        return Data(base64Encoded: audio)
+    }
+
     static func extractClientSecret(from object: [String: Any]) -> String? {
         if let value = object["value"] as? String, !value.isEmpty { return value }
         if let value = object["client_secret"] as? String, !value.isEmpty { return value }
@@ -326,8 +386,20 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         opened = true
         let timeout = timeoutTask
         timeoutTask = nil
+        let queued = outboundQueue
+        outboundQueue.removeAll()
+        let task = self.task
+        let sink = testSendSink
+        if sink {
+            deliveredForTests.append(contentsOf: queued)
+        }
         lock.unlock()
         timeout?.cancel()
+        if !sink {
+            for item in queued {
+                task?.send(.string(item)) { _ in }
+            }
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.delegate?.grokWebSocketDidOpen()

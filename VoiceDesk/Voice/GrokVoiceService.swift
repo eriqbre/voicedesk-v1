@@ -383,6 +383,7 @@ final class GrokVoiceService: VoiceServicing {
         audio.interruptPlayback()
         audio.stop()
         client.disconnect()
+        client.dropOutbound()
         currentResponseID = nil
         audioDeltaCount = 0
         apply(.cancel)
@@ -614,8 +615,17 @@ extension GrokVoiceService {
 
     var listenLoopRecoverCount: Int { recoverAfterDropCount }
 
-    /// `LiveGrokVoiceClient.sendRaw` no-ops when this is false.
+    /// Live send path. A zombie URLSession task that never opened is false.
     var listenLoopSocketHasSendTask: Bool { client.hasSendTask }
+
+    var listenLoopDeliveredSendCount: Int { client.deliveredSendCount }
+
+    var listenLoopDeliveredAudioPCM: [Data] { client.deliveredAppendPCM }
+
+    /// Tiny hook. Not a mock Grok client. Flushes the dead-socket queue.
+    func attachListenLoopSendTaskForTests() {
+        client.attachTestSendTask()
+    }
 }
 
 /// Same-thread tap observer. The HAL callback is Sendable; do not touch

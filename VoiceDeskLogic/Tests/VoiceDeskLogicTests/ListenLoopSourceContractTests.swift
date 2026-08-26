@@ -308,6 +308,19 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("grokWebSocketDidClose(code: 1000, reason: nil)"), service)
         XCTAssertTrue(service.contains("listenLoopRecoverCount"), service)
         XCTAssertTrue(service.contains("listenLoopSocketHasSendTask"), service)
+        XCTAssertTrue(service.contains("func attachListenLoopSendTaskForTests()"), service)
+        XCTAssertTrue(service.contains("listenLoopDeliveredAudioPCM"), service)
+        XCTAssertTrue(service.contains("dropOutbound"), service)
+        let client = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoice.swift"))
+        XCTAssertTrue(client.contains("outboundQueue"), client)
+        XCTAssertTrue(client.contains("func attachTestSendTask()"), client)
+        XCTAssertTrue(client.contains("func dropOutbound()"), client)
+        let sendRaw = speakSlice(client, from: "func sendRaw(_ string: String) {", to: "func sendBinary")
+        XCTAssertTrue(sendRaw.contains("outboundQueue"), sendRaw)
+        XCTAssertFalse(sendRaw.contains("task?.send"), sendRaw)
+        let didOpen = speakSlice(client, from: "nonisolated func notifyOpen()", to: "nonisolated func notifyClose")
+        XCTAssertTrue(didOpen.contains("outboundQueue"), didOpen)
+        XCTAssertTrue(didOpen.contains("task?.send"), didOpen)
         let didClose = speakSlice(
             service,
             from: "func grokWebSocketDidClose",
@@ -412,6 +425,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live.contains("testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn"),
             live
         )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"),
+            live
+        )
         XCTAssertTrue(live.contains("convenience init(session: VoiceSession, command: Data)"), live)
         XCTAssertTrue(live.contains("GrokVoiceService("), live)
         XCTAssertTrue(live.contains("AppModel("), live)
@@ -505,7 +522,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let close1000 = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
         )
         XCTAssertTrue(close1000.contains("GrokVoiceService("), close1000)
         XCTAssertTrue(close1000.contains("AppModel("), close1000)
@@ -538,6 +555,41 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("DidClose 1000 gate must drain, fire close, then take PCM 2")
+        }
+        let deadSocket = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(deadSocket.contains("GrokVoiceService("), deadSocket)
+        XCTAssertTrue(deadSocket.contains("AppModel("), deadSocket)
+        XCTAssertTrue(deadSocket.contains("startListenLoopAudioForTests"), deadSocket)
+        XCTAssertTrue(deadSocket.contains("simulateListenLoopSocketClose1000"), deadSocket)
+        XCTAssertTrue(deadSocket.contains("listenLoopSocketHasSendTask"), deadSocket)
+        XCTAssertTrue(deadSocket.contains("feedTapPCM16(command2)"), deadSocket)
+        XCTAssertTrue(deadSocket.contains("attachListenLoopSendTaskForTests"), deadSocket)
+        XCTAssertTrue(deadSocket.contains("listenLoopDeliveredAudioPCM"), deadSocket)
+        XCTAssertTrue(deadSocket.contains("15dcc7d"), deadSocket)
+        XCTAssertTrue(deadSocket.contains("interruptResponse"), deadSocket)
+        XCTAssertFalse(deadSocket.contains("emitUser"), deadSocket)
+        XCTAssertFalse(deadSocket.contains("FakeLiveVoiceService"), deadSocket)
+        XCTAssertFalse(deadSocket.contains("simulateHALTapYankLeavingInstalledFlagTrue"), deadSocket)
+        XCTAssertFalse(deadSocket.contains("postEngineConfigurationChange"), deadSocket)
+        if let closeAt = deadSocket.range(of: "simulateListenLoopSocketClose1000"),
+           let secondFeed = deadSocket.range(of: "feedTapPCM16(command2)"),
+           let attachAt = deadSocket.range(of: "attachListenLoopSendTaskForTests") {
+            XCTAssertLessThan(
+                closeAt.lowerBound,
+                secondFeed.lowerBound,
+                "command PCM 2 must be fed in the dead-socket window"
+            )
+            XCTAssertLessThan(
+                secondFeed.lowerBound,
+                attachAt.lowerBound,
+                "15dcc7d dropped command 2 before a send task existed"
+            )
+        } else {
+            XCTFail("dead-socket gate must DidClose, feed PCM 2, then attach-send-task")
         }
     }
 
