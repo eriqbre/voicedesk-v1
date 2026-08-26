@@ -16,13 +16,12 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
 
     static let leftoverFamily = [
         "here",
-        "latest",
-        "five",
-        "5"
+        "they",
+        "here they are"
     ]
 
     private var glanceLine: String {
-        InboxGlance.spokenOverviewBeat(count: InboxGlance.overviewLimit)
+        InboxGlance.spokenListAck()
     }
 
     func testFollowUpWhileGlanceBeatSpeakingIsAcceptedAndCancelsTTS() {

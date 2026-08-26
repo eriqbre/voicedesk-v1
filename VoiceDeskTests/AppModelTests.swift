@@ -306,7 +306,7 @@ final class AppModelTests: XCTestCase {
             InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
             "calendar overview is cards-only: \(model.turns.last?.text ?? "")"
         )
-        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortOnScreenLeadIn($0) })
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertFalse(fake.spoken.contains { $0.contains("Dinner reservation") })
         XCTAssertTrue(fake.sentTurns.isEmpty, "calendar is on-device TTS; Grok stays in listen")
         if case .calendar(let item) = model.turns.last?.cards.first {
@@ -1100,7 +1100,7 @@ final class AppModelTests: XCTestCase {
             "glance is cards-only: \(onScreen)"
         )
         let digest = fake.spoken.last ?? ""
-        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(digest), digest)
+        XCTAssertTrue(InboxGlance.isShortSpokenAck(digest), digest)
         XCTAssertFalse(digest.contains("Murray Mitchell"), digest)
         XCTAssertFalse(digest.contains("Steve Brown"), digest)
         XCTAssertNotEqual(digest, onScreen)
@@ -1193,7 +1193,7 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("see my latest emails")
         XCTAssertEqual(fake.spoken.count, 1, "inbox-overview digest must Eve-speak")
         let glance = fake.spoken.last ?? ""
-        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(glance), glance)
+        XCTAssertTrue(InboxGlance.isShortSpokenAck(glance), glance)
         XCTAssertFalse(InboxGlance.isMultiline(glance), glance)
         XCTAssertFalse(glance.contains("Murray Mitchell"), glance)
         XCTAssertFalse(glance.localizedCaseInsensitiveContains("please do not reply"), glance)
@@ -1247,11 +1247,11 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("see my latest emails")
         let afterGlance = model.turns.count
-        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortOnScreenLeadIn($0) })
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertFalse(fake.spoken.contains { $0.contains("Murray Mitchell") })
 
         fake.emitUser("here")
-        fake.emitUser("latest")
+        fake.emitUser("they")
         XCTAssertEqual(model.turns.count, afterGlance, "leftover of the glance beat must not become a turn")
 
         fake.emitUser("Murray")

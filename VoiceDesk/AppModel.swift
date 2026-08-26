@@ -879,7 +879,11 @@ final class AppModel {
         }
         // Cache-hot glance: first audio is the snapshot heuristic. Do not await
         // xAI’s five-line rewrite or a Gmail list refresh before speak.
-        let plan = InboxGlanceSpeakPlan.fromCachedEmails(emails, fallbackText: evidence.text)
+        let plan = InboxGlanceSpeakPlan.fromCachedEmails(
+            emails,
+            ask: lastUserUtterance,
+            fallbackText: evidence.text
+        )
         let spoken = plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? evidence.text
             : plan.spokenText

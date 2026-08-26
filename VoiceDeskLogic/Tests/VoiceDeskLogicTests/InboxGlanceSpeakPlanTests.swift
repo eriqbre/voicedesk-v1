@@ -94,7 +94,11 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
             XCTAssertFalse(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.xaiGlanceStage), ask)
             XCTAssertEqual(plan.cardCount, InboxGlance.overviewLimit, ask)
             XCTAssertFalse(plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ask)
-            XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(plan.spokenText), "\(ask) → \(plan.spokenText)")
+            XCTAssertTrue(
+                InboxGlance.isShortSpokenAck(plan.spokenText)
+                    || InboxGlance.isShortSpokenSummary(plan.spokenText),
+                "\(ask) → \(plan.spokenText)"
+            )
             XCTAssertFalse(InboxGlance.isMultiline(plan.spokenText), ask)
             XCTAssertFalse(plan.spokenText.contains("—"), ask)
             XCTAssertNotNil(DeskReplySpeech.textToSpeak(plan.spokenText, lastSpoken: nil), ask)

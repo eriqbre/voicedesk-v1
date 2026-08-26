@@ -68,7 +68,21 @@ final class VoiceRegressionReplayTests: XCTestCase {
                 XCTAssertEqual(replay.cardLabels, fixture.cardsAttached, ask)
             }
             if fixture.shouldAssertReply {
-                XCTAssertEqual(replay.reply, fixture.assistantReply, ask)
+                if fixture.intent == "inbox-overview" {
+                    if ConversationPresence.wantsInboxSummary(ask) {
+                        XCTAssertTrue(
+                            InboxGlance.isShortSpokenSummary(replay.reply),
+                            "\(ask) spoken: \(replay.reply)"
+                        )
+                    } else if !ConversationPresence.wantsInboxCount(ask) {
+                        XCTAssertTrue(
+                            InboxGlance.isShortSpokenAck(replay.reply),
+                            "\(ask) spoken: \(replay.reply)"
+                        )
+                    }
+                } else {
+                    XCTAssertEqual(replay.reply, fixture.assistantReply, ask)
+                }
             }
             if replay.evidence?.hidesSpokenSummaryOnScreen == true {
                 XCTAssertTrue(

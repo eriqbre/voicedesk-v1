@@ -66,9 +66,10 @@ public struct InboxGlanceSpeakPlan: Equatable, Sendable {
         stages.contains(xaiGlanceStage)
     }
 
-    /// Speak the snapshot one-liners. Sync — no glancer, no list.
+    /// First audio from the ask + snapshot. Sync — no glancer, no list.
     public static func fromCachedEmails(
         _ emails: [EmailItem],
+        ask: String = "",
         fallbackText: String
     ) -> InboxGlanceSpeakPlan {
         let window = Array(emails.prefix(InboxGlance.overviewLimit))
@@ -88,7 +89,9 @@ public struct InboxGlanceSpeakPlan: Equatable, Sendable {
                 ]
             )
         }
-        let spoken = InboxGlance.spokenOverviewBeat(count: window.count)
+        let spoken = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? InboxGlance.spokenInbox(ask: ask, emails: window)
+            : fallbackText
         return InboxGlanceSpeakPlan(
             intent: "inbox-overview",
             spokenSource: localHeuristicSource,
@@ -116,7 +119,7 @@ public struct InboxGlanceSpeakPlan: Equatable, Sendable {
             context: DeskContext(isConnected: true, snapshot: snapshot)
         )
         let emails = snapshot.glanceEmails
-        var plan = fromCachedEmails(emails, fallbackText: replay.reply)
+        var plan = fromCachedEmails(emails, ask: ask, fallbackText: replay.reply)
         plan.intent = replay.intent
         if let age = GoogleSyncPolicy.cacheAgeNote(lastSyncedAt: snapshot.lastSyncedAt, now: now) {
             plan.voiceLogNotes.append(age)

@@ -2,8 +2,8 @@ import Foundation
 
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
 ///
-/// Cards are the on-screen list. Eve speaks one short overview beat — not these
-/// lines, a single-email AI summary, or a calendar-overview reprint of the cards.
+/// Cards are the on-screen list. List/show asks speak a short ack. Summary
+/// asks speak one short sentence. Never recite the cards.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
     public static let snippetLimit = 80
@@ -11,21 +11,57 @@ public enum InboxGlance: Sendable {
     /// Allowed on-screen stand-in when cards already list the inbox. Empty is preferred.
     public static let onScreenLeadIn = "Here are the latest."
 
+    /// List / show family. Cards are the list — not subjects, senders, or a digest.
+    public static func spokenListAck() -> String {
+        "Here they are."
+    }
+
+    public static func spokenInbox(ask: String, emails: [EmailItem]) -> String {
+        let window = Array(emails.prefix(overviewLimit))
+        guard !window.isEmpty else { return "" }
+        if ConversationPresence.wantsInboxSummary(ask) {
+            return spokenInboxSummary(window)
+        }
+        return spokenListAck()
+    }
+
+    /// One short spoken summary — not five recited Name — topic lines.
+    public static func spokenInboxSummary(_ emails: [EmailItem]) -> String {
+        let window = Array(emails.prefix(overviewLimit))
+        guard !window.isEmpty else { return "" }
+        let bits = window.prefix(2).map { "\(glanceName($0.fromName)) on \(glanceTopic($0.subject))" }
+        if window.count <= 2 {
+            return bits.joined(separator: ", ") + "."
+        }
+        return bits.joined(separator: ", ") + ", and more."
+    }
+
+    public static func spokenCalendar(ask: String, events: [CalendarItem]) -> String {
+        guard !events.isEmpty else { return "" }
+        if ConversationPresence.wantsCalendarSummary(ask) {
+            return spokenCalendarSummary(events)
+        }
+        return spokenListAck()
+    }
+
+    public static func spokenCalendarSummary(_ events: [CalendarItem]) -> String {
+        guard let first = events.first else { return "" }
+        if events.count == 1 {
+            return "\(first.title), \(first.whenLabel)."
+        }
+        return "\(first.title), \(first.whenLabel), and more."
+    }
+
     /// Spoken inbox-overview beat. Cards stay the list — never recite Name — topic.
     public static func spokenOverviewBeat(count: Int) -> String {
-        switch count {
-        case 0:
-            return ""
-        case 1:
-            return "Here are your latest."
-        default:
-            return "Here are your latest \(count)."
-        }
+        _ = count
+        return spokenListAck()
     }
 
     /// Spoken calendar-overview beat. Cards stay the list — never recite titles.
     public static func spokenCalendarOverviewBeat(count: Int) -> String {
-        count == 0 ? "" : "Here are your upcoming events."
+        _ = count
+        return spokenListAck()
     }
 
     public static let systemPrompt = """
@@ -166,6 +202,33 @@ public enum InboxGlance: Sendable {
             || lower == "here are the latest"
             || lower.hasPrefix("here are")
             || lower.hasPrefix("here's")
+            || lower.hasPrefix("here they")
+            || lower.hasPrefix("here you")
+    }
+
+    /// List/show spoken ack — short, no card reprint.
+    public static func isShortSpokenAck(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed.contains("\n") { return false }
+        if trimmed.contains("—") || trimmed.contains("–") { return false }
+        if trimmed.count > 40 { return false }
+        let lower = trimmed.lowercased()
+        return lower.hasPrefix("here they")
+            || lower.hasPrefix("here you")
+            || lower.hasPrefix("here we")
+            || lower == "here you go"
+            || lower == "here they are"
+            || lower == "here you go."
+            || lower == "here they are."
+    }
+
+    /// One-sentence overview summary — not a multiline card recitation.
+    public static func isShortSpokenSummary(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return false }
+        if isMultiline(trimmed) || repeatsGlanceLines(trimmed) { return false }
+        if isShortSpokenAck(trimmed) || isShortOnScreenLeadIn(trimmed) { return false }
+        return trimmed.count <= 160
     }
 
     /// Spoken glance leaked into the bubble (two or more Name — topic lines).

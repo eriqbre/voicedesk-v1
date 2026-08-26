@@ -82,12 +82,11 @@ public enum ConversationPresence {
         }
 
         if wantsInbox(text) {
-            return Plan(topic: .inbox, text: inboxReply(context: context))
+            return Plan(topic: .inbox, text: inboxReply(context: context, ask: text))
         }
 
-        if contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
-            || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"])) {
-            return Plan(topic: .calendar, text: calendarReply(context: context))
+        if wantsCalendarAsk(text) {
+            return Plan(topic: .calendar, text: calendarReply(context: context, ask: text))
         }
 
         if contains(lower, ["my tasks", "what tasks", "to-do", "todo", "open tasks"])
@@ -156,7 +155,7 @@ public enum ConversationPresence {
         }
     }
 
-    public static func inboxReply(context: DeskContext) -> String {
+    public static func inboxReply(context: DeskContext, ask: String = "") -> String {
         if !context.clientIDConfigured {
             return GoogleAuthSnapshot.missingClientIDCopy
         }
@@ -172,25 +171,25 @@ public enum ConversationPresence {
         if !context.isOnline {
             return "Here’s the last-synced inbox. I’m offline, so this may be stale."
         }
-        return inboxOverviewCopy(context.snapshot.emails)
+        return inboxOverviewCopy(context.snapshot.emails, ask: ask)
     }
 
-    public static func inboxOverviewCopy(_ emails: [EmailItem]) -> String {
+    public static func inboxOverviewCopy(_ emails: [EmailItem], ask: String = "") -> String {
         let recent = Array(emails.prefix(InboxGlance.overviewLimit))
         guard !recent.isEmpty else {
             return "Google is connected, but I don’t have any synced threads yet. I’m not inventing mail."
         }
-        return InboxGlance.spokenOverviewBeat(count: recent.count)
+        return InboxGlance.spokenInbox(ask: ask, emails: recent)
     }
 
-    public static func calendarReply(context: DeskContext) -> String {
+    public static func calendarReply(context: DeskContext, ask: String = "") -> String {
         if !context.isConnected {
             return "I don’t have your live calendar yet. Tap Connect Google on the card below."
         }
         if context.snapshot.events.isEmpty {
             return "Google is connected. Nothing upcoming is in the last sync — I’m not inventing events."
         }
-        return InboxGlance.spokenCalendarOverviewBeat(count: context.snapshot.events.count)
+        return InboxGlance.spokenCalendar(ask: ask, events: context.snapshot.events)
     }
 
     public static func taskReply(context: DeskContext) -> String {
@@ -626,6 +625,7 @@ public enum ConversationPresence {
     public static func wantsCalendarAsk(_ raw: String) -> Bool {
         let lower = raw.lowercased()
         if wantsCalendarDetails(raw) { return true }
+        if wantsCalendarSummary(raw) { return true }
         if wantsCalendarOverview(raw) { return true }
         return contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
             || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
@@ -706,6 +706,7 @@ public enum ConversationPresence {
     /// List / digest of upcoming events — not a named reservation or “that event”.
     public static func wantsCalendarOverview(_ raw: String) -> Bool {
         if wantsCalendarDetails(raw) { return false }
+        if wantsCalendarSummary(raw) { return true }
         let lower = raw.lowercased()
         if contains(lower, [
             "what's the latest on my calendar",
@@ -781,7 +782,7 @@ public enum ConversationPresence {
 
         if wantsCalendarAsk(raw) {
             if wantsCalendarOverview(raw) {
-                return calendarOverviewEvidence(context: context)
+                return calendarOverviewEvidence(context: context, ask: raw)
             }
             if let event = matchingCalendar(for: raw, in: context.snapshot.events) {
                 return DeskEvidence(
@@ -798,7 +799,7 @@ public enum ConversationPresence {
                         cards: []
                     )
                 }
-                return calendarOverviewEvidence(context: context)
+                return calendarOverviewEvidence(context: context, ask: raw)
             }
         }
 
@@ -1038,10 +1039,52 @@ public enum ConversationPresence {
         if recent, mail, contains(lower, ["my"]) {
             return true
         }
+        if wantsInboxSummary(raw) { return true }
         if contains(lower, ["summarize", "summary of", "summary"]), mail, contains(lower, ["my"]) {
             return true
         }
         return false
+    }
+
+    /// Summary / catch-up / what’s important — still inbox-overview + cards.
+    /// List/show asks are the rest of the overview family.
+    public static func wantsInboxSummary(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        let mail = contains(lower, ["email", "emails", "mail", "mails", "inbox"])
+        guard mail else { return false }
+        return contains(lower, [
+            "summarize",
+            "summary",
+            "catch me up",
+            "what's important",
+            "whats important",
+            "what is important",
+            "digest",
+            "brief me",
+            "rundown",
+            "run-down",
+            "run down"
+        ])
+    }
+
+    /// “Summarize my week” / calendar catch-up — still calendar + cards.
+    public static func wantsCalendarSummary(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, ["email", "emails", "mail", "mails", "inbox"]) { return false }
+        let summary = contains(lower, [
+            "summarize",
+            "summary",
+            "catch me up",
+            "what's important",
+            "whats important",
+            "what is important",
+            "digest",
+            "brief me"
+        ])
+        guard summary else { return false }
+        return contains(lower, ["week", "calendar", "schedule", "meetings", "agenda"])
     }
 
     /// Plural / inbox collection — not singular “the email” (that is last-card).
@@ -1680,7 +1723,7 @@ public enum ConversationPresence {
             } else if window.isEmpty {
                 text = todayEmptyCopy(hasInbox: !context.snapshot.emails.isEmpty)
             } else {
-                text = InboxGlance.spokenOverviewBeat(count: window.count)
+                text = InboxGlance.spokenInbox(ask: ask, emails: window)
             }
             return DeskEvidence(
                 topic: .inbox,
@@ -1692,17 +1735,17 @@ public enum ConversationPresence {
                 shouldGlanceInbox: !window.isEmpty
             )
         }
-        var evidence = inboxEvidence(context: context, followUp: false, resetsFocus: true)
+        var evidence = inboxEvidence(context: context, followUp: false, resetsFocus: true, ask: ask)
         if context.isConnected, !context.snapshot.emails.isEmpty {
             evidence.shouldGlanceInbox = true
         }
         return evidence
     }
 
-    private static func calendarOverviewEvidence(context: DeskContext) -> DeskEvidence {
+    private static func calendarOverviewEvidence(context: DeskContext, ask: String) -> DeskEvidence {
         DeskEvidence(
             topic: .calendar,
-            text: calendarReply(context: context),
+            text: calendarReply(context: context, ask: ask),
             cards: cards(for: .calendar, context: context)
         )
     }
@@ -1710,14 +1753,15 @@ public enum ConversationPresence {
     private static func inboxEvidence(
         context: DeskContext,
         followUp: Bool,
-        resetsFocus: Bool = false
+        resetsFocus: Bool = false,
+        ask: String = ""
     ) -> DeskEvidence {
         let cards = cards(for: .inbox, context: context)
         let text: String
         if followUp {
             text = notSeeingCardsReply(hasInbox: !context.snapshot.emails.isEmpty)
         } else {
-            text = inboxReply(context: context)
+            text = inboxReply(context: context, ask: ask)
         }
         return DeskEvidence(
             topic: .inbox,
