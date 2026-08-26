@@ -287,6 +287,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("reinstallTapIfSilentWhileRunning"), service)
         XCTAssertTrue(service.contains("var listenLoopEngine"), service)
         XCTAssertTrue(service.contains("onMicFrame"), service)
+        XCTAssertTrue(service.contains("func startListenLoopAudioForTests()"), service)
+        XCTAssertTrue(service.contains("startAudioIfNeeded()"), service)
         XCTAssertTrue(service.contains("ListenLoopMicFrames"), service)
         XCTAssertFalse(service.contains("MicLivenessMonitor"), service)
         XCTAssertFalse(service.contains("watchdog"), service)
@@ -360,6 +362,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live.contains("testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession"),
             live
         )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"),
+            live
+        )
         XCTAssertTrue(live.contains("GrokVoiceService("), live)
         XCTAssertTrue(live.contains("AppModel("), live)
         XCTAssertTrue(live.contains("applyUserTurn(\"what version are we on\")"), live)
@@ -410,7 +416,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let prevent = speakSlice(
             live,
             from: "func testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession",
-            to: "private func postEngineConfigurationChange"
+            to: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"
         )
         XCTAssertFalse(prevent.contains("postEngineConfigurationChange"), prevent)
         XCTAssertFalse(prevent.contains("postInterruption"), prevent)
@@ -419,6 +425,36 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(prevent.contains("simulateHALTapYankLeavingInstalledFlagTrue"), prevent)
         XCTAssertTrue(prevent.contains("zero-notification yank must not be paper-greened"), prevent)
         XCTAssertTrue(prevent.contains("feedTapPCM16"), prevent)
+        let conversation = speakSlice(
+            live,
+            from: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(conversation.contains("GrokVoiceService("), conversation)
+        XCTAssertTrue(conversation.contains("AppModel("), conversation)
+        XCTAssertTrue(conversation.contains("startListenLoopAudioForTests"), conversation)
+        XCTAssertTrue(conversation.contains("feedTapPCM16"), conversation)
+        XCTAssertTrue(conversation.contains("voice.speak"), conversation)
+        XCTAssertTrue(conversation.contains("ListenInterrupt.isCommand"), conversation)
+        XCTAssertTrue(conversation.contains("interruptResponse"), conversation)
+        XCTAssertTrue(conversation.contains("415c955"), conversation)
+        XCTAssertFalse(conversation.contains("simulateHALTapYankLeavingInstalledFlagTrue"), conversation)
+        XCTAssertFalse(conversation.contains("postEngineConfigurationChange"), conversation)
+        XCTAssertFalse(conversation.contains("emitUser"), conversation)
+        XCTAssertFalse(conversation.contains("FakeLiveVoiceService"), conversation)
+        XCTAssertFalse(conversation.contains("EchoBargeIn"), conversation)
+        XCTAssertFalse(conversation.contains("EarlyFinalHold"), conversation)
+        XCTAssertFalse(conversation.contains("leftover-echo"), conversation)
+        if let firstSpeak = conversation.range(of: "voice.speak"),
+           let secondFeed = conversation.range(of: "feedTapPCM16(command2)") {
+            XCTAssertLessThan(
+                firstSpeak.lowerBound,
+                secondFeed.lowerBound,
+                "command PCM 2 must be after write→player drain"
+            )
+        } else {
+            XCTFail("conversation loop must answer then take PCM 2")
+        }
     }
 
     private func speakSlice(_ source: String, from: String, to: String) -> String {

@@ -585,6 +585,13 @@ extension GrokVoiceService {
             voiceState: session.state
         )
     }
+
+    /// Same `startAudioIfNeeded` `speak()` uses. Not a second engine.
+    func startListenLoopAudioForTests() {
+        liveSessionArmed = true
+        apply(.tapTalk)
+        startAudioIfNeeded()
+    }
 }
 
 /// Same-thread tap observer. The HAL callback is Sendable; do not touch
