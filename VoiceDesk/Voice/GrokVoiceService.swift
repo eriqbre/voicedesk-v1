@@ -108,8 +108,10 @@ final class GrokVoiceService: VoiceServicing {
         echoGate.beginSpeaking(trimmed)
         apply(.speakStarted)
         await ClientVoiceSpeech.shared.speak(trimmed)
-        echoGate.finishSpeaking()
-        armListenIfSessionLive(reason: "client tts")
+        if echoGate.lastSpokenLine == trimmed {
+            echoGate.finishSpeaking()
+            armListenIfSessionLive(reason: "client tts")
+        }
     }
 
     func sendTextTurn(_ text: String) async {
@@ -488,8 +490,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             guard !trimmed.isEmpty else { break }
-            // Drop echo BEFORE barge-in / AppModel / Grok. A leftover
-            // "voice" / "point" / "build" must not stop the version line.
+            // One policy: leftover of lastSpokenLine drops. An accepted
+            // live ask cancels leftover on-device desk TTS. speech_started
+            // still waits for words so echo cannot stop the line.
             guard EchoBargeIn.acceptedUserTranscript(
                 trimmed,
                 gate: echoGate
@@ -497,7 +500,8 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                 logListenResume(note: "\(ListenResumeLog.droppedTranscriptNote) leftover-echo")
                 break
             }
-            applyBargeInIfNeeded(event: .userTranscript(text: trimmed, itemID: itemID))
+            echoGate.cancelSpeaking()
+            ClientVoiceSpeech.shared.stop()
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
             currentResponseID = id

@@ -598,6 +598,8 @@ final class ConversationPresenceTests: XCTestCase {
             let onScreen = InboxGlance.onScreenText(for: evidence!)
             XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(onScreen), "\(ask) on-screen: \(onScreen)")
             XCTAssertFalse(onScreen.contains("Massimo"), ask)
+            XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(evidence?.text ?? ""), "\(ask) spoken: \(evidence?.text ?? "")")
+            XCTAssertFalse((evidence?.text ?? "").contains("Massimo"), ask)
             XCTAssertEqual(DeskReplySpeech.textToSpeak(evidence?.text ?? "", lastSpoken: nil), evidence?.text, ask)
         }
     }
@@ -788,9 +790,10 @@ final class ConversationPresenceTests: XCTestCase {
                 "inbox-overview must attach compact rows, not full readers: \(ask)"
             )
             let reply = evidence?.text ?? ""
-            XCTAssertTrue(reply.contains("Murray Mitchell") || reply.contains("Steve Brown"), ask)
-            XCTAssertTrue(reply.contains("Closing") || reply.contains("Inspection"), ask)
-            XCTAssertTrue(InboxGlance.isMultiline(reply) || reply.contains("\n"), "glance must not mash emails onto one line: \(ask) → \(reply)")
+            XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(reply), "\(ask) → \(reply)")
+            XCTAssertFalse(InboxGlance.isMultiline(reply), "\(ask) → \(reply)")
+            XCTAssertFalse(reply.contains("Murray Mitchell"), "cards are the list: \(ask) → \(reply)")
+            XCTAssertFalse(reply.contains("—"), ask)
             XCTAssertFalse(reply.contains("Need you to notarize the closing package"), "must not recite the Murray body: \(ask)")
             XCTAssertFalse(reply.localizedCaseInsensitiveContains("please do not reply"), ask)
             XCTAssertEqual(evidence?.shouldGlanceInbox, true, ask)
@@ -840,6 +843,7 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertEqual(overview?.resetsFocusedEmail, true)
         XCTAssertNotEqual(overview?.shouldFetchBody, true)
         let digest = overview?.text ?? ""
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(digest), digest)
         XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta(digest))
 

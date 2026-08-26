@@ -2,14 +2,31 @@ import Foundation
 
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
 ///
-/// Eve **speaks** these lines. Cards are the on-screen list — do not also print the
-/// spoken glance, a single-email AI summary, or a calendar-overview line in the bubble.
+/// Cards are the on-screen list. Eve speaks one short overview beat — not these
+/// lines, a single-email AI summary, or a calendar-overview reprint of the cards.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
     public static let snippetLimit = 80
     public static let lineLimit = 90
     /// Allowed on-screen stand-in when cards already list the inbox. Empty is preferred.
     public static let onScreenLeadIn = "Here are the latest."
+
+    /// Spoken inbox-overview beat. Cards stay the list — never recite Name — topic.
+    public static func spokenOverviewBeat(count: Int) -> String {
+        switch count {
+        case 0:
+            return ""
+        case 1:
+            return "Here are your latest."
+        default:
+            return "Here are your latest \(count)."
+        }
+    }
+
+    /// Spoken calendar-overview beat. Cards stay the list — never recite titles.
+    public static func spokenCalendarOverviewBeat(count: Int) -> String {
+        count == 0 ? "" : "Here are your upcoming events."
+    }
 
     public static let systemPrompt = """
         You write a voice-assistant inbox glance. One short line per email, same order.
@@ -148,6 +165,7 @@ public enum InboxGlance: Sendable {
         return lower == onScreenLeadIn.lowercased()
             || lower == "here are the latest"
             || lower.hasPrefix("here are")
+            || lower.hasPrefix("here's")
     }
 
     /// Spoken glance leaked into the bubble (two or more Name — topic lines).

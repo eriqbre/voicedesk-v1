@@ -109,6 +109,8 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             XCTAssertFalse(during.listenArmed, "listen waits for client TTS done: \(ask)")
             XCTAssertFalse(during.captureArmed, ask)
             XCTAssertEqual(during.voiceState, .speaking, ask)
+            XCTAssertTrue(during.nextAccepted, ask)
+            XCTAssertTrue(during.cancelledSpeak, "accepted follow-up must stop leftover TTS: \(ask)")
 
             let walk = DeskSpeakListenResume.afterCompletedDeskSpeak(
                 ask: ask,

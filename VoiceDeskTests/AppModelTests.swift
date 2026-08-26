@@ -306,7 +306,8 @@ final class AppModelTests: XCTestCase {
             InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
             "calendar overview is cards-only: \(model.turns.last?.text ?? "")"
         )
-        XCTAssertTrue(fake.spoken.contains { $0.contains("Dinner reservation") })
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortOnScreenLeadIn($0) })
+        XCTAssertFalse(fake.spoken.contains { $0.contains("Dinner reservation") })
         XCTAssertTrue(fake.sentTurns.isEmpty, "calendar is on-device TTS; Grok stays in listen")
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.notes, "Window table, party of 4.")
@@ -1099,8 +1100,9 @@ final class AppModelTests: XCTestCase {
             "glance is cards-only: \(onScreen)"
         )
         let digest = fake.spoken.last ?? ""
-        XCTAssertTrue(digest.contains("Murray Mitchell"), digest)
-        XCTAssertTrue(digest.contains("Steve Brown"), digest)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(digest), digest)
+        XCTAssertFalse(digest.contains("Murray Mitchell"), digest)
+        XCTAssertFalse(digest.contains("Steve Brown"), digest)
         XCTAssertNotEqual(digest, onScreen)
         XCTAssertFalse(digest.contains("<html"))
         XCTAssertFalse(EmailSummary.containsUIChrome(digest))
@@ -1191,8 +1193,9 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("see my latest emails")
         XCTAssertEqual(fake.spoken.count, 1, "inbox-overview digest must Eve-speak")
         let glance = fake.spoken.last ?? ""
-        XCTAssertTrue(glance.contains("Murray Mitchell"))
-        XCTAssertTrue(InboxGlance.isMultiline(glance) || glance.contains("\n"), glance)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(glance), glance)
+        XCTAssertFalse(InboxGlance.isMultiline(glance), glance)
+        XCTAssertFalse(glance.contains("Murray Mitchell"), glance)
         XCTAssertFalse(glance.localizedCaseInsensitiveContains("please do not reply"), glance)
         XCTAssertFalse(glance.contains("Need you to notarize the closing package"), glance)
         let onScreen = model.turns.last?.text ?? ""
@@ -1219,6 +1222,40 @@ final class AppModelTests: XCTestCase {
         } else {
             XCTFail("expected John Madison full card")
         }
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+    }
+
+    func testLiveGlanceBeatLeftoverDropsAndFollowUpIsAccepted() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-barge"
+        murray.subject = "Closing / notarization"
+        murray.body = "Need you to notarize the closing package today."
+        var steve = SampleData.syncedEmail()
+        steve.fromName = "Steve Brown"
+        steve.fromEmail = "steve@example.com"
+        steve.providerID = "msg-steve-barge"
+        steve.subject = "Inspection note"
+        steve.body = "Punch list is attached."
+        let snapshot = DeskSnapshot(emails: [murray, steve])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        await model.applyUserTurn("see my latest emails")
+        let afterGlance = model.turns.count
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortOnScreenLeadIn($0) })
+        XCTAssertFalse(fake.spoken.contains { $0.contains("Murray Mitchell") })
+
+        fake.emitUser("here")
+        fake.emitUser("latest")
+        XCTAssertEqual(model.turns.count, afterGlance, "leftover of the glance beat must not become a turn")
+
+        fake.emitUser("Murray")
+        XCTAssertGreaterThan(model.turns.count, afterGlance, "Murray must barge-in as a real ask")
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 

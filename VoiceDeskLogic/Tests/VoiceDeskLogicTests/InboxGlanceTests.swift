@@ -11,11 +11,9 @@ final class InboxGlanceTests: XCTestCase {
         authentisign.preview = "Please do not reply to this email. Hello Bridget, signing is complete."
         authentisign.body = "Please do not reply to this email.\n\nHello Bridget,\n\nSigning is complete for the Beach Drive package."
 
-        let digest = ConversationPresence.inboxOverviewCopy([
-            greenacre,
-            VoiceRegressionDesk.murray,
-            authentisign
-        ])
+        let emails = [greenacre, VoiceRegressionDesk.murray, authentisign]
+        let digest = InboxGlance.heuristic(emails)
+        let spoken = ConversationPresence.inboxOverviewCopy(emails)
         let lines = digest.split(whereSeparator: \.isNewline).map(String.init)
         XCTAssertEqual(lines.count, 3, digest)
         XCTAssertTrue(InboxGlance.isMultiline(digest))
@@ -27,7 +25,10 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(digest.localizedCaseInsensitiveContains("please do not reply"), digest)
         XCTAssertFalse(digest.localizedCaseInsensitiveContains("hello bridget"), digest)
         XCTAssertFalse(digest.contains("Need you to notarize the closing package"), digest)
-        XCTAssertEqual(digest, InboxGlance.heuristic([greenacre, VoiceRegressionDesk.murray, authentisign]))
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(spoken), spoken)
+        XCTAssertFalse(InboxGlance.isMultiline(spoken), spoken)
+        XCTAssertFalse(spoken.contains("Murray"), spoken)
+        XCTAssertFalse(spoken.contains("—"), spoken)
     }
 
     func testGlanceIsMuchShorterThanThreadSummary() {
@@ -186,7 +187,7 @@ final class InboxGlanceTests: XCTestCase {
         }
     }
 
-    /// Cards are the on-screen list. Eve still speaks the glance (TTS is fed `heuristic`, not the bubble).
+    /// Cards are the on-screen list. Eve speaks one short beat, not the heuristic lines.
     func testInboxOverviewOnScreenOmitsGlanceWhenCardsAttached() {
         let emails = [
             VoiceRegressionDesk.greenacre,
@@ -208,9 +209,12 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(onScreen.contains("Murray Mitchell"), onScreen)
         XCTAssertFalse(onScreen.contains("—"), onScreen)
 
-        // Speak path: DeskReplySpeech / voice.speak still get the glance.
-        XCTAssertEqual(DeskReplySpeech.textToSpeak(glance, lastSpoken: nil), glance)
-        XCTAssertNotEqual(DeskReplySpeech.textToSpeak(glance, lastSpoken: nil), onScreen)
+        let spoken = InboxGlance.spokenOverviewBeat(count: emails.count)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(spoken), spoken)
+        XCTAssertFalse(InboxGlance.isMultiline(spoken), spoken)
+        XCTAssertFalse(spoken.contains("—"), spoken)
+        XCTAssertEqual(DeskReplySpeech.textToSpeak(spoken, lastSpoken: nil), spoken)
+        XCTAssertNotEqual(spoken, glance)
 
         let evidence = ConversationPresence.deskEvidence(
             for: "see my latest emails",
@@ -218,7 +222,8 @@ final class InboxGlanceTests: XCTestCase {
         )
         XCTAssertEqual(evidence?.shouldGlanceInbox, true)
         XCTAssertEqual(evidence?.cards.count, 3)
-        XCTAssertTrue(InboxGlance.isMultiline(evidence?.text ?? ""), evidence?.text ?? "")
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(evidence?.text ?? ""), evidence?.text ?? "")
+        XCTAssertFalse(InboxGlance.isMultiline(evidence?.text ?? ""), evidence?.text ?? "")
         let bubble = InboxGlance.onScreenText(compactCardCount: evidence?.cards.count ?? 0)
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(bubble), bubble)
         XCTAssertFalse(InboxGlance.repeatsGlanceLines(bubble), bubble)

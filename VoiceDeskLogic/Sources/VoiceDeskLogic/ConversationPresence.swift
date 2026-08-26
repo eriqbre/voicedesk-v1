@@ -180,7 +180,7 @@ public enum ConversationPresence {
         guard !recent.isEmpty else {
             return "Google is connected, but I don’t have any synced threads yet. I’m not inventing mail."
         }
-        return InboxGlance.heuristic(recent)
+        return InboxGlance.spokenOverviewBeat(count: recent.count)
     }
 
     public static func calendarReply(context: DeskContext) -> String {
@@ -190,8 +190,7 @@ public enum ConversationPresence {
         if context.snapshot.events.isEmpty {
             return "Google is connected. Nothing upcoming is in the last sync — I’m not inventing events."
         }
-        let first = context.snapshot.events[0]
-        return "Next up: \(first.title), \(first.whenLabel). Only synced events."
+        return InboxGlance.spokenCalendarOverviewBeat(count: context.snapshot.events.count)
     }
 
     public static func taskReply(context: DeskContext) -> String {
@@ -1681,7 +1680,7 @@ public enum ConversationPresence {
             } else if window.isEmpty {
                 text = todayEmptyCopy(hasInbox: !context.snapshot.emails.isEmpty)
             } else {
-                text = InboxGlance.heuristic(window)
+                text = InboxGlance.spokenOverviewBeat(count: window.count)
             }
             return DeskEvidence(
                 topic: .inbox,

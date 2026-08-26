@@ -12,6 +12,8 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
     public var nextAccepted: Bool
     public var voiceState: VoiceState
     public var ttsFinished: Bool
+    /// Accepted live ask cancelled leftover on-device desk TTS.
+    public var cancelledSpeak: Bool
 
     public init(
         spokenIntent: String,
@@ -21,7 +23,8 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         nextIntent: String,
         nextAccepted: Bool,
         voiceState: VoiceState,
-        ttsFinished: Bool = true
+        ttsFinished: Bool = true,
+        cancelledSpeak: Bool = false
     ) {
         self.spokenIntent = spokenIntent
         self.listenArmed = listenArmed
@@ -31,6 +34,7 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         self.nextAccepted = nextAccepted
         self.voiceState = voiceState
         self.ttsFinished = ttsFinished
+        self.cancelledSpeak = cancelledSpeak
     }
 
     /// Speak started; AVSpeech has not reported didFinish / cancelled.
@@ -60,6 +64,14 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         )
         let spoken = VoiceTurnReplay.play(utterance: ask, context: context)
         let next = gate.decide(nextAsk, voiceState: session.state, context: context)
+        let cancelledSpeak = EchoBargeIn.shouldCancelSpeak(
+            event: .userTranscript(text: nextAsk, itemID: nil),
+            gate: gate,
+            voiceState: session.state
+        )
+        if next.acceptedText != nil {
+            gate.cancelSpeaking()
+        }
         let listenArmed = ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false)
             && ListenResumePolicy.isListenArmed(state: session.state)
 
@@ -71,7 +83,8 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
             nextIntent: next.intent,
             nextAccepted: !next.isDropped,
             voiceState: session.state,
-            ttsFinished: false
+            ttsFinished: false,
+            cancelledSpeak: cancelledSpeak
         )
     }
 

@@ -347,9 +347,11 @@ final class AppModel {
         case .user:
             // One policy, any ingress: leftover of lastSpokenLine only.
             // Never drop because Grok is speaking or lastSpokenLine is empty.
+            // Accepted live ask deletes leftover desk speak.
             if EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate) == nil {
                 return
             }
+            echoGate.cancelSpeaking()
             if !event.isFinal {
                 if EarlyFinalHold.shouldHold(event.text) {
                     claimLocalAssistantReply()
@@ -881,7 +883,7 @@ final class AppModel {
         let spoken = plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? evidence.text
             : plan.spokenText
-        // Cards are the list. Speak the glance; don’t reprint Name — topic lines in the bubble.
+        // Cards are the list. Speak one short beat; don’t recite Name — topic lines.
         let onScreen = emails.isEmpty
             ? spoken
             : InboxGlance.onScreenText(compactCardCount: emails.count)
@@ -1055,7 +1057,9 @@ final class AppModel {
         lastSpokenDeskReply = spoken
         echoGate.beginSpeaking(spoken)
         await voice.speak(spoken)
-        echoGate.finishSpeaking()
+        if echoGate.lastSpokenLine == spoken {
+            echoGate.finishSpeaking()
+        }
     }
 
     private func rememberUserTurn(_ text: String, source: String) {
