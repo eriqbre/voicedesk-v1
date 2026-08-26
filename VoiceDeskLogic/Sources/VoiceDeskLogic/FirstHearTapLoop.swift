@@ -27,6 +27,11 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         self.startCount = startCount
     }
 
+    /// `engine.isRunning` with no buffers after TTS is first-hear-then-deaf.
+    public static func silentTapWhileEngineRunning(tapEmitting: Bool, engineRunning: Bool) -> Bool {
+        engineRunning && !tapEmitting
+    }
+
     /// Command-shaped PCM is a turn only if the listen path can still hear.
     /// A live tap callback with session idle / speaking is first-hear-then-deaf.
     public static func accept(

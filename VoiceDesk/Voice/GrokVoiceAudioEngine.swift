@@ -1,7 +1,12 @@
 @preconcurrency import AVFAudio
+import Foundation
+import VoiceDeskLogic
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Simultaneous mic capture + playback at 24 kHz PCM16.
-/// Ported from xai-cookbook `VoiceAgentAudioEngine` (VoiceTesterApp).
+/// Liveness is buffer arrival. `isRunning` can stay true after the tap dies.
 @MainActor
 final class GrokVoiceAudioEngine {
     nonisolated static let sampleRate: Double = 24_000
@@ -13,6 +18,13 @@ final class GrokVoiceAudioEngine {
         interleaved: false
     )!
 
+    nonisolated static let captureFormat = AVAudioFormat(
+        commonFormat: .pcmFormatInt16,
+        sampleRate: sampleRate,
+        channels: 1,
+        interleaved: true
+    )!
+
     var isRunning: Bool { engine?.isRunning ?? false }
     var hasPendingPlayback: Bool { pendingPlaybackBuffers > 0 }
     var pendingPlaybackCount: Int { pendingPlaybackBuffers }
@@ -20,97 +32,43 @@ final class GrokVoiceAudioEngine {
     private(set) var startCount = 0
 
     /// Fires on the main actor when the last scheduled desk-TTS buffer ends.
-    /// `response.done` is earlier — capture often dies only after playback.
     var onPlaybackDrained: (() -> Void)?
 
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
+    private var tap: MicFrameTap?
     private var onMicAudio: (@Sendable (String) -> Void)?
     private var echoCancellation = true
     private var tapInstalled = false
     private var pendingPlaybackBuffers = 0
     private var playbackEpoch = 0
+    private var generation = 0
+    private var wantsCapture = false
+    private var isInterrupted = false
+    private var observers: [any NSObjectProtocol] = []
 
     @discardableResult
     func start(echoCancellation: Bool, onMicAudio: @escaping @Sendable (String) -> Void) -> [String] {
         self.echoCancellation = echoCancellation
         self.onMicAudio = onMicAudio
+        wantsCapture = true
         startCount += 1
-        var logs: [String] = []
-
-        do {
-            let session = AVAudioSession.sharedInstance()
-            let mode: AVAudioSession.Mode = echoCancellation ? .voiceChat : .default
-            try session.setCategory(
-                .playAndRecord,
-                mode: mode,
-                options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers]
-            )
-            try session.setActive(true)
-            logs.append("Audio session active")
-        } catch {
-            logs.append("Audio session error: \(error.localizedDescription)")
-            return logs
-        }
-
-        let engine = AVAudioEngine()
-        let player = AVAudioPlayerNode()
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: Self.outputFormat)
-
-        if echoCancellation {
-            do {
-                try engine.inputNode.setVoiceProcessingEnabled(true)
-                engine.inputNode.isVoiceProcessingAGCEnabled = true
-                engine.inputNode.isVoiceProcessingBypassed = false
-                logs.append("Voice processing enabled")
-            } catch {
-                logs.append("Voice processing failed: \(error.localizedDescription)")
-            }
-        }
-
-        let inputNode = engine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        let sourceRate = inputFormat.sampleRate
-        logs.append("Mic format: \(Int(sourceRate)) Hz")
-
-        guard sourceRate > 0 else {
-            logs.append("Mic input has zero sample rate")
-            return logs
-        }
-
-        installMicTap(on: inputNode, format: inputFormat, sourceRate: sourceRate, onMicAudio: onMicAudio)
-        tapInstalled = true
-
-        do {
-            engine.prepare()
-            try engine.start()
-            player.play()
-            logs.append("Audio engine running")
-        } catch {
-            logs.append("Engine start error: \(error.localizedDescription)")
-            return logs
-        }
-
-        self.engine = engine
-        self.playerNode = player
-        return logs
+        generation += 1
+        observeAudioLifecycle()
+        teardownGraph()
+        return startGraph()
     }
 
     func stop() {
-        guard let engine else { return }
-        if tapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-        playbackEpoch += 1
-        pendingPlaybackBuffers = 0
-        playerNode?.stop()
-        if engine.isRunning { engine.stop() }
-        self.engine = nil
-        self.playerNode = nil
+        wantsCapture = false
         onMicAudio = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        generation += 1
+        let stopped = generation
+        teardownGraph()
+        removeObservers()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard let self, self.generation == stopped, !self.wantsCapture else { return }
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
@@ -122,7 +80,7 @@ final class GrokVoiceAudioEngine {
         playerNode?.play()
     }
 
-    /// Same tap callback the mic uses. Speech-shaped PCM is a turn, not a string.
+    /// Same callback the mic tap uses. Speech-shaped PCM is a turn, not a string.
     func feedTapPCM16(_ pcm: Data) {
         guard tapInstalled, let onMicAudio else { return }
         onMicAudio(pcm.base64EncodedString())
@@ -164,24 +122,212 @@ final class GrokVoiceAudioEngine {
         }
     }
 
-    private func installMicTap(
-        on inputNode: AVAudioInputNode,
-        format: AVAudioFormat,
-        sourceRate: Double,
-        onMicAudio: @escaping @Sendable (String) -> Void
-    ) {
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            guard let channel = buffer.floatChannelData?[0] else { return }
-            let count = Int(buffer.frameLength)
-            guard count > 0 else { return }
-            var samples = [Float](repeating: 0, count: count)
-            samples.withUnsafeMutableBufferPointer { dest in
-                guard let base = dest.baseAddress else { return }
-                base.update(from: channel, count: count)
-            }
-            guard let data = Self.int16Data(samples: samples, sourceRate: sourceRate) else { return }
-            onMicAudio(data.base64EncodedString())
+    private func applyLifecycle(_ event: AudioTapLifecycle.Event) {
+        switch AudioTapLifecycle.action(for: event, wantsCapture: wantsCapture, isInterrupted: &isInterrupted) {
+        case .none:
+            return
+        case .reinstallTap:
+            reinstallTap()
+        case .rebuildGraph:
+            teardownGraph()
+            _ = startGraph()
         }
+    }
+
+    private func startGraph() -> [String] {
+        var logs: [String] = []
+        guard let onMicAudio else {
+            logs.append("No mic sink")
+            return logs
+        }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            let mode: AVAudioSession.Mode = echoCancellation ? .voiceChat : .default
+            try session.setCategory(
+                .playAndRecord,
+                mode: mode,
+                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            )
+            try? session.setPreferredSampleRate(Self.sampleRate)
+            try? session.setPreferredIOBufferDuration(0.02)
+            try session.setActive(true)
+            logs.append("Audio session active")
+        } catch {
+            logs.append("Audio session error: \(error.localizedDescription)")
+            return logs
+        }
+
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        engine.connect(player, to: engine.mainMixerNode, format: Self.outputFormat)
+
+        if echoCancellation {
+            do {
+                try engine.inputNode.setVoiceProcessingEnabled(true)
+                engine.inputNode.isVoiceProcessingAGCEnabled = true
+                engine.inputNode.isVoiceProcessingBypassed = false
+                logs.append("Voice processing enabled")
+            } catch {
+                logs.append("Voice processing failed: \(error.localizedDescription)")
+            }
+        }
+
+        let inputNode = engine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        logs.append("Mic format: \(Int(inputFormat.sampleRate)) Hz")
+
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            logs.append("Mic input has zero sample rate")
+            return logs
+        }
+
+        guard let frameTap = MicFrameTap(
+            inputFormat: inputFormat,
+            targetFormat: Self.captureFormat,
+            onFrame: onMicAudio
+        ) else {
+            logs.append("Mic converter unavailable for \(Int(inputFormat.sampleRate)) Hz")
+            return logs
+        }
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap] buffer, _ in
+            frameTap.consume(buffer)
+        }
+        tapInstalled = true
+
+        do {
+            engine.prepare()
+            try engine.start()
+            player.play()
+            logs.append("Audio engine running")
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            frameTap.detach()
+            tapInstalled = false
+            logs.append("Engine start error: \(error.localizedDescription)")
+            return logs
+        }
+
+        self.engine = engine
+        self.playerNode = player
+        self.tap = frameTap
+        return logs
+    }
+
+    private func reinstallTap() {
+        guard let engine, let onMicAudio, engine.isRunning else {
+            if wantsCapture, self.engine == nil || !(self.engine?.isRunning ?? false) {
+                _ = startGraph()
+            }
+            return
+        }
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        tap?.detach()
+        let inputNode = engine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0,
+              let frameTap = MicFrameTap(
+                inputFormat: inputFormat,
+                targetFormat: Self.captureFormat,
+                onFrame: onMicAudio
+              )
+        else { return }
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap] buffer, _ in
+            frameTap.consume(buffer)
+        }
+        tap = frameTap
+        tapInstalled = true
+    }
+
+    private func teardownGraph() {
+        tap?.detach()
+        tap = nil
+        if let engine {
+            if tapInstalled {
+                engine.inputNode.removeTap(onBus: 0)
+                tapInstalled = false
+            }
+            playerNode?.stop()
+            if engine.isRunning { engine.stop() }
+        }
+        self.engine = nil
+        self.playerNode = nil
+        tapInstalled = false
+    }
+
+    private func observeAudioLifecycle() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+
+        observers.append(
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: nil) { [weak self] note in
+                let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+                Task { @MainActor in
+                    guard let self, let raw, let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+                    switch type {
+                    case .began:
+                        self.applyLifecycle(.interruptionBegan)
+                    case .ended:
+                        self.applyLifecycle(.interruptionEnded)
+                    @unknown default:
+                        break
+                    }
+                }
+            }
+        )
+
+        observers.append(
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { [weak self] note in
+                let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+                let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
+                Task { @MainActor in
+                    switch reason {
+                    case .categoryChange, .override, .routeConfigurationChange:
+                        self?.applyLifecycle(.routeCategoryOrOverride)
+                    default:
+                        self?.applyLifecycle(.routeDeviceChanged)
+                    }
+                }
+            }
+        )
+
+        observers.append(
+            center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in
+                    self?.applyLifecycle(.engineConfigurationChanged)
+                }
+            }
+        )
+
+        observers.append(
+            center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in
+                    self?.applyLifecycle(.mediaServicesWereReset)
+                }
+            }
+        )
+
+        #if canImport(UIKit)
+        observers.append(
+            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in
+                    self?.applyLifecycle(.appBecameActive)
+                }
+            }
+        )
+        #endif
+    }
+
+    private func removeObservers() {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
     }
 
     /// Convert already-copied floats. Callers must copy off `AVAudioPCMBuffer` first.
@@ -211,5 +357,67 @@ final class GrokVoiceAudioEngine {
             packed[index] = Int16(clipped * Float(Int16.max))
         }
         return packed.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+}
+
+/// AVAudioConverter on the tap thread. Homemade linear 48→24 aliased.
+private final class MicFrameTap: @unchecked Sendable {
+    private let lock = NSLock()
+    private let converter: AVAudioConverter
+    private let targetFormat: AVAudioFormat
+    private let ratio: Double
+    private var onFrame: (@Sendable (String) -> Void)?
+
+    init?(
+        inputFormat: AVAudioFormat,
+        targetFormat: AVAudioFormat,
+        onFrame: @escaping @Sendable (String) -> Void
+    ) {
+        guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else { return nil }
+        self.converter = converter
+        self.targetFormat = targetFormat
+        self.ratio = targetFormat.sampleRate / inputFormat.sampleRate
+        self.onFrame = onFrame
+    }
+
+    func detach() {
+        lock.lock()
+        onFrame = nil
+        lock.unlock()
+    }
+
+    func consume(_ buffer: AVAudioPCMBuffer) {
+        guard buffer.frameLength > 0 else { return }
+        lock.lock()
+        guard let sink = onFrame else {
+            lock.unlock()
+            return
+        }
+        let data = convertLocked(buffer)
+        lock.unlock()
+        guard let data, !data.isEmpty else { return }
+        sink(data.base64EncodedString())
+    }
+
+    private func convertLocked(_ buffer: AVAudioPCMBuffer) -> Data? {
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1_024
+        guard let output = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else {
+            return nil
+        }
+        var suppliedInput = false
+        var conversionError: NSError?
+        let status = converter.convert(to: output, error: &conversionError) { _, inputStatus in
+            if suppliedInput {
+                inputStatus.pointee = .noDataNow
+                return nil
+            }
+            suppliedInput = true
+            inputStatus.pointee = .haveData
+            return buffer
+        }
+        guard status != .error, output.frameLength > 0, let channel = output.int16ChannelData?[0] else {
+            return nil
+        }
+        return Data(bytes: channel, count: Int(output.frameLength) * MemoryLayout<Int16>.size)
     }
 }

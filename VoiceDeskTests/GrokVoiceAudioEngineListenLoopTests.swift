@@ -53,7 +53,6 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         XCTAssertFalse(ListenInterrupt.isCommand("Can you hear me?"))
         XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
 
-        let firesBeforeTTS = listen.tapFires
         await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
             engine.playPCM16(pcm)
         }
@@ -61,11 +60,19 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "desk TTS must drain before the next tap turn")
         XCTAssertEqual(engine.startCount, 1, "drain must not audio.start")
         listen.startCount = engine.startCount
-        XCTAssertTrue(engine.isRunning)
         XCTAssertTrue(ListenResumePolicy.isListenArmed(state: session.state), "after drain, listen must still be armed")
         XCTAssertTrue(listen.stayLive)
-        try await Task.sleep(for: .milliseconds(200))
-        XCTAssertGreaterThan(listen.tapFires, firesBeforeTTS, "if the tap is silent after TTS, fail")
+
+        let firesAfterDrain = listen.tapFires
+        try await Task.sleep(for: .milliseconds(500))
+        let arrivedAfterDrain = listen.tapFires > firesAfterDrain
+        if FirstHearTapLoop.silentTapWhileEngineRunning(
+            tapEmitting: arrivedAfterDrain,
+            engineRunning: engine.isRunning
+        ) {
+            XCTFail("silent tap after TTS while isRunning is the lie")
+        }
+        XCTAssertTrue(arrivedAfterDrain, "tap buffers must still arrive after drain")
 
         engine.feedTapPCM16(thirdFromFile)
         XCTAssertEqual(listen.sink.last, thirdFromFile, "third command PCM must go through the same tap callback")

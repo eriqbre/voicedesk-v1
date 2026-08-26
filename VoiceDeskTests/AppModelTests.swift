@@ -1191,6 +1191,19 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
+    func testSpokenSentenceContainingStopDoesNotKillTheSession() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        fake.emitUser("I need to stop by the office at five")
+        XCTAssertFalse(fake.cancelled)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.last?.text,
+            "I need to stop by the office at five"
+        )
+        fake.emitUser("Stop")
+        XCTAssertTrue(fake.cancelled)
+    }
+
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
         let fake = FakeLiveVoiceService()
         let model = AppModel(voice: fake)

@@ -97,9 +97,25 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(sim.contains("spokenListAck"), sim)
         XCTAssertTrue(sim.contains("turns.last"), sim)
         XCTAssertTrue(sim.contains("turns.count, 3"), sim)
+        XCTAssertTrue(sim.contains("silentTapWhileEngineRunning"), sim)
+        XCTAssertTrue(sim.contains("firesAfterDrain"), sim)
         XCTAssertFalse(sim.contains("keepListeningAfterClientTTS"), sim)
         XCTAssertFalse(sim.contains("resumeCapture"), sim)
         XCTAssertFalse(sim.contains("rearmTap"), sim)
+    }
+
+    func testEngineDoesNotTreatIsRunningAsTapLiveness() throws {
+        let engine = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceAudioEngine.swift"))
+        XCTAssertTrue(engine.contains("AVAudioConverter"), engine)
+        XCTAssertTrue(engine.contains("generation == stopped"), engine)
+        XCTAssertTrue(engine.contains("reinstallTap"), engine)
+        XCTAssertFalse(engine.contains(".mixWithOthers"), engine)
+        XCTAssertFalse(engine.contains("MicLivenessMonitor"), engine)
+        XCTAssertFalse(engine.contains("MicRepairBackoff"), engine)
+        XCTAssertFalse(engine.contains("func rearmTap"), engine)
+        let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
+        XCTAssertFalse(service.contains("watchdog"), service)
+        XCTAssertFalse(service.contains("armListenIfSessionLive(reason: \"client tts\")"), service)
     }
 
     private func speakSlice(_ source: String, from: String, to: String) -> String {

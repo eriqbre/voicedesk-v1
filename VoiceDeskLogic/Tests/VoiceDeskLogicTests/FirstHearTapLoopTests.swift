@@ -54,6 +54,18 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertEqual(walk.startCount, 1, "second start was not taken; third must not land")
     }
 
+    func testSilentTapWhileEngineRunningIsTheLie() {
+        XCTAssertTrue(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: false, engineRunning: true)
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: true, engineRunning: true)
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: false, engineRunning: false)
+        )
+    }
+
     func testAcceptRequiresListenArmedStayLiveAndOneStart() {
         var session = VoiceSession()
         session.apply(.tapTalk)
