@@ -44,7 +44,12 @@ final class GrokVoiceService: VoiceServicing {
     /// leftover `response.created` from parking the session in `.speaking`.
     private var clientTTSInFlight = false
     /// Same frames the live tap sends to Grok. Tests only — not a second loop.
-    var onMicFrame: ((Data) -> Void)?
+    /// The HAL tap is Sendable; this box is captured like `socket`, not read
+    /// off `self` inside that closure.
+    private let micFrames = ListenLoopMicFrames()
+    var onMicFrame: (@Sendable (Data) -> Void)? {
+        didSet { micFrames.set(onMicFrame) }
+    }
 
     var state: VoiceState { session.state }
     var hasPendingPlayback: Bool { audio.hasPendingPlayback }
@@ -287,10 +292,11 @@ final class GrokVoiceService: VoiceServicing {
     private func startAudioIfNeeded() {
         guard !userWantsVoiceOff, !audio.isRunning else { return }
         let socket = client
-        let logs = audio.start(echoCancellation: true) { [weak self] base64 in
+        let frames = micFrames
+        let logs = audio.start(echoCancellation: true) { base64 in
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
             if let pcm = Data(base64Encoded: base64) {
-                self?.onMicFrame?(pcm)
+                frames.emit(pcm)
             }
         }
         if audio.isRunning {
@@ -578,5 +584,25 @@ extension GrokVoiceService {
             closeCode: 1000,
             voiceState: session.state
         )
+    }
+}
+
+/// Same-thread tap observer. The HAL callback is Sendable; do not touch
+/// MainActor `self` from that closure. Not a second listen loop.
+private final class ListenLoopMicFrames: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handler: (@Sendable (Data) -> Void)?
+
+    func set(_ handler: (@Sendable (Data) -> Void)?) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    func emit(_ pcm: Data) {
+        lock.lock()
+        let handler = self.handler
+        lock.unlock()
+        handler?(pcm)
     }
 }
