@@ -96,6 +96,72 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// Prevention: live write→player must not flicker the session.
+    /// `usesApplicationAudioSession = true` let TTS flip category/mode
+    /// or deactivate and yank the tap. After version + glance drain,
+    /// the session stays playAndRecord + voiceChat. A delayed HAL yank
+    /// with zero notifications is not recovered here — that is not
+    /// paper-greened. No watchdog.
+    func testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-session")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(session: session, command: command3)
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        await model.applyUserTurn("what version are we on")
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        let afterVersion = Self.audioSessionSnapshot()
+        XCTAssertEqual(afterVersion.category, .playAndRecord, "version write→player must not leave playAndRecord")
+        XCTAssertEqual(afterVersion.mode, .voiceChat, "echoCancellation start is voiceChat")
+
+        await model.applyUserTurn("show me my emails")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1, "glance write→player must not audio.start")
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "live speak() must drain before returnToListen")
+        let afterGlance = Self.audioSessionSnapshot()
+        XCTAssertEqual(afterGlance.category, .playAndRecord, "glance TTS must not change category")
+        XCTAssertEqual(afterGlance.mode, .voiceChat, "glance TTS must not change mode")
+        XCTAssertEqual(afterGlance.category, afterVersion.category)
+        XCTAssertEqual(afterGlance.mode, afterVersion.mode)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle)
+
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.simulateHALTapYankLeavingInstalledFlagTrue()
+        XCTAssertTrue(engine.isTapInstalled, "flag still says installed after delayed HAL yank")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertFalse(
+            FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: engine.isRunning),
+            "zero-notification yank must not be repaired by a second start"
+        )
+
+        engine.feedTapPCM16(command3)
+        XCTAssertTrue(sink.frames.isEmpty, "zero-notification yank must not be paper-greened")
+        XCTAssertTrue(sink.turns.isEmpty, "no interruption and no configurationChange — third stays rejected")
+
+        voice.cancel()
+    }
+
     private func postEngineConfigurationChange() async {
         NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: nil)
         await Task.yield()
@@ -114,6 +180,11 @@ final class AppModelListenLoopTests: XCTestCase {
 
     private static func speechShapedPCM(hertz: Double) -> Data {
         pcm16(seconds: 0.12, hertz: hertz)
+    }
+
+    private static func audioSessionSnapshot() -> (category: AVAudioSession.Category, mode: AVAudioSession.Mode) {
+        let session = AVAudioSession.sharedInstance()
+        return (session.category, session.mode)
     }
 }
 

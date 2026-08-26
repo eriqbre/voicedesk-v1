@@ -11,6 +11,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(tts.contains("synthesizer.speak("), tts)
         XCTAssertFalse(tts.contains("synthesizer.speak(utterance)"), tts)
         XCTAssertFalse(tts.contains("AVSpeechSynthesizerDelegate"), tts)
+        XCTAssertTrue(tts.contains("usesApplicationAudioSession = false"), tts)
+        XCTAssertFalse(tts.contains("usesApplicationAudioSession = true"), tts)
+        XCTAssertFalse(tts.contains("setCategory"), tts)
+        XCTAssertFalse(tts.contains("setActive"), tts)
     }
 
     func testSpeakPathDoesNotEchoGateRearmOrStartAfterTTS() throws {
@@ -310,6 +314,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "func sendTextTurn")
         XCTAssertFalse(speakFn.contains("setCategory"), speakFn)
         XCTAssertFalse(speakFn.contains("setActive(false"), speakFn)
+        XCTAssertFalse(speakFn.contains("VoiceEarcon"), speakFn)
         let tts = try XCTUnwrap(repoFile("VoiceDesk/Voice/ClientVoiceSpeech.swift"))
         XCTAssertFalse(tts.contains("setCategory"), tts)
         XCTAssertFalse(tts.contains("setActive"), tts)
@@ -349,6 +354,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let live = try XCTUnwrap(repoFile("VoiceDeskTests/AppModelListenLoopTests.swift"))
         XCTAssertTrue(
             live.contains("testVersionThenGlanceLivePathDelayedYankConfigChangeThirdCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession"),
             live
         )
         XCTAssertTrue(live.contains("GrokVoiceService("), live)
@@ -392,6 +401,24 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live.contains("shouldReinstallTapIfSilentWhileRunning"),
             "do not add another engine-only shouldX helper for this slice"
         )
+        let delayed = speakSlice(
+            live,
+            from: "func testVersionThenGlanceLivePathDelayedYankConfigChangeThirdCommandIsATurn",
+            to: "func testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession"
+        )
+        XCTAssertTrue(delayed.contains("postEngineConfigurationChange"), delayed)
+        let prevent = speakSlice(
+            live,
+            from: "func testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession",
+            to: "private func postEngineConfigurationChange"
+        )
+        XCTAssertFalse(prevent.contains("postEngineConfigurationChange"), prevent)
+        XCTAssertFalse(prevent.contains("postInterruption"), prevent)
+        XCTAssertTrue(prevent.contains("playAndRecord"), prevent)
+        XCTAssertTrue(prevent.contains("voiceChat"), prevent)
+        XCTAssertTrue(prevent.contains("simulateHALTapYankLeavingInstalledFlagTrue"), prevent)
+        XCTAssertTrue(prevent.contains("zero-notification yank must not be paper-greened"), prevent)
+        XCTAssertTrue(prevent.contains("feedTapPCM16"), prevent)
     }
 
     private func speakSlice(_ source: String, from: String, to: String) -> String {

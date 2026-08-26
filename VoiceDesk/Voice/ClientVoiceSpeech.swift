@@ -17,7 +17,10 @@ final class ClientVoiceSpeech: NSObject {
 
     private override init() {
         super.init()
-        synthesizer.usesApplicationAudioSession = true
+        // write() only yields PCM. The shared session stays playAndRecord
+        // + voiceChat. Letting AVSpeech own it flips category/mode or
+        // deactivates and yanks the HAL tap.
+        synthesizer.usesApplicationAudioSession = false
     }
 
     func speak(_ text: String, play: @escaping (Data) -> Void) async {
