@@ -60,6 +60,7 @@ public struct VersionDeskSpeakWalk: Equatable, Sendable {
         gate.beginSpeaking(spokenLine)
         var barged = false
         for fragment in ["voice", "point", "build"] {
+            guard EchoTranscriptGate.isLeftoverEcho(fragment, of: spokenLine) else { continue }
             if EchoBargeIn.shouldCancelSpeak(
                 event: .userTranscript(text: fragment, itemID: nil),
                 gate: gate,

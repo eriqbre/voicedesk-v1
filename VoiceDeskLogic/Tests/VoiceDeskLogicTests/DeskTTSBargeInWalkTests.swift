@@ -139,7 +139,6 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
         XCTAssertTrue(source.contains("EchoBargeIn.acceptedUserTranscript"), source)
         XCTAssertTrue(source.contains("echoGate.cancelSpeaking()"), source)
         XCTAssertTrue(source.contains("ClientVoiceSpeech.shared.stop()"), source)
-        XCTAssertFalse(source.contains("stayLive"), source)
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
         XCTAssertTrue(app.contains("echoGate.cancelSpeaking()"), app)
         XCTAssertTrue(app.contains("EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate)"), app)

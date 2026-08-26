@@ -131,7 +131,7 @@ public enum InboxGlance: Sendable {
 
     /// Chat-bubble copy when email or calendar-overview cards are attached.
     /// Cards **are** the visual. Empty (no bubble) or `onScreenLeadIn` — never the
-    /// spoken glance, single-email summary, or calendar “Next up” line.
+    /// spoken overview beat, single-email summary, or calendar titles.
     /// Clarify / not-found / connect / error / calendar-details replies must still
     /// be passed through as the bubble; they are the message.
     public static func onScreenText(compactCardCount: Int) -> String {
