@@ -355,6 +355,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(live.contains("listenLoopEngine"), live)
         XCTAssertTrue(live.contains("simulateHALTapYankLeavingInstalledFlagTrue"), live)
         XCTAssertTrue(live.contains("AVAudioEngineConfigurationChange"), live)
+        XCTAssertTrue(live.contains("postEngineConfigurationChange"), live)
         XCTAssertTrue(live.contains("feedTapPCM16"), live)
         XCTAssertTrue(live.contains("FirstHearTapLoop.accept"), live)
         XCTAssertTrue(live.contains("listenLoopClose1000"), live)
@@ -375,7 +376,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
             XCTFail("live-path gate must glance then yank")
         }
         if let yankAt = live.range(of: "simulateHALTapYankLeavingInstalledFlagTrue"),
-           let configAt = live.range(of: "AVAudioEngineConfigurationChange") {
+           let configAt = live.range(of: "postEngineConfigurationChange") {
             XCTAssertLessThan(
                 yankAt.lowerBound,
                 configAt.lowerBound,
