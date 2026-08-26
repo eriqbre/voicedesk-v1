@@ -22,6 +22,9 @@ final class EriqSpokenTapeTests: XCTestCase {
             XCTAssertEqual(walk.landed.filter { $0 == line }.count, 1, line)
             XCTAssertTrue(walk.tapLive, line)
             XCTAssertTrue(walk.listenArmed, line)
+            XCTAssertTrue(walk.stayLive, line)
+            XCTAssertNotEqual(walk.close1000, .stayIdle, line)
+            XCTAssertEqual(walk.startCount, 1, line)
             XCTAssertEqual(walk.leftoverDropped, ["here", "they"], line)
             XCTAssertNotEqual(walk.landed.last, "here", line)
             XCTAssertFalse(

@@ -37,6 +37,9 @@ final class FirstHearListenLoopTests: XCTestCase {
                     XCTAssertEqual(walk.landed, [first, second, during], "\(first) / \(second) / \(during)")
                     XCTAssertTrue(walk.tapLive, during)
                     XCTAssertTrue(walk.listenArmed, during)
+                    XCTAssertTrue(walk.stayLive, "session must stay live after client TTS: \(during)")
+                    XCTAssertNotEqual(walk.close1000, .stayIdle, during)
+                    XCTAssertEqual(walk.startCount, 1, "no second audio.start: \(during)")
                     XCTAssertEqual(walk.leftoverDropped, ["here", "they"], during)
                 }
             }
@@ -46,6 +49,9 @@ final class FirstHearListenLoopTests: XCTestCase {
     func testFe1ffc8RearmPathIsGoneFromClientTTS() throws {
         let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
         XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
+        XCTAssertTrue(source.contains("keepListeningAfterClientTTS"), source)
+        XCTAssertTrue(source.contains("applySessionAfterDeskSpeak"), source)
+        XCTAssertTrue(source.contains("sendListenResumeSessionUpdate"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
         XCTAssertFalse(
             source.contains("echoGate.beginSpeaking(trimmed)\n        apply(.speakStarted)"),
@@ -63,6 +69,25 @@ final class FirstHearListenLoopTests: XCTestCase {
         let engine = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceAudioEngine.swift"))
         XCTAssertFalse(engine.contains("func resumeCapture"), engine)
         XCTAssertFalse(engine.contains("func rearmTap"), engine)
+    }
+
+    func testFa72e1cSpeakStartedWithoutKeepListenDropsTheNextAsk() {
+        let dead = FirstHearListenLoop.fa72e1cSpeakStartedWithoutKeepListen()
+        XCTAssertFalse(dead.listenArmed, "fa72e1c left VoiceSession speaking")
+        XCTAssertTrue(dead.landed.isEmpty, "next ask must not land until keep-listen")
+        XCTAssertEqual(dead.startCount, 1)
+
+        let live = FirstHearListenLoop.twoTurnsThenOneDuringClientTTS(
+            first: "what version are we on",
+            second: "show me my emails",
+            spokenAfterSecond: InboxGlance.spokenListAck(),
+            duringTTS: "Tell me Murray's latest email."
+        )
+        XCTAssertEqual(live.landed.last, "Tell me Murray's latest email.")
+        XCTAssertTrue(live.listenArmed)
+        XCTAssertTrue(live.stayLive)
+        XCTAssertNotEqual(live.close1000, .stayIdle)
+        XCTAssertEqual(live.startCount, 1)
     }
 
     private func repoFile(_ relative: String) -> String? {

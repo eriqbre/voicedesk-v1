@@ -111,6 +111,42 @@ public enum ListenResumePolicy: Sendable {
         session.apply(sessionEventAfterDeskSpeak(state: session.state))
     }
 
+    /// Grok `response.created` during on-device TTS must not flip the
+    /// session to `.speaking`. Client TTS is listen-only.
+    public static func shouldApplyGrokSpeakStarted(clientTTSSpeaking: Bool) -> Bool {
+        !clientTTSSpeaking
+    }
+
+    /// After on-device desk TTS. Return to listen. Desk speak is not
+    /// user-stop. Close 1000 reconnects. Does not start audio again.
+    public static func afterClientTTSFinished(
+        session: inout VoiceSession,
+        userWantsVoiceOff: Bool,
+        liveSessionArmed: Bool,
+        captureRunning: Bool
+    ) -> ClientTTSListenResult {
+        if !userWantsVoiceOff {
+            applySessionAfterDeskSpeak(&session)
+        }
+        let stayLive = sessionShouldStayLive(
+            userWantsVoiceOff: userWantsVoiceOff,
+            liveSessionArmed: liveSessionArmed,
+            audioStarted: captureRunning || liveSessionArmed
+        )
+        let close1000 = afterSocketClose(
+            userWantsVoiceOff: userWantsVoiceOff,
+            sessionShouldStayLive: stayLive,
+            closeCode: 1000,
+            voiceState: session.state
+        )
+        return ClientTTSListenResult(
+            listenArmed: !userWantsVoiceOff && isListenArmed(state: session.state),
+            stayLive: stayLive,
+            close1000: close1000,
+            startAgain: false
+        )
+    }
+
     public static func isListenArmed(state: VoiceState) -> Bool {
         state == .listening
     }
@@ -134,6 +170,27 @@ public enum ListenResumePolicy: Sendable {
         case .stayIdle:
             return false
         }
+    }
+}
+
+/// After client TTS. Listen stays up. No second `audio.start`.
+public struct ClientTTSListenResult: Equatable, Sendable {
+    public var listenArmed: Bool
+    public var stayLive: Bool
+    public var close1000: ListenResumeDecision
+    /// Always false — collapse listen, do not relaunch capture.
+    public var startAgain: Bool
+
+    public init(
+        listenArmed: Bool,
+        stayLive: Bool,
+        close1000: ListenResumeDecision,
+        startAgain: Bool
+    ) {
+        self.listenArmed = listenArmed
+        self.stayLive = stayLive
+        self.close1000 = close1000
+        self.startAgain = startAgain
     }
 }
 

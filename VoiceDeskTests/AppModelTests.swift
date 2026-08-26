@@ -1305,11 +1305,16 @@ final class FakeLiveVoiceService: VoiceServicing {
     var tapLive = true
     /// Fired while client TTS is in-flight. Inject at this boundary once.
     var onClientTTS: (() -> Void)?
+    /// Product startListening. Client TTS must not increment this.
+    var startCount = 0
+    var stayLiveAfterSpeak = false
+    var close1000AfterSpeak: ListenResumeDecision = .stayIdle
 
     var state: VoiceState { session.state }
 
     func startListening() async -> String {
         started = true
+        startCount += 1
         tapLive = true
         session.apply(.cancel)
         session.apply(.tapTalk)
@@ -1328,15 +1333,18 @@ final class FakeLiveVoiceService: VoiceServicing {
         if during != .keepListening {
             tapLive = false
         }
-        onClientTTS?()
-        let after = ListenResumePolicy.afterDeskSpeak(
+        let after = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
             userWantsVoiceOff: false,
-            socketConnected: true,
+            liveSessionArmed: true,
             captureRunning: tapLive
         )
-        if after == .resumeCapture {
-            tapLive = true
+        stayLiveAfterSpeak = after.stayLive
+        close1000AfterSpeak = after.close1000
+        if after.startAgain {
+            startCount += 1
         }
+        onClientTTS?()
     }
 
     func sendTextTurn(_ text: String) async {

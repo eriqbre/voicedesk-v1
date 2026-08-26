@@ -108,6 +108,26 @@ final class GrokVoiceService: VoiceServicing {
         echoGate.beginSpeaking(trimmed)
         await ClientVoiceSpeech.shared.speak(trimmed)
         echoGate.finishSpeaking()
+        keepListeningAfterClientTTS()
+    }
+
+    /// Collapse: session returns to listen. Socket stays listen-only.
+    /// Not resumeCapture / rearmTap / audio.start.
+    private func keepListeningAfterClientTTS() {
+        guard !userWantsVoiceOff, !isTearingDown else { return }
+        let after = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: userWantsVoiceOff,
+            liveSessionArmed: liveSessionArmed,
+            captureRunning: audio.isRunning
+        )
+        eventHandler?(.state(session.state))
+        if client.isConnected {
+            sendListenResumeSessionUpdate()
+        }
+        logListenResume(
+            note: "after client tts: keepListening stayLive=\(after.stayLive) \(after.close1000) state=\(session.state.rawValue) startAgain=\(after.startAgain)"
+        )
     }
 
     func sendTextTurn(_ text: String) async {
@@ -484,6 +504,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .responseCreated(let id):
             currentResponseID = id
             assistantGate.reset()
+            guard ListenResumePolicy.shouldApplyGrokSpeakStarted(
+                clientTTSSpeaking: echoGate.isSpeaking
+            ) else { break }
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
             guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }

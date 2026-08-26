@@ -2,6 +2,36 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class ListenResumePolicyTests: XCTestCase {
+    func testAfterClientTTSFinishedStaysLiveWithoutSecondStart() {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        session.apply(.speakStarted)
+        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
+        XCTAssertTrue(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: false))
+        let after = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: false,
+            liveSessionArmed: true,
+            captureRunning: true
+        )
+        XCTAssertTrue(after.listenArmed)
+        XCTAssertTrue(after.stayLive)
+        XCTAssertNotEqual(after.close1000, .stayIdle)
+        XCTAssertFalse(after.startAgain)
+        XCTAssertEqual(session.state, .listening)
+
+        var stopped = VoiceSession(state: .listening)
+        let idle = ListenResumePolicy.afterClientTTSFinished(
+            session: &stopped,
+            userWantsVoiceOff: true,
+            liveSessionArmed: true,
+            captureRunning: true
+        )
+        XCTAssertFalse(idle.stayLive)
+        XCTAssertEqual(idle.close1000, .stayIdle)
+        XCTAssertFalse(idle.listenArmed)
+    }
+
     func testListenStaysLiveThroughClientTTS() {
         XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
         XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: true))

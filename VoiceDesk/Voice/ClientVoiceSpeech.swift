@@ -17,6 +17,8 @@ final class ClientVoiceSpeech: NSObject, AVSpeechSynthesizerDelegate {
     private override init() {
         super.init()
         synthesizer.delegate = self
+        // Use the live playAndRecord session. Do not steal it and kill the tap.
+        synthesizer.usesApplicationAudioSession = true
     }
 
     func speak(_ text: String) async {

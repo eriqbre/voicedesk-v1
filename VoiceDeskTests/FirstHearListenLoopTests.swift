@@ -28,6 +28,9 @@ final class FirstHearListenLoopTests: XCTestCase {
         await model.applyUserTurn("show me my emails")
         XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertTrue(fake.tapLive, "client TTS must not tear down the tap")
+        XCTAssertTrue(fake.stayLiveAfterSpeak)
+        XCTAssertNotEqual(fake.close1000AfterSpeak, .stayIdle)
+        XCTAssertEqual(fake.startCount, 0, "client TTS must not relaunch audio.start")
         XCTAssertEqual(
             model.turns.filter { $0.role == .user }.map(\.text),
             ["what version are we on", "show me my emails", "Murray"]
@@ -60,6 +63,9 @@ final class FirstHearListenLoopTests: XCTestCase {
             )
             XCTAssertEqual(injects, 1, line)
             XCTAssertTrue(fake.tapLive, line)
+            XCTAssertTrue(fake.stayLiveAfterSpeak, line)
+            XCTAssertNotEqual(fake.close1000AfterSpeak, .stayIdle, line)
+            XCTAssertEqual(fake.startCount, 0, "no second audio.start: \(line)")
             XCTAssertEqual(
                 model.turns.filter { $0.role == .user }.map(\.text),
                 ["show me my emails", line],
@@ -80,6 +86,8 @@ final class FirstHearListenLoopTests: XCTestCase {
             }
         }
         let text = try XCTUnwrap(source)
+        XCTAssertTrue(text.contains("keepListeningAfterClientTTS"), text)
+        XCTAssertTrue(text.contains("applySessionAfterDeskSpeak"), text)
         XCTAssertFalse(text.contains("resumeCaptureAfterDeskSpeak"), text)
         XCTAssertFalse(text.contains("armListenIfSessionLive(reason: \"client tts\")"), text)
         XCTAssertEqual(
