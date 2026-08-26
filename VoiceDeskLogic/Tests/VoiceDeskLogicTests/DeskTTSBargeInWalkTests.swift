@@ -251,9 +251,10 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
 
     func testGrokVoiceServiceStopsClientTTSAtAcceptedIngress() throws {
         let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertTrue(source.contains("EchoBargeIn.acceptedUserTranscript"), source)
-        XCTAssertTrue(source.contains("echoGate.cancelSpeaking()"), source)
+        XCTAssertFalse(source.contains("EchoBargeIn.acceptedUserTranscript"), source)
+        XCTAssertFalse(source.contains("echoGate"), source)
         XCTAssertTrue(source.contains("ClientVoiceSpeech.shared.stop()"), source)
+        XCTAssertTrue(source.contains("interruptPlayback()"), source)
         XCTAssertTrue(source.contains("eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))"), source)
         XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
@@ -263,8 +264,8 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
             source
         )
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        XCTAssertTrue(app.contains("echoGate.cancelSpeaking()"), app)
-        XCTAssertTrue(app.contains("EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate)"), app)
+        XCTAssertFalse(app.contains("echoGate"), app)
+        XCTAssertFalse(app.contains("EchoBargeIn.acceptedUserTranscript"), app)
         XCTAssertTrue(app.contains("handleLiveUser(event.text, itemID: event.itemID)"), app)
         XCTAssertFalse(app.contains("earlyFinal.accept"), app)
         XCTAssertFalse(app.contains("EarlyFinalHold.shouldHold"), app)

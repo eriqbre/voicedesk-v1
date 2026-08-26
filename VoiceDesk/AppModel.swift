@@ -51,9 +51,6 @@ final class AppModel {
     private var lastSearchAsk: String?
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
-    /// Leftover of on-device desk TTS only. Same EchoBargeIn policy as
-    /// GrokVoiceService. FakeLive / sim emit hits this ingress, not the socket.
-    private var echoGate = EchoTranscriptGate()
     private var lastUserUtterance = ""
     private var lastUserSource = "text"
     private var hadFocusedEmailAtTurnStart = false
@@ -342,13 +339,6 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            // Leftover of lastSpokenLine only. An accepted first ask is a
-            // turn — do not hold it for a later stem. EarlyFinalHold was
-            // a leftover protector; first speech after desk TTS vanished.
-            if EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate) == nil {
-                return
-            }
-            echoGate.cancelSpeaking()
             if !event.isFinal {
                 preemptGrokIfDeskTurn(event.text)
                 return
@@ -1044,9 +1034,7 @@ final class AppModel {
             return
         }
         lastSpokenDeskReply = spoken
-        echoGate.beginSpeaking(spoken)
         await voice.speak(spoken)
-        echoGate.finishSpeaking()
     }
 
     private func rememberUserTurn(_ text: String, source: String) {

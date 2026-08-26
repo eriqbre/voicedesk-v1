@@ -44,7 +44,9 @@ final class GrokVoiceAudioEngineListenResumeTests: XCTestCase {
             }
         }
         let speak = try XCTUnwrap(source)
-        XCTAssertTrue(speak.contains("keepListeningAfterClientTTS"), speak)
+        XCTAssertTrue(speak.contains("playPCM16"), speak)
+        XCTAssertFalse(speak.contains("keepListeningAfterClientTTS"), speak)
+        XCTAssertFalse(speak.contains("echoGate"), speak)
         XCTAssertFalse(speak.contains("resumeCaptureAfterDeskSpeak"), speak)
         XCTAssertFalse(speak.contains("armListenIfSessionLive(reason: \"client tts\")"), speak)
         XCTAssertFalse(

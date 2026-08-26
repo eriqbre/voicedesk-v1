@@ -49,9 +49,9 @@ final class FirstHearListenLoopTests: XCTestCase {
     func testFe1ffc8RearmPathIsGoneFromClientTTS() throws {
         let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
         XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
-        XCTAssertTrue(source.contains("keepListeningAfterClientTTS"), source)
-        XCTAssertTrue(source.contains("applySessionAfterDeskSpeak"), source)
-        XCTAssertTrue(source.contains("sendListenResumeSessionUpdate"), source)
+        XCTAssertTrue(source.contains("playPCM16"), source)
+        XCTAssertFalse(source.contains("keepListeningAfterClientTTS"), source)
+        XCTAssertFalse(source.contains("echoGate"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
         XCTAssertFalse(
             source.contains("echoGate.beginSpeaking(trimmed)\n        apply(.speakStarted)"),

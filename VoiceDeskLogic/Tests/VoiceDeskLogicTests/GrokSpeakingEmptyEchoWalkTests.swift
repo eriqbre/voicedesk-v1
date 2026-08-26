@@ -137,13 +137,13 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
 
     func testOneGateAndDroppedTranscriptIsLogged() throws {
         let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertTrue(source.contains("EchoBargeIn.acceptedUserTranscript"))
-        XCTAssertTrue(source.contains("ListenResumeLog.droppedTranscriptNote"))
-        XCTAssertTrue(source.contains("leftover-echo"))
+        XCTAssertFalse(source.contains("EchoBargeIn.acceptedUserTranscript"))
+        XCTAssertFalse(source.contains("echoGate"))
+        XCTAssertTrue(source.contains("interruptPlayback()"))
         XCTAssertTrue(source.contains("liveSessionArmed = true"))
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        XCTAssertTrue(app.contains("EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate)"), app)
-        XCTAssertTrue(app.contains("echoGate.beginSpeaking(spoken)"), app)
+        XCTAssertFalse(app.contains("EchoBargeIn.acceptedUserTranscript"), app)
+        XCTAssertFalse(app.contains("echoGate"), app)
         XCTAssertFalse(app.contains("markSpeaking"))
         XCTAssertFalse(app.contains("voiceState: voice.state"), "Grok speaking must not drop")
         XCTAssertFalse(app.contains("lastSpokenLine.isEmpty { return nil }"))

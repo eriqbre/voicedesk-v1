@@ -15,6 +15,9 @@ final class GrokVoiceAudioEngine {
 
     var isRunning: Bool { engine?.isRunning ?? false }
     var hasPendingPlayback: Bool { pendingPlaybackBuffers > 0 }
+    var pendingPlaybackCount: Int { pendingPlaybackBuffers }
+    var isPlayerPlaying: Bool { playerNode?.isPlaying ?? false }
+    private(set) var startCount = 0
 
     /// Fires on the main actor when the last scheduled desk-TTS buffer ends.
     /// `response.done` is earlier — capture often dies only after playback.
@@ -32,6 +35,7 @@ final class GrokVoiceAudioEngine {
     func start(echoCancellation: Bool, onMicAudio: @escaping @Sendable (String) -> Void) -> [String] {
         self.echoCancellation = echoCancellation
         self.onMicAudio = onMicAudio
+        startCount += 1
         var logs: [String] = []
 
         do {
@@ -116,6 +120,12 @@ final class GrokVoiceAudioEngine {
         pendingPlaybackBuffers = 0
         playerNode?.stop()
         playerNode?.play()
+    }
+
+    /// Same tap callback the mic uses. Speech-shaped PCM is a turn, not a string.
+    func feedTapPCM16(_ pcm: Data) {
+        guard tapInstalled, let onMicAudio else { return }
+        onMicAudio(pcm.base64EncodedString())
     }
 
     func playAudioDelta(base64: String) {

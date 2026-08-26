@@ -86,8 +86,9 @@ final class FirstHearListenLoopTests: XCTestCase {
             }
         }
         let text = try XCTUnwrap(source)
-        XCTAssertTrue(text.contains("keepListeningAfterClientTTS"), text)
-        XCTAssertTrue(text.contains("applySessionAfterDeskSpeak"), text)
+        XCTAssertTrue(text.contains("playPCM16"), text)
+        XCTAssertFalse(text.contains("keepListeningAfterClientTTS"), text)
+        XCTAssertFalse(text.contains("echoGate"), text)
         XCTAssertFalse(text.contains("resumeCaptureAfterDeskSpeak"), text)
         XCTAssertFalse(text.contains("armListenIfSessionLive(reason: \"client tts\")"), text)
         XCTAssertEqual(

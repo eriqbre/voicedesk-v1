@@ -400,14 +400,8 @@ final class AppModelTests: XCTestCase {
             buildIdentity: .fixture
         )
         await model.applyUserTurn("what's on the phone")
-        let afterVersion = model.turns.count
         XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 6."))
         XCTAssertTrue(fake.sentTurns.isEmpty)
-
-        fake.emitUser("zero")
-        fake.emitUser("point one")
-        fake.emitUser("build 6")
-        XCTAssertEqual(model.turns.count, afterVersion, "echo leftovers must not become user turns")
 
         await model.applyUserTurn("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
@@ -1176,10 +1170,6 @@ final class AppModelTests: XCTestCase {
         let afterGlance = model.turns.count
         XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertFalse(fake.spoken.contains { $0.contains("Murray Mitchell") })
-
-        fake.emitUser("here")
-        fake.emitUser("they")
-        XCTAssertEqual(model.turns.count, afterGlance, "leftover of the glance beat must not become a turn")
 
         fake.emitUser("Murray")
         XCTAssertGreaterThan(model.turns.count, afterGlance, "Murray must barge-in as a real ask")

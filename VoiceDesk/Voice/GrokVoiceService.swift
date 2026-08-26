@@ -32,9 +32,6 @@ final class GrokVoiceService: VoiceServicing {
     private var userWantsVoiceOff = false
     private var dropAssistantTranscript = false
     private var dropAssistantAudio = false
-    /// Same leftover-echo families as AppModel. Lives here so `speech_started`
-    /// can drop before `interruptAssistant` — AppModel never sees the cancel.
-    private var echoGate = EchoTranscriptGate()
     private var instructions = GrokRealtime.presenceInstructions
     /// In-flight `connectAndConfigure` so warmup and first tap share one handshake.
     private var connectingTask: Task<Void, Error>?
@@ -105,29 +102,12 @@ final class GrokVoiceService: VoiceServicing {
     func speak(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        echoGate.beginSpeaking(trimmed)
-        await ClientVoiceSpeech.shared.speak(trimmed)
-        echoGate.finishSpeaking()
-        keepListeningAfterClientTTS()
-    }
-
-    /// Collapse: session returns to listen. Socket stays listen-only.
-    /// Not resumeCapture / rearmTap / audio.start.
-    private func keepListeningAfterClientTTS() {
-        guard !userWantsVoiceOff, !isTearingDown else { return }
-        let after = ListenResumePolicy.afterClientTTSFinished(
-            session: &session,
-            userWantsVoiceOff: userWantsVoiceOff,
-            liveSessionArmed: liveSessionArmed,
-            captureRunning: audio.isRunning
-        )
-        eventHandler?(.state(session.state))
-        if client.isConnected {
-            sendListenResumeSessionUpdate()
+        if !audio.isRunning, !userWantsVoiceOff {
+            startAudioIfNeeded()
         }
-        logListenResume(
-            note: "after client tts: keepListening stayLive=\(after.stayLive) \(after.close1000) state=\(session.state.rawValue) startAgain=\(after.startAgain)"
-        )
+        await ClientVoiceSpeech.shared.speak(trimmed) { [weak self] pcm in
+            self?.audio.playPCM16(pcm)
+        }
     }
 
     func sendTextTurn(_ text: String) async {
@@ -170,7 +150,6 @@ final class GrokVoiceService: VoiceServicing {
     func cancel() {
         userWantsVoiceOff = true
         liveSessionArmed = false
-        echoGate.cancelSpeaking()
         teardown(sendCancel: true)
     }
 
@@ -276,7 +255,6 @@ final class GrokVoiceService: VoiceServicing {
     /// reinstall the mic tap.
     private func armListenIfSessionLive(reason: String) {
         guard !userWantsVoiceOff, !isTearingDown else { return }
-        echoGate.finishSpeaking()
         ListenResumePolicy.applySessionAfterDeskSpeak(&session)
         eventHandler?(.state(session.state))
         let decision = ListenResumePolicy.afterDeskSpeak(
@@ -319,14 +297,10 @@ final class GrokVoiceService: VoiceServicing {
         VoiceCloudDogfoodClient.shared.enqueue(entry)
     }
 
-    /// Gate first. Dropped echo never cancels Eve or reaches Grok as a turn.
+    /// Energy / speech_started is barge-in. Stop the player. That utterance
+    /// is the next turn — no leftover-echo matching.
     private func applyBargeInIfNeeded(event: GrokRealtime.EventKind) {
-        guard EchoBargeIn.shouldCancelSpeak(
-            event: event,
-            gate: echoGate,
-            voiceState: session.state
-        ) else { return }
-        echoGate.cancelSpeaking()
+        guard case .speechStarted = event else { return }
         interruptAssistant(sendCancel: true)
     }
 
@@ -488,24 +462,14 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             guard !trimmed.isEmpty else { break }
-            // One policy: leftover of lastSpokenLine drops. An accepted
-            // live ask cancels leftover on-device desk TTS. speech_started
-            // still waits for words so echo cannot stop the line.
-            guard EchoBargeIn.acceptedUserTranscript(
-                trimmed,
-                gate: echoGate
-            ) != nil else {
-                logListenResume(note: "\(ListenResumeLog.droppedTranscriptNote) leftover-echo")
-                break
-            }
-            echoGate.cancelSpeaking()
             ClientVoiceSpeech.shared.stop()
+            audio.interruptPlayback()
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
             currentResponseID = id
             assistantGate.reset()
             guard ListenResumePolicy.shouldApplyGrokSpeakStarted(
-                clientTTSSpeaking: echoGate.isSpeaking
+                clientTTSSpeaking: audio.hasPendingPlayback
             ) else { break }
             apply(.speakStarted)
         case .assistantTranscriptDelta(let delta, let source):
