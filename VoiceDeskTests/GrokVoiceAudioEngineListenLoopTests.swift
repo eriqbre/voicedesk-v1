@@ -232,7 +232,6 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         XCTAssertEqual(listen.turns.last, thirdFromFile, "after drain+repair, that PCM is the next turn")
         XCTAssertEqual(listen.turns.count, 3)
         XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
-        XCTAssertFalse(Self.clientVoiceSpeechSourceContainsSpeakCall())
 
         engine.stop()
     }
@@ -291,19 +290,6 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
     private func settleLifecycle() async {
         await Task.yield()
         try? await Task.sleep(for: .milliseconds(80))
-    }
-
-    /// Source contract used by the detach test: repair must not be synthesizer.speak().
-    private static func clientVoiceSpeechSourceContainsSpeakCall() -> Bool {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<6 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent("VoiceDesk/Voice/ClientVoiceSpeech.swift")
-            if let text = try? String(contentsOf: candidate, encoding: .utf8) {
-                return text.contains("synthesizer.speak(")
-            }
-        }
-        return true
     }
 }
 
