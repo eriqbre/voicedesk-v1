@@ -91,6 +91,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(sim.contains("feedTapPCM16"), sim)
         XCTAssertFalse(sim.contains("synthesizer.speak("), sim)
         XCTAssertTrue(sim.contains("FirstHearTapLoop.accept"), sim)
+        XCTAssertTrue(sim.contains("listen.onTap"), sim)
+        XCTAssertFalse(sim.contains("func acceptIfTurn"), sim)
         XCTAssertTrue(sim.contains("waitUntilDrained"), sim)
         XCTAssertTrue(sim.contains("spokenListAck"), sim)
         XCTAssertTrue(sim.contains("turns.last"), sim)
