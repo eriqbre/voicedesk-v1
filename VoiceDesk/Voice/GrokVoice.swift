@@ -209,7 +209,12 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var testSendSink = false
     private var sessionReady = false
     private var deliveredForTests: [String] = []
+    /// Close a flushed command only after the tap goes quiet. A commit
+    /// on flush cuts a still-talking utterance in half.
+    private var pendingQuietCommit = false
+    private var quietCommitGeneration = 0
     private static let maxOutbound = 64
+    private static let quietCommitMs = 80
 
     var isConnected: Bool {
         lock.lock()
@@ -291,6 +296,8 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         sessionDelegate = nil
         opened = false
         sessionReady = false
+        pendingQuietCommit = false
+        quietCommitGeneration += 1
         lock.unlock()
     }
 
@@ -310,14 +317,25 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
             lock.unlock()
             return
         }
+        var rescheduleQuiet: Int?
+        if Self.isAudioAppend(string), sessionReady, pendingQuietCommit {
+            quietCommitGeneration += 1
+            rescheduleQuiet = quietCommitGeneration
+        }
         if testSendSink {
             deliveredForTests.append(string)
             lock.unlock()
+            if let gen = rescheduleQuiet {
+                scheduleQuietCommit(generation: gen)
+            }
             return
         }
         if opened, let task {
             lock.unlock()
             task.send(.string(string)) { _ in }
+            if let gen = rescheduleQuiet {
+                scheduleQuietCommit(generation: gen)
+            }
             return
         }
         enqueueLocked(string)
@@ -359,8 +377,31 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
             }
         }
         if shouldCloseTurn {
-            sendJSON(GrokRealtime.commitAudioBufferObject())
+            lock.lock()
+            pendingQuietCommit = true
+            quietCommitGeneration += 1
+            let gen = quietCommitGeneration
+            lock.unlock()
+            scheduleQuietCommit(generation: gen)
         }
+    }
+
+    private func scheduleQuietCommit(generation: Int) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.quietCommitMs))
+            self?.commitIfStillQuiet(generation: generation)
+        }
+    }
+
+    private func commitIfStillQuiet(generation: Int) {
+        lock.lock()
+        guard pendingQuietCommit, quietCommitGeneration == generation else {
+            lock.unlock()
+            return
+        }
+        pendingQuietCommit = false
+        lock.unlock()
+        sendJSON(GrokRealtime.commitAudioBufferObject())
     }
 
     func dropOutbound() {
@@ -369,6 +410,8 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         deliveredForTests.removeAll()
         testSendSink = false
         sessionReady = false
+        pendingQuietCommit = false
+        quietCommitGeneration += 1
         lock.unlock()
     }
 

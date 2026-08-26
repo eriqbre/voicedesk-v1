@@ -312,6 +312,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopDeliveredAudioPCM"), service)
         XCTAssertTrue(service.contains("listenLoopDeliveredSendTypes"), service)
         XCTAssertTrue(service.contains("func simulateListenLoopSocketDidOpenThenSessionReady()"), service)
+        XCTAssertTrue(service.contains("func waitUntilListenLoopQueuedTurnClosed()"), service)
         XCTAssertTrue(service.contains("dropOutbound"), service)
         XCTAssertTrue(service.contains("markSessionReadyAndFlush"), service)
         let realtime = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/GrokRealtime.swift"))
@@ -331,12 +332,19 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(client.contains("func attachTestSendRecorder()"), client)
         XCTAssertTrue(client.contains("func markSessionReadyAndFlush()"), client)
         XCTAssertTrue(client.contains("func dropOutbound()"), client)
-        let flush = speakSlice(client, from: "func markSessionReadyAndFlush()", to: "func dropOutbound()")
-        XCTAssertTrue(flush.contains("commitAudioBufferObject"), flush)
+        let flush = speakSlice(client, from: "func markSessionReadyAndFlush()", to: "private func scheduleQuietCommit")
+        XCTAssertTrue(flush.contains("pendingQuietCommit"), flush)
         XCTAssertTrue(flush.contains("isAudioAppend"), flush)
+        XCTAssertFalse(
+            flush.contains("sendJSON(GrokRealtime.commitAudioBufferObject())"),
+            "6b5f0ee committed on flush — mid-utterance if they are still talking"
+        )
+        XCTAssertTrue(client.contains("func commitIfStillQuiet"), client)
+        XCTAssertTrue(client.contains("commitAudioBufferObject"), client)
         let sendRaw = speakSlice(client, from: "func sendRaw(_ string: String) {", to: "func attachTestSendTask()")
         XCTAssertTrue(sendRaw.contains("sessionReady"), sendRaw)
         XCTAssertTrue(sendRaw.contains("isAudioAppend"), sendRaw)
+        XCTAssertTrue(sendRaw.contains("pendingQuietCommit"), sendRaw)
         XCTAssertFalse(sendRaw.contains("task?.send"), sendRaw)
         let didOpen = speakSlice(client, from: "nonisolated func notifyOpen()", to: "nonisolated func notifyClose")
         XCTAssertFalse(
@@ -459,6 +467,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000FlushClosesQueuedTurn"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000StillTalkingDoesNotCommitMidUtterance"),
             live
         )
         XCTAssertTrue(live.contains("convenience init(session: VoiceSession, command: Data)"), live)
@@ -660,13 +672,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let closeTurn = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000FlushClosesQueuedTurn",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000StillTalkingDoesNotCommitMidUtterance"
         )
         XCTAssertTrue(closeTurn.contains("GrokVoiceService("), closeTurn)
         XCTAssertTrue(closeTurn.contains("AppModel("), closeTurn)
         XCTAssertTrue(closeTurn.contains("simulateListenLoopSocketClose1000"), closeTurn)
         XCTAssertTrue(closeTurn.contains("feedTapPCM16(command2)"), closeTurn)
         XCTAssertTrue(closeTurn.contains("simulateListenLoopSocketDidOpenThenSessionReady"), closeTurn)
+        XCTAssertTrue(closeTurn.contains("waitUntilListenLoopQueuedTurnClosed"), closeTurn)
         XCTAssertTrue(closeTurn.contains("input_audio_buffer.commit"), closeTurn)
         XCTAssertTrue(closeTurn.contains("48eb875"), closeTurn)
         XCTAssertTrue(closeTurn.contains("interruptResponse"), closeTurn)
@@ -697,6 +710,32 @@ final class ListenLoopSourceContractTests: XCTestCase {
                 afterFlush.contains("feedTapPCM16(command"),
                 "do not feed command PCM after flush to paper-green VAD"
             )
+        }
+        let stillTalking = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000StillTalkingDoesNotCommitMidUtterance",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(stillTalking.contains("GrokVoiceService("), stillTalking)
+        XCTAssertTrue(stillTalking.contains("AppModel("), stillTalking)
+        XCTAssertTrue(stillTalking.contains("simulateListenLoopSocketClose1000"), stillTalking)
+        XCTAssertTrue(stillTalking.contains("feedTapPCM16(command2)"), stillTalking)
+        XCTAssertTrue(stillTalking.contains("simulateListenLoopSocketDidOpenThenSessionReady"), stillTalking)
+        XCTAssertTrue(stillTalking.contains("feedTapPCM16(continued)"), stillTalking)
+        XCTAssertTrue(stillTalking.contains("6b5f0ee"), stillTalking)
+        XCTAssertTrue(stillTalking.contains("interruptResponse"), stillTalking)
+        XCTAssertFalse(stillTalking.contains("emitUser"), stillTalking)
+        XCTAssertFalse(stillTalking.contains("FakeLiveVoiceService"), stillTalking)
+        XCTAssertFalse(stillTalking.contains("attachListenLoopSendTaskForTests"), stillTalking)
+        if let openAt = stillTalking.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
+           let continuedAt = stillTalking.range(of: "feedTapPCM16(continued)") {
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                continuedAt.lowerBound,
+                "still-talking PCM must arrive after the session-ready flush"
+            )
+        } else {
+            XCTFail("still-talking gate must flush, then feed more speech-shaped PCM")
         }
     }
 

@@ -638,6 +638,16 @@ extension GrokVoiceService {
         grokWebSocketDidOpen()
         grokWebSocketDidReceive(json: ["type": "session.updated"], type: "session.updated")
     }
+
+    /// Quiet-close after a flushed command. Not a second listen loop.
+    func waitUntilListenLoopQueuedTurnClosed() async {
+        for _ in 0..<20 {
+            if listenLoopDeliveredSendTypes.contains("input_audio_buffer.commit") {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
 }
 
 /// Same-thread tap observer. The HAL callback is Sendable; do not touch
