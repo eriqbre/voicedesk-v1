@@ -1383,6 +1383,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {
+        guard hasPendingPlayback else { return }
         interruptCount += 1
         hasPendingPlayback = false
     }

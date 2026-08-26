@@ -58,8 +58,16 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(app.contains("voice.interruptResponse()"), app)
         XCTAssertTrue(app.contains("handleLiveUser(event.text, itemID: event.itemID)"), app)
         let live = speakSlice(app, from: "private func handleLiveTranscript", to: "private func handleLiveUser")
+        XCTAssertTrue(live.contains("guard event.isFinal else { return }"), live)
         XCTAssertFalse(live.contains("voice.interruptResponse()"), live)
         XCTAssertTrue(live.contains("shouldTakeLiveTurn"), live)
+    }
+
+    func testFakeLiveInterruptCountOnlyTicksWhenPlaybackIsPending() throws {
+        let tests = try XCTUnwrap(repoFile("VoiceDeskTests/AppModelTests.swift"))
+        let interrupt = speakSlice(tests, from: "func interruptResponse() {", to: "func suppressAssistantOutput")
+        XCTAssertTrue(interrupt.contains("guard hasPendingPlayback else { return }"), interrupt)
+        XCTAssertTrue(interrupt.contains("interruptCount += 1"), interrupt)
     }
 
     func testSpeechStartedAndTranscriptDoNotCancelPlayback() throws {
