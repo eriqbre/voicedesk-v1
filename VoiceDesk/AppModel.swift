@@ -339,9 +339,9 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            if !event.isFinal {
-                preemptGrokIfDeskTurn(event.text)
-                return
+            guard event.isFinal else { return }
+            if voice.hasPendingPlayback {
+                guard shouldTakeLiveTurn(event.text) else { return }
             }
             handleLiveUser(event.text, itemID: event.itemID)
         case .assistant:
@@ -349,7 +349,23 @@ final class AppModel {
         }
     }
 
+    /// Eve decides command vs ambient. Energy / partials never cancel her.
+    private func shouldTakeLiveTurn(_ raw: String) -> Bool {
+        if matchesCancel(raw) { return true }
+        return ListenInterrupt.isCommand(
+            raw,
+            context: deskContext,
+            pendingSearchClarify: pendingSearchClarify,
+            hasClarifyMatches: !lastSearchMatches.isEmpty,
+            hasFocusedEmail: lastFocusedEmail != nil,
+            pendingSenderRefine: pendingSenderRefine,
+            focusedEmail: lastFocusedEmail,
+            priorSearchAsk: lastSearchAsk
+        )
+    }
+
     private func handleLiveUser(_ raw: String, itemID: String?) {
+        voice.interruptResponse()
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
         rememberUserTurn(text, source: "live voice")
         completePlaybook()
@@ -463,8 +479,7 @@ final class AppModel {
     }
 
     private func handleUserText(_ raw: String) async {
-        let stripped = EarlyFinalHold.dropLeadingLeftoverStem(raw)
-        guard let text = userDedupe.accept(text: stripped, itemID: nil) else { return }
+        guard let text = userDedupe.accept(text: raw, itemID: nil) else { return }
         rememberUserTurn(text, source: "text")
         completePlaybook()
 
@@ -619,26 +634,6 @@ final class AppModel {
     private func unmuteGrokAssistant() {
         suppressLiveAssistant = false
         voice.suppressAssistantOutput(false)
-    }
-
-    /// Interrupt as soon as a partial transcript looks like a connected desk ask.
-    private func preemptGrokIfDeskTurn(_ raw: String) {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        if ConversationPresence.wantsVersionAsk(text) {
-            claimLocalAssistantReply()
-            return
-        }
-        guard google.isConnected else { return }
-        if ConversationPresence.ownsConnectedDeskTurn(
-            text,
-            pendingSearchClarify: pendingSearchClarify,
-            hasClarifyMatches: !lastSearchMatches.isEmpty,
-            hasFocusedEmail: lastFocusedEmail != nil,
-            pendingSenderRefine: pendingSenderRefine
-        ) {
-            claimLocalAssistantReply()
-        }
     }
 
     private func scrubGrokDeskRefusals() {

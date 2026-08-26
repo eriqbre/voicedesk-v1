@@ -42,6 +42,7 @@ final class GrokVoiceService: VoiceServicing {
     private var liveSessionArmed = false
 
     var state: VoiceState { session.state }
+    var hasPendingPlayback: Bool { audio.hasPendingPlayback }
 
     init(apiKey: String, voiceID: String = VoiceDeskSecrets.voiceID, model: String = VoiceDeskSecrets.model) {
         self.apiKey = apiKey
@@ -297,13 +298,6 @@ final class GrokVoiceService: VoiceServicing {
         VoiceCloudDogfoodClient.shared.enqueue(entry)
     }
 
-    /// Energy / speech_started is barge-in. Stop the player. That utterance
-    /// is the next turn — no leftover-echo matching.
-    private func applyBargeInIfNeeded(event: GrokRealtime.EventKind) {
-        guard case .speechStarted = event else { return }
-        interruptAssistant(sendCancel: true)
-    }
-
     private func interruptAssistant(sendCancel: Bool) {
         if sendCancel, currentResponseID != nil || session.state == .speaking {
             client.sendJSON(GrokRealtime.responseCancelObject())
@@ -453,7 +447,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             startAudioIfNeeded()
             finishReady()
         case .speechStarted:
-            applyBargeInIfNeeded(event: .speechStarted)
+            break
         case .speechStopped:
             break
         case .audioCommitted:
@@ -462,8 +456,6 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             guard !trimmed.isEmpty else { break }
-            ClientVoiceSpeech.shared.stop()
-            audio.interruptPlayback()
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
             currentResponseID = id

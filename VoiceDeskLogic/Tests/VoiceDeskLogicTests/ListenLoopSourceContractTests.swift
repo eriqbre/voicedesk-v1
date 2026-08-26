@@ -49,7 +49,39 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
         XCTAssertFalse(app.contains("echoGate"), app)
         XCTAssertFalse(app.contains("EchoBargeIn.acceptedUserTranscript"), app)
+        XCTAssertFalse(app.contains("EarlyFinalHold"), app)
+        XCTAssertFalse(app.contains("preemptGrokIfDeskTurn"), app)
+        XCTAssertFalse(app.contains("dropLeadingLeftoverStem"), app)
+        XCTAssertTrue(app.contains("ListenInterrupt.isCommand"), app)
+        XCTAssertTrue(app.contains("voice.hasPendingPlayback"), app)
+        XCTAssertTrue(app.contains("shouldTakeLiveTurn"), app)
+        XCTAssertTrue(app.contains("voice.interruptResponse()"), app)
         XCTAssertTrue(app.contains("handleLiveUser(event.text, itemID: event.itemID)"), app)
+        let live = speakSlice(app, from: "private func handleLiveTranscript", to: "private func handleLiveUser")
+        XCTAssertFalse(live.contains("voice.interruptResponse()"), live)
+        XCTAssertTrue(live.contains("shouldTakeLiveTurn"), live)
+    }
+
+    func testSpeechStartedAndTranscriptDoNotCancelPlayback() throws {
+        let speak = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
+        XCTAssertFalse(speak.contains("applyBargeInIfNeeded"), speak)
+        XCTAssertTrue(speak.contains("shouldApplyGrokSpeakStarted"), speak)
+        let speech = speakSlice(speak, from: "case .speechStarted:", to: "case .speechStopped:")
+        XCTAssertFalse(speech.contains("interruptAssistant"), speech)
+        XCTAssertFalse(speech.contains("interruptPlayback"), speech)
+        XCTAssertFalse(speech.contains("ClientVoiceSpeech.shared.stop"), speech)
+        let transcript = speakSlice(speak, from: "case .userTranscript", to: "case .responseCreated")
+        XCTAssertFalse(transcript.contains("interruptPlayback"), transcript)
+        XCTAssertFalse(transcript.contains("ClientVoiceSpeech.shared.stop"), transcript)
+        XCTAssertTrue(transcript.contains("eventHandler?(.userTranscript"), transcript)
+    }
+
+    func testSimGateCancelsPlaybackOnlyOnCommand() throws {
+        let sim = try XCTUnwrap(repoFile("VoiceDeskTests/GrokVoiceAudioEngineListenLoopTests.swift"))
+        XCTAssertTrue(sim.contains("ListenInterrupt.isCommand"), sim)
+        XCTAssertTrue(sim.contains("must not cancel"), sim)
+        XCTAssertTrue(sim.contains("feedTapPCM16"), sim)
+        XCTAssertFalse(sim.contains("synthesizer.speak("), sim)
     }
 
     private func speakSlice(_ source: String, from: String, to: String) -> String {

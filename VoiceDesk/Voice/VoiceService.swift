@@ -32,6 +32,9 @@ protocol VoiceServicing: AnyObject {
     var needsCredentials: Bool { get }
     var usesLiveLoop: Bool { get }
     var eventHandler: ((VoiceServiceEvent) -> Void)? { get set }
+    /// Live player still has scheduled desk / Grok PCM. Ambient speech must
+    /// not cancel it; only a command does.
+    var hasPendingPlayback: Bool { get }
 
     func startListening() async -> String
     func speak(_ text: String) async
@@ -46,6 +49,7 @@ protocol VoiceServicing: AnyObject {
 
 extension VoiceServicing {
     func warmUp() async {}
+    var hasPendingPlayback: Bool { false }
 }
 
 enum VoiceRuntime {
@@ -75,6 +79,7 @@ final class VoiceBox {
     let usesLiveLoop: Bool
 
     var transcriptHandler: ((VoiceTranscript) -> Void)?
+    var hasPendingPlayback: Bool { service.hasPendingPlayback }
 
     private let service: any VoiceServicing
 

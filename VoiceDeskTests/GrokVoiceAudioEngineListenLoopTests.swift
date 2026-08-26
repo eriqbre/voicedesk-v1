@@ -27,24 +27,38 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         XCTAssertGreaterThan(tapFires, firesBeforePlay, "tap callback rate must stay non-zero during/after player PCM")
         XCTAssertEqual(engine.startCount, 1)
 
-        let speech = Self.speechShapedPCM()
+        let commandPCM = Self.speechShapedPCM(hertz: 140)
+        let noisePCM = Self.speechShapedPCM(hertz: 90)
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("listen-loop-speech.pcm")
-        try speech.write(to: fileURL)
+        try commandPCM.write(to: fileURL)
         let fromFile = try Data(contentsOf: fileURL)
         engine.feedTapPCM16(fromFile)
-        XCTAssertEqual(sink.last, fromFile, "speech-shaped PCM file through the same tap callback is the next turn")
+        XCTAssertEqual(sink.last, fromFile, "command-shaped PCM file through the same tap callback is the next turn")
 
-        let firesBeforeBarge = tapFires
+        XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
+        XCTAssertFalse(ListenInterrupt.isCommand("Can you hear me?"))
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
+
+        let firesBeforeNoise = tapFires
         engine.playPCM16(Self.pcm16(seconds: 5, hertz: 180))
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
+        engine.feedTapPCM16(noisePCM)
+        XCTAssertEqual(sink.last, noisePCM, "non-command noise still reaches the same tap")
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "non-command noise must not cancel her")
+        XCTAssertTrue(engine.isPlayerPlaying, "player stays play()-ing through ambient speech")
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertGreaterThan(tapFires, firesBeforeNoise, "tap still firing through non-command noise")
+
+        let firesBeforeCommand = tapFires
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"), "Eve decides command vs not")
         engine.interruptPlayback()
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
-        XCTAssertTrue(engine.isPlayerPlaying, "barge-in stops buffers but player stays play()-ing")
+        XCTAssertTrue(engine.isPlayerPlaying, "command interrupt stops buffers but player stays play()-ing")
         try await Task.sleep(for: .milliseconds(150))
-        XCTAssertGreaterThan(tapFires, firesBeforeBarge, "tap still firing after barge-in")
-        engine.feedTapPCM16(speech)
-        XCTAssertEqual(sink.last, speech)
+        XCTAssertGreaterThan(tapFires, firesBeforeCommand, "tap still firing after command interrupt")
+        engine.feedTapPCM16(commandPCM)
+        XCTAssertEqual(sink.last, commandPCM, "command-shaped PCM in the tap is the next turn")
 
         let firesBeforeWrite = tapFires
         await ClientVoiceSpeech.shared.speak("Here they are.") { pcm in
@@ -86,8 +100,8 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
     }
 
     /// Voiced-ish frame. Same tap callback as the mic — not a transcript string.
-    private static func speechShapedPCM() -> Data {
-        pcm16(seconds: 0.12, hertz: 140)
+    private static func speechShapedPCM(hertz: Double = 140) -> Data {
+        pcm16(seconds: 0.12, hertz: hertz)
     }
 }
 

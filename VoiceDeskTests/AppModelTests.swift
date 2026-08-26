@@ -1146,7 +1146,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
-    func testLiveGlanceBeatLeftoverDropsAndFollowUpIsAccepted() async {
+    func testLiveGlanceBeatAmbientDoesNotCancelAndCommandTakesTurn() async {
         var murray = SampleData.syncedEmail()
         murray.fromName = "Murray Mitchell"
         murray.providerID = "msg-murray-barge"
@@ -1171,8 +1171,23 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertFalse(fake.spoken.contains { $0.contains("Murray Mitchell") })
 
-        fake.emitUser("Murray")
-        XCTAssertGreaterThan(model.turns.count, afterGlance, "Murray must barge-in as a real ask")
+        fake.hasPendingPlayback = true
+        fake.emitPartial("radio in the other room")
+        XCTAssertEqual(fake.interruptCount, 0, "energy / partial must not cancel her")
+        XCTAssertEqual(model.turns.count, afterGlance)
+
+        fake.emitUser("and now the weather")
+        XCTAssertEqual(fake.interruptCount, 0, "ambient speech must not cancel her")
+        XCTAssertEqual(model.turns.count, afterGlance, "radio stays ignored")
+
+        fake.emitUser("Can you hear me?")
+        XCTAssertEqual(fake.interruptCount, 0)
+        XCTAssertEqual(model.turns.count, afterGlance)
+
+        fake.emitUser("show me Murray's latest email")
+        XCTAssertEqual(fake.interruptCount, 1, "command intent drops playback")
+        XCTAssertFalse(fake.hasPendingPlayback)
+        XCTAssertGreaterThan(model.turns.count, afterGlance, "command-shaped ask is the next turn")
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
@@ -1291,6 +1306,8 @@ final class FakeLiveVoiceService: VoiceServicing {
     var sentTurns: [String] = []
     var spoken: [String] = []
     var assistantOutputSuppressed = false
+    var hasPendingPlayback = false
+    var interruptCount = 0
     /// Mic tap. Client TTS must not tear this down (fe1ffc8 resumeCapture).
     var tapLive = true
     /// Fired while client TTS is in-flight. Inject at this boundary once.
@@ -1352,6 +1369,11 @@ final class FakeLiveVoiceService: VoiceServicing {
         eventHandler?(.userTranscript(text, isFinal: true, itemID: itemID))
     }
 
+    func emitPartial(_ text: String, itemID: String? = nil) {
+        guard tapLive else { return }
+        eventHandler?(.userTranscript(text, isFinal: false, itemID: itemID))
+    }
+
     func emitAssistant(_ text: String, isFinal: Bool) {
         eventHandler?(.assistantTranscript(text, isFinal: isFinal))
     }
@@ -1360,7 +1382,10 @@ final class FakeLiveVoiceService: VoiceServicing {
         _ = text
     }
 
-    func interruptResponse() {}
+    func interruptResponse() {
+        interruptCount += 1
+        hasPendingPlayback = false
+    }
 
     func suppressAssistantOutput(_ suppress: Bool) {
         assistantOutputSuppressed = suppress

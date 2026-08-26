@@ -40,7 +40,6 @@ final class FirstHearListenLoopTests: XCTestCase {
                     XCTAssertTrue(walk.stayLive, "session must stay live after client TTS: \(during)")
                     XCTAssertNotEqual(walk.close1000, .stayIdle, during)
                     XCTAssertEqual(walk.startCount, 1, "no second audio.start: \(during)")
-                    XCTAssertEqual(walk.leftoverDropped, ["here", "they"], during)
                 }
             }
         }

@@ -25,8 +25,6 @@ final class EriqSpokenTapeTests: XCTestCase {
             XCTAssertTrue(walk.stayLive, line)
             XCTAssertNotEqual(walk.close1000, .stayIdle, line)
             XCTAssertEqual(walk.startCount, 1, line)
-            XCTAssertEqual(walk.leftoverDropped, ["here", "they"], line)
-            XCTAssertNotEqual(walk.landed.last, "here", line)
             XCTAssertFalse(
                 VoiceTape.catalog.contains {
                     $0.say.compare(line, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
