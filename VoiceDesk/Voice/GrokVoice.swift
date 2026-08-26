@@ -202,6 +202,11 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var sessionDelegate: WebSocketBridge?
     private var timeoutTask: Task<Void, Never>?
     private var opened = false
+    /// Bumped on every connect and disconnect. `connect()` closes the previous
+    /// socket first, and URLSession reports that closure on a background queue
+    /// *after* the replacement is already live — without this tag the old
+    /// socket's "cancelled" completion tears the new session down.
+    private var connectionID = 0
 
     var isConnected: Bool {
         lock.lock()
@@ -216,9 +221,11 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         disconnect()
 
         let url = GrokVoiceAPI.realtimeURL(model: model)
-        let bridge = WebSocketBridge(client: self)
 
         lock.lock()
+        connectionID += 1
+        let generation = connectionID
+        let bridge = WebSocketBridge(client: self, generation: generation)
         sessionDelegate = bridge
         let urlSession = URLSession(configuration: .default, delegate: bridge, delegateQueue: nil)
         session = urlSession
@@ -233,7 +240,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         timeoutTask?.cancel()
         timeoutTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
-            guard let self, !self.isConnected else { return }
+            guard let self, self.isCurrent(generation), !self.isConnected else { return }
             Task { @MainActor in
                 self.delegate?.grokWebSocketDidFail(error: "WebSocket timeout", httpStatus: nil)
             }
@@ -241,11 +248,13 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         lock.unlock()
 
         wsTask.resume()
-        receiveLoop()
+        receiveLoop(generation: generation)
     }
 
     func disconnect() {
         lock.lock()
+        // Retire this generation so in-flight callbacks are recognised as stale.
+        connectionID += 1
         timeoutTask?.cancel()
         timeoutTask = nil
         task?.cancel(with: .normalClosure, reason: nil)
@@ -255,6 +264,12 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         sessionDelegate = nil
         opened = false
         lock.unlock()
+    }
+
+    private func isCurrent(_ generation: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return connectionID == generation
     }
 
     func sendJSON(_ dict: [String: Any]) {
@@ -313,8 +328,14 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     }
 
     /// URLSession delivers these on a background queue. Hop Sendable values only.
-    nonisolated func notifyOpen() {
+    /// Callbacks tagged with a retired generation belong to a socket we already
+    /// replaced, and must not touch the live one.
+    nonisolated func notifyOpen(generation: Int) {
         lock.lock()
+        guard connectionID == generation else {
+            lock.unlock()
+            return
+        }
         opened = true
         let timeout = timeoutTask
         timeoutTask = nil
@@ -326,7 +347,8 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         }
     }
 
-    nonisolated func notifyClose(code: Int, reason: Data?) {
+    nonisolated func notifyClose(generation: Int, code: Int, reason: Data?) {
+        guard isCurrent(generation) else { return }
         let reasonText = reason.flatMap { String(data: $0, encoding: .utf8) }
         setOpened(false)
         Task { @MainActor [weak self] in
@@ -335,8 +357,8 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         }
     }
 
-    nonisolated func notifyComplete(status: Int?, error: String?) {
-        guard let error else { return }
+    nonisolated func notifyComplete(generation: Int, status: Int?, error: String?) {
+        guard let error, isCurrent(generation) else { return }
         setOpened(false)
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -350,12 +372,12 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func receiveLoop() {
+    private func receiveLoop(generation: Int) {
         lock.lock()
-        let task = self.task
+        let task = connectionID == generation ? self.task : nil
         lock.unlock()
         task?.receive { [weak self] result in
-            guard let self else { return }
+            guard let self, self.isCurrent(generation) else { return }
             switch result {
             case .success(let message):
                 switch message {
@@ -372,7 +394,7 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
                 @unknown default:
                     break
                 }
-                self.receiveLoop()
+                self.receiveLoop(generation: generation)
             case .failure(let error):
                 let message = error.localizedDescription
                 self.setOpened(false)
@@ -408,9 +430,11 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
 private final class WebSocketBridge: NSObject, URLSessionWebSocketDelegate, URLSessionTaskDelegate {
     /// Set once in `init`, then only read from session callbacks.
     nonisolated(unsafe) private weak var client: LiveGrokVoiceClient?
+    private let generation: Int
 
-    init(client: LiveGrokVoiceClient) {
+    init(client: LiveGrokVoiceClient, generation: Int) {
         self.client = client
+        self.generation = generation
     }
 
     func urlSession(
@@ -419,7 +443,7 @@ private final class WebSocketBridge: NSObject, URLSessionWebSocketDelegate, URLS
         didOpenWithProtocol proto: String?
     ) {
         _ = proto
-        client?.notifyOpen()
+        client?.notifyOpen(generation: generation)
     }
 
     func urlSession(
@@ -428,12 +452,16 @@ private final class WebSocketBridge: NSObject, URLSessionWebSocketDelegate, URLS
         didCloseWith code: URLSessionWebSocketTask.CloseCode,
         reason: Data?
     ) {
-        client?.notifyClose(code: code.rawValue, reason: reason)
+        client?.notifyClose(generation: generation, code: code.rawValue, reason: reason)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
         let status = (task.response as? HTTPURLResponse)?.statusCode
-        client?.notifyComplete(status: status, error: error?.localizedDescription)
+        client?.notifyComplete(
+            generation: generation,
+            status: status,
+            error: error?.localizedDescription
+        )
     }
 }
 

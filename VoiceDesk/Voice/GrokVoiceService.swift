@@ -24,9 +24,17 @@ final class GrokVoiceService: VoiceServicing {
     private var audioDeltaCount = 0
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
+    /// Tags each connect attempt so a stale setup timeout cannot fail the
+    /// session that replaced it.
+    private var connectAttempt = 0
     private var isTearingDown = false
     private var isRecovering = false
     private var reconnectsUsed = 0
+    /// Re-checks that mic buffers still flow and the socket is still up.
+    /// Everything else here is edge-triggered, so this is the only thing that
+    /// catches a failure that never announced itself.
+    private var watchdog: Task<Void, Never>?
+    static let watchdogInterval: Duration = .seconds(1)
     /// User tap-stop / cancel / explicit voice off. Blocks auto-reconnect and
     /// auto `startListening` until the next Tap to talk.
     private var userWantsVoiceOff = false
@@ -54,9 +62,14 @@ final class GrokVoiceService: VoiceServicing {
     func startListening() async -> String {
         userWantsVoiceOff = false
         if session.state != .idle {
+            // Already armed. Repair whatever is actually broken rather than
+            // no-oping — a tap on a session with a dead mic must fix the mic.
+            reconnectsUsed = 0
             if !client.isConnected, !isRecovering {
                 await recoverAfterDrop(reason: "tap talk")
             }
+            startAudioIfNeeded()
+            startWatchdog()
             return ""
         }
         isTearingDown = false
@@ -167,12 +180,17 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     private func connectAndConfigure() async throws {
+        // Never strand a waiter from a previous attempt on this continuation.
+        failReady(GrokVoiceError.connectFailed("Superseded by a newer connect"))
+        connectAttempt += 1
+        let attempt = connectAttempt
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             readyContinuation = continuation
             client.connect(apiKey: apiKey, model: model)
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(12))
-                self?.failReady(GrokVoiceError.connectFailed("Session setup timeout"))
+                guard let self, self.connectAttempt == attempt else { return }
+                self.failReady(GrokVoiceError.connectFailed("Session setup timeout"))
             }
         }
     }
@@ -181,12 +199,41 @@ final class GrokVoiceService: VoiceServicing {
         client.sendJSON(GrokRealtime.sessionUpdateObject(voice: voiceID, instructions: instructions))
     }
 
+    /// `isRunning` was the old guard, and it lies: an engine whose tap was
+    /// detached by a route change still reports a running graph, so capture was
+    /// never restarted and the user went unheard for the rest of the session.
     private func startAudioIfNeeded() {
-        guard !userWantsVoiceOff, !audio.isRunning else { return }
+        guard !userWantsVoiceOff, !audio.isCaptureHealthy else { return }
         let socket = client
+        audio.onCaptureFailure = { [weak self] message in
+            self?.eventHandler?(.failed(message))
+        }
         _ = audio.start(echoCancellation: true) { base64 in
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
         }
+    }
+
+    private func startWatchdog() {
+        guard watchdog == nil else { return }
+        watchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.watchdogInterval)
+                guard !Task.isCancelled, let self else { return }
+                self.watchdogTick()
+            }
+        }
+    }
+
+    private func stopWatchdog() {
+        watchdog?.cancel()
+        watchdog = nil
+    }
+
+    private func watchdogTick() {
+        guard !userWantsVoiceOff, !isTearingDown, session.state != .idle else { return }
+        audio.checkCaptureHealth()
+        guard !client.isConnected, !isRecovering else { return }
+        Task { await recoverAfterDrop(reason: "watchdog") }
     }
 
     private func interruptAssistant(sendCancel: Bool) {
@@ -205,6 +252,7 @@ final class GrokVoiceService: VoiceServicing {
     private func teardown(sendCancel: Bool) {
         guard !isTearingDown else { return }
         isTearingDown = true
+        stopWatchdog()
         if sendCancel, client.isConnected {
             interruptAssistant(sendCancel: true)
             client.sendJSON(GrokRealtime.clearBufferObject())
@@ -212,6 +260,7 @@ final class GrokVoiceService: VoiceServicing {
         failReady(GrokVoiceError.connectFailed("Cancelled"))
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
+        audio.onCaptureFailure = nil
         audio.stop()
         client.disconnect()
         currentResponseID = nil
@@ -239,31 +288,52 @@ final class GrokVoiceService: VoiceServicing {
         }
     }
 
+    /// Retries with backoff until the budget runs out. A single attempt left a
+    /// real conversation dead on the second blip of a cell handoff.
     private func recoverAfterDrop(reason: String) async {
         _ = reason
         guard !userWantsVoiceOff, !isTearingDown, !isRecovering else { return }
         isRecovering = true
-        client.disconnect()
-        audio.interruptPlayback()
-        do {
-            try await connectAndConfigure()
-            guard !userWantsVoiceOff else {
-                isRecovering = false
-                audio.stop()
-                client.disconnect()
+        defer { isRecovering = false }
+
+        while !userWantsVoiceOff, !isTearingDown {
+            let delay = VoiceSocketRecovery.reconnectDelay(attemptsUsed: reconnectsUsed)
+            if delay > 0 {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !userWantsVoiceOff, !isTearingDown else { return }
+            }
+
+            client.disconnect()
+            audio.interruptPlayback()
+            do {
+                try await connectAndConfigure()
+                guard !userWantsVoiceOff else {
+                    audio.stop()
+                    client.disconnect()
+                    return
+                }
+                reconnectsUsed = 0
+                eventHandler?(.recovered)
+                if session.state == .idle {
+                    apply(.tapTalk)
+                }
+                // The socket is new; make sure the mic is feeding it.
+                startAudioIfNeeded()
+                startWatchdog()
                 return
+            } catch {
+                reconnectsUsed += 1
+                guard !userWantsVoiceOff, !isTearingDown else { return }
+                guard VoiceSocketRecovery.shouldReconnect(
+                    kind: .transient,
+                    attemptsUsed: reconnectsUsed,
+                    userWantsVoiceOff: userWantsVoiceOff
+                ) else {
+                    eventHandler?(.failed(error.localizedDescription))
+                    teardown(sendCancel: false)
+                    return
+                }
             }
-            reconnectsUsed = 0
-            isRecovering = false
-            eventHandler?(.recovered)
-            if session.state == .idle {
-                apply(.tapTalk)
-            }
-        } catch {
-            isRecovering = false
-            guard !userWantsVoiceOff else { return }
-            eventHandler?(.failed(error.localizedDescription))
-            teardown(sendCancel: false)
         }
     }
 }
@@ -272,46 +342,40 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     func grokWebSocketDidOpen() {
         sendSessionUpdate()
         startAudioIfNeeded()
+        startWatchdog()
     }
 
     func grokWebSocketDidClose(code: Int, reason: String?) {
-        failReady(GrokVoiceError.connectFailed("closed \(code) \(reason ?? "")"))
-        guard !isTearingDown, !isRecovering else { return }
-        guard !userWantsVoiceOff else { return }
         let detail = "Grok disconnected"
-        if session.state != .idle,
-           VoiceSocketRecovery.shouldReconnect(
-            error: detail,
-            alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects,
-            userWantsVoiceOff: userWantsVoiceOff
-           ) {
-            reconnectsUsed += 1
-            Task { await recoverAfterDrop(reason: detail) }
-            return
-        }
+        // Failing the waiter immediately lets a reconnect retry now instead of
+        // sitting out the full setup timeout first.
+        failReady(GrokVoiceError.connectFailed("closed \(code) \(reason ?? "")"))
+        guard !isTearingDown, !isRecovering, !userWantsVoiceOff else { return }
         guard session.state != .idle else { return }
-        eventHandler?(.failed(detail))
-        teardown(sendCancel: false)
+        handleSocketFailure(detail: detail, kind: .transient)
     }
 
     func grokWebSocketDidFail(error: String, httpStatus: Int?) {
+        let kind = VoiceSocketRecovery.classify(error: error, httpStatus: httpStatus)
+        // Our own `disconnect()` on the way to a fresh socket is not a failure.
+        guard kind != .intentionalCancel else { return }
         let detail = httpStatus.map { "\($0) \(error)" } ?? error
-        if !isRecovering {
-            failReady(GrokVoiceError.connectFailed(detail))
-        }
-        guard !isTearingDown, !isRecovering else { return }
-        guard !userWantsVoiceOff else { return }
-        if VoiceSocketRecovery.shouldReconnect(
-            error: detail,
-            alreadyTried: reconnectsUsed >= VoiceSocketRecovery.maxAutomaticReconnects,
+        failReady(GrokVoiceError.connectFailed(detail))
+        guard !isTearingDown, !isRecovering, !userWantsVoiceOff else { return }
+        handleSocketFailure(detail: detail, kind: kind)
+    }
+
+    private func handleSocketFailure(detail: String, kind: VoiceSocketRecovery.FailureKind) {
+        guard VoiceSocketRecovery.shouldReconnect(
+            kind: kind,
+            attemptsUsed: reconnectsUsed,
             userWantsVoiceOff: userWantsVoiceOff
-        ) {
-            reconnectsUsed += 1
-            Task { await recoverAfterDrop(reason: detail) }
+        ) else {
+            eventHandler?(.failed(detail))
+            teardown(sendCancel: false)
             return
         }
-        eventHandler?(.failed(detail))
-        teardown(sendCancel: false)
+        Task { await recoverAfterDrop(reason: detail) }
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
@@ -324,9 +388,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .sessionCreated:
             sendSessionUpdate()
             startAudioIfNeeded()
+            startWatchdog()
             finishReady()
         case .sessionUpdated:
             startAudioIfNeeded()
+            startWatchdog()
             finishReady()
         case .speechStarted:
             interruptAssistant(sendCancel: true)
@@ -381,10 +447,20 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .ping(let timestamp):
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))
         case .error(let code, let message):
-            eventHandler?(.failed("\(code) \(message)".trimmingCharacters(in: .whitespaces)))
+            let detail = "\(code) \(message)".trimmingCharacters(in: .whitespaces)
+            // A realtime session has a hard lifetime. Hitting it used to end
+            // the conversation for good; reconnect and keep the desk live.
             if code == "timeout" || code == "max_duration" {
-                teardown(sendCancel: false)
+                guard !userWantsVoiceOff, session.state != .idle else {
+                    eventHandler?(.failed(detail))
+                    teardown(sendCancel: false)
+                    break
+                }
+                reconnectsUsed = 0
+                Task { await recoverAfterDrop(reason: detail) }
+                break
             }
+            eventHandler?(.failed(detail))
         case .ignored:
             break
         }

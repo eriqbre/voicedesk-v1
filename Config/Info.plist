@@ -17,5 +17,11 @@
 	</array>
 	<key>GIDClientID</key>
 	<string>$(GOOGLE_CLIENT_ID)</string>
+	<!-- Without this the mic is torn down the moment the screen locks or the
+	     user glances at another app, and it never comes back. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>
