@@ -32,6 +32,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         if let writeAt = speakFn.range(of: "ClientVoiceSpeech.shared.speak") {
             let afterWrite = String(speakFn[writeAt.upperBound...])
             XCTAssertTrue(afterWrite.contains("returnToListenAfterDeskTTS"), afterWrite)
+            XCTAssertFalse(afterWrite.contains("clientTTSInFlight = false"), afterWrite)
             XCTAssertFalse(afterWrite.contains("startAudioIfNeeded"), afterWrite)
             XCTAssertFalse(afterWrite.contains("audio.start"), afterWrite)
             XCTAssertFalse(afterWrite.contains("keepListeningAfterClientTTS"), afterWrite)
@@ -115,6 +116,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(sim.contains("fa72e1c"), sim)
         XCTAssertTrue(sim.contains("18d5878"), sim)
         XCTAssertTrue(sim.contains("415c955"), sim)
+        XCTAssertTrue(sim.contains("testTapStaysLiveAcrossPlayerPlaybackBargeInAndWriteTTS"), sim)
+        XCTAssertTrue(sim.contains("testIOSDetachAfterTTSDrainSilentTapWhileRunningThenSameEngineReinstall"), sim)
         XCTAssertTrue(sim.contains("testProductPathAfterTTSDrainStayLiveThirdCommandIsATurn"), sim)
         XCTAssertTrue(sim.contains("returnToListenAfterDeskTTS"), sim)
         XCTAssertTrue(sim.contains("plantSpeakStarted"), sim)
@@ -138,6 +141,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let loopTests = try XCTUnwrap(repoFile("VoiceDeskLogic/Tests/VoiceDeskLogicTests/FirstHearTapLoopTests.swift"))
         XCTAssertTrue(loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955DetachWhileRunningStartNoOpsDropsThird"), loopTests)
         XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955DetachWhileRunningStartNoOpsDropsThird"), loop)
+        XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTS"), loop)
+        XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSStayIdleDropsThird"), loop)
+        XCTAssertTrue(loop.contains("close1000AfterTTSStayLiveThenThird"), loop)
+        XCTAssertTrue(loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSMustNotStayIdle"), loopTests)
         XCTAssertTrue(loop.contains("detachWhileRunningThenReinstallSameTap"), loop)
         XCTAssertTrue(loop.contains("startAudioIfNeededWouldStart"), loop)
         XCTAssertTrue(loop.contains("415c955"), loop)
@@ -149,6 +156,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(start.contains("!audio.isRunning"), start)
         XCTAssertTrue(service.contains("returnToListenAfterDeskTTS"), service)
         XCTAssertTrue(service.contains("clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight"), service)
+        XCTAssertTrue(service.contains("shouldApplyGrokTurnFinished"), service)
+        XCTAssertTrue(service.contains("clientTTSInFlight: clientTTSInFlight"), service)
     }
 
     func testEngineDoesNotTreatIsRunningAsTapLiveness() throws {

@@ -66,16 +66,28 @@ public enum ListenResumePolicy: Sendable {
 
     /// Armed on first Tap to talk, warmUp, or `audio.start`. Cleared only on
     /// user stop. Audio flowing is live unless they tapped stop.
+    /// `clientTTSInFlight` keeps stayLive through desk TTS even if the
+    /// session is briefly unarmed (leftover `response.created`).
     public static func sessionShouldStayLive(
         userWantsVoiceOff: Bool,
         liveSessionArmed: Bool,
-        audioStarted: Bool = false
+        audioStarted: Bool = false,
+        clientTTSInFlight: Bool = false
     ) -> Bool {
-        !userWantsVoiceOff && (liveSessionArmed || audioStarted)
+        !userWantsVoiceOff && (liveSessionArmed || audioStarted || clientTTSInFlight)
+    }
+
+    /// fe1ffc8 / fa72e1c / 18d5878 / 415c955: stayLive was listen-armed.
+    /// Close 1000 after desk TTS while speaking/idle → stayIdle.
+    public static func sha415c955StayLiveAfterClose1000(
+        userWantsVoiceOff: Bool,
+        listenArmed: Bool
+    ) -> Bool {
+        !userWantsVoiceOff && listenArmed
     }
 
     /// Socket closed. Reconnect when the live session is still supposed to hear.
-    /// Code 1000 + idle is the 4ac127a / 697147d deaf path.
+    /// Code 1000 + idle/speaking after desk TTS is not user-stop.
     public static func afterSocketClose(
         userWantsVoiceOff: Bool,
         sessionShouldStayLive: Bool,
@@ -114,6 +126,13 @@ public enum ListenResumePolicy: Sendable {
     /// Grok `response.created` during on-device TTS must not flip the
     /// session to `.speaking`. Client TTS is listen-only.
     public static func shouldApplyGrokSpeakStarted(clientTTSSpeaking: Bool) -> Bool {
+        !clientTTSSpeaking
+    }
+
+    /// Leftover `response.done` during desk TTS must not leave listen.
+    /// `turnFinished` from `.listening` stays listening; skip it while
+    /// client TTS owns the turn so a prior `.speaking` is not required.
+    public static func shouldApplyGrokTurnFinished(clientTTSSpeaking: Bool) -> Bool {
         !clientTTSSpeaking
     }
 

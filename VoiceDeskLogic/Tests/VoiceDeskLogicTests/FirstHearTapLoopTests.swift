@@ -85,6 +85,44 @@ final class FirstHearTapLoopTests: XCTestCase {
     }
 
     /// Product repair: same-engine reinstall, not a second audio.start.
+    /// 415c955-class: close 1000 after TTS while listen was unarmed
+    /// used stayLive=listenArmed → stayIdle. Third is not a turn.
+    func testFe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSStayIdleDropsThird() {
+        XCTAssertFalse(
+            ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+                userWantsVoiceOff: false,
+                listenArmed: false
+            ),
+            "415c955 treated unarmed listen as stayLive=false"
+        )
+        let walk = FirstHearTapLoop.fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSStayIdleDropsThird()
+        XCTAssertEqual(walk.turns.count, 2)
+        XCTAssertFalse(walk.stayLive)
+        XCTAssertEqual(walk.close1000, .stayIdle)
+        XCTAssertFalse(walk.listenArmed)
+        XCTAssertEqual(walk.startCount, 1)
+    }
+
+    /// Same close-1000-after-TTS event. Product must not stayIdle.
+    func testFe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSMustNotStayIdle() {
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTS(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertNotEqual(walk.close1000, .stayIdle, "close 1000 after desk TTS must not stayIdle")
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertEqual(walk.startCount, 1)
+        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
+        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true))
+    }
+
     func testDetachWhileRunningThenReinstallSameTapLandsThird() {
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)

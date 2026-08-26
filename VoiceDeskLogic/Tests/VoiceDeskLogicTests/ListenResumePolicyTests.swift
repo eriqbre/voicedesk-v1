@@ -2,6 +2,54 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class ListenResumePolicyTests: XCTestCase {
+    func testLeftoverGrokSpeakAndDoneDuringClientTTSDoNotParkSpeaking() {
+        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
+        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true))
+        XCTAssertTrue(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: false))
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                audioStarted: true,
+                clientTTSInFlight: true
+            )
+        )
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: false,
+                audioStarted: false,
+                clientTTSInFlight: true
+            ),
+            "desk TTS in flight is stayLive even if listen looks unarmed"
+        )
+        XCTAssertFalse(
+            ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+                userWantsVoiceOff: false,
+                listenArmed: false
+            )
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: true,
+                closeCode: 1000,
+                voiceState: .speaking
+            ),
+            .reconnect
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: false,
+                closeCode: 1000,
+                voiceState: .speaking
+            ),
+            .stayIdle,
+            "415c955-class stayLive=false after TTS is stayIdle"
+        )
+    }
+
     func testAfterClientTTSFinishedStaysLiveWithoutSecondStart() {
         var session = VoiceSession()
         session.apply(.tapTalk)

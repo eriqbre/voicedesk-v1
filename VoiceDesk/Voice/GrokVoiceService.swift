@@ -115,7 +115,6 @@ final class GrokVoiceService: VoiceServicing {
         }
         await waitUntilPlaybackDrained()
         returnToListenAfterDeskTTS()
-        clientTTSInFlight = false
     }
 
     /// After write→player drain. Session back to listening. No second start.
@@ -328,7 +327,8 @@ final class GrokVoiceService: VoiceServicing {
         ListenResumePolicy.sessionShouldStayLive(
             userWantsVoiceOff: userWantsVoiceOff,
             liveSessionArmed: liveSessionArmed,
-            audioStarted: audio.isRunning || didConnectThisLaunch
+            audioStarted: audio.isRunning || didConnectThisLaunch,
+            clientTTSInFlight: clientTTSInFlight
         )
     }
 
@@ -499,6 +499,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             guard !trimmed.isEmpty else { break }
+            clientTTSInFlight = false
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
             currentResponseID = id
@@ -521,7 +522,14 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .outputAudioDone:
             break
         case .responseDone:
-            apply(.turnFinished)
+            if ListenResumePolicy.shouldApplyGrokTurnFinished(
+                clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight
+            ) {
+                apply(.turnFinished)
+            } else {
+                ListenResumePolicy.applySessionAfterDeskSpeak(&session)
+                eventHandler?(.state(session.state))
+            }
             currentResponseID = nil
             audioDeltaCount = 0
             assistantGate.reset()

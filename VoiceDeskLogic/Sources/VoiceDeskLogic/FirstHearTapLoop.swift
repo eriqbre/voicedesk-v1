@@ -140,6 +140,50 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         )
     }
 
+    /// fe1ffc8 / fa72e1c / 18d5878 / 415c955: close 1000 after desk TTS
+    /// while listen was unarmed. stayLive was listen-armed → stayIdle.
+    /// Third command PCM is not a turn.
+    public static func fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSStayIdleDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .applySpeakStarted,
+            afterDrain: .close1000AfterTTSStayIdle
+        )
+    }
+
+    /// Product path for the 415c955-class close-1000-after-TTS event.
+    /// Leftover response.created/done must not park speaking. Close 1000
+    /// must stayLive and re-listen on the same tap. stayIdle is a fail.
+    public static func fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTS(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        close1000AfterTTSStayLiveThenThird(first: first, second: second, third: third)
+    }
+
+    /// Product: leftover response.created/done during TTS, then close 1000.
+    /// stayLive stays true, listen is re-armed on the same tap, third lands.
+    public static func close1000AfterTTSStayLiveThenThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .leftoverGrokSpeakAndDone,
+            afterDrain: .close1000AfterTTSStayLive
+        )
+    }
+
     /// Product: same detach, then same-engine reinstall (not `audio.start`).
     /// Third command PCM is the next turn. `startCount` stays 1.
     public static func detachWhileRunningThenReinstallSameTap(
@@ -159,6 +203,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     private enum DuringTTS {
         case keepListening
         case applySpeakStarted
+        case leftoverGrokSpeakAndDone
     }
 
     private enum AfterDrain {
@@ -168,6 +213,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case detachWhileRunningStartNoOps
         case detachWhileRunningThenReinstall
         case returnToListenAfterTTS
+        case close1000AfterTTSStayIdle
+        case close1000AfterTTSStayLive
     }
 
     private static func run(
@@ -212,6 +259,13 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             }
         case .applySpeakStarted:
             session.apply(.speakStarted)
+        case .leftoverGrokSpeakAndDone:
+            if ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true) {
+                session.apply(.speakStarted)
+            }
+            if ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true) {
+                session.apply(.turnFinished)
+            }
         }
 
         switch afterDrain {
@@ -251,6 +305,39 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             )
             stayLive = after.stayLive
             close1000 = after.close1000
+            if after.startAgain {
+                startCount += 1
+            }
+        case .close1000AfterTTSStayIdle:
+            stayLive = ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+                userWantsVoiceOff: false,
+                listenArmed: ListenResumePolicy.isListenArmed(state: session.state)
+            )
+            close1000 = ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: stayLive,
+                closeCode: 1000,
+                voiceState: session.state
+            )
+        case .close1000AfterTTSStayLive:
+            let after = ListenResumePolicy.afterClientTTSFinished(
+                session: &session,
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                captureRunning: tapLive
+            )
+            stayLive = ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                audioStarted: tapLive,
+                clientTTSInFlight: true
+            )
+            close1000 = ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: stayLive,
+                closeCode: 1000,
+                voiceState: session.state
+            )
             if after.startAgain {
                 startCount += 1
             }
