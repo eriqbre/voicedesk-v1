@@ -128,6 +128,7 @@ final class GrokVoiceService: VoiceServicing {
             captureRunning: audio.isRunning
         )
         eventHandler?(.state(session.state))
+        audio.reinstallTapIfSilentWhileRunning()
         logListenResume(
             note: "after desk tts drain listenArmed=\(result.listenArmed) stayLive=\(result.stayLive) \(result.close1000) startAgain=\(result.startAgain) state=\(session.state.rawValue)"
         )

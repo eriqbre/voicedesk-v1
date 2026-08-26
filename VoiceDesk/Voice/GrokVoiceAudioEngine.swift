@@ -90,6 +90,18 @@ final class GrokVoiceAudioEngine {
 
     var isTapInstalled: Bool { tapInstalled }
 
+    /// After write→player drain. iOS can yank the tap and leave
+    /// `isRunning` true without ever posting interruption. Put the
+    /// same tap back. Do not increment `startCount`.
+    func reinstallTapIfSilentWhileRunning() {
+        guard FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
+            tapInstalled: tapInstalled,
+            engineRunning: engine?.isRunning ?? false,
+            wantsCapture: wantsCapture
+        ) else { return }
+        reinstallTap()
+    }
+
     /// Sim HAL often leaves the tap up when we only post a session event.
     /// Real iOS (fe1ffc8 / fa72e1c / 18d5878 / 415c955) yanks the tap and
     /// leaves `engine.isRunning` true, so `startAudioIfNeeded` no-ops.

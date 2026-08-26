@@ -145,6 +145,63 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertFalse(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true))
     }
 
+    func testFe1ffc8Fa72e1c18d5878415c955DetachAfterTTSDrainNoInterruptionDropsThird() {
+        XCTAssertFalse(
+            FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: true),
+            "415c955-class startAudioIfNeeded must no-op while isRunning"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
+                tapInstalled: false,
+                engineRunning: true,
+                wantsCapture: true
+            )
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
+                tapInstalled: true,
+                engineRunning: true,
+                wantsCapture: true
+            ),
+            "a live tap must not be torn down"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.fe1ffc8Fa72e1c18d5878415c955DetachAfterTTSDrainNoInterruptionDropsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second], "415c955 waited for interruption and stayed deaf")
+        XCTAssertFalse(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1)
+        XCTAssertTrue(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
+        )
+    }
+
+    func testDetachAfterTTSDrainNoInterruptionThenReinstallLandsThird() {
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.detachAfterTTSDrainNoInterruptionThenReinstallSameTap(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1, "reinstall must not audio.start")
+        XCTAssertFalse(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
+        )
+    }
+
     func testDetachWhileRunningThenReinstallSameTapLandsThird() {
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)

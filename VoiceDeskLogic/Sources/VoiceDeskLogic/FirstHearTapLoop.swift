@@ -32,6 +32,16 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         engineRunning && !tapEmitting
     }
 
+    /// After drain. Silent tap while running must reinstall the same tap.
+    /// Do not wait for interruption. Do not start a second engine.
+    public static func shouldReinstallTapIfSilentWhileRunning(
+        tapInstalled: Bool,
+        engineRunning: Bool,
+        wantsCapture: Bool
+    ) -> Bool {
+        wantsCapture && engineRunning && !tapInstalled
+    }
+
     /// Command-shaped PCM is a turn only if the listen path can still hear.
     /// A live tap callback with session idle / speaking is first-hear-then-deaf.
     public static func accept(
@@ -256,6 +266,40 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         )
     }
 
+    /// fe1ffc8 / fa72e1c / 18d5878 / 415c955 after write→player drain:
+    /// tap yanked, `isRunning` true, no interruption, start no-ops.
+    /// Third command PCM is not a turn.
+    public static func fe1ffc8Fa72e1c18d5878415c955DetachAfterTTSDrainNoInterruptionDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .detachAfterTTSDrainNoInterruption
+        )
+    }
+
+    /// After write→player drain, silent tap while running, no interruption.
+    /// Same-engine reinstall. Third command PCM is the next turn.
+    /// `startCount` stays 1.
+    public static func detachAfterTTSDrainNoInterruptionThenReinstallSameTap(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .detachAfterTTSDrainNoInterruptionThenReinstall
+        )
+    }
+
     /// Product: same detach, then same-engine reinstall (not `audio.start`).
     /// Third command PCM is the next turn. `startCount` stays 1.
     public static func detachWhileRunningThenReinstallSameTap(
@@ -284,6 +328,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case rearmWithoutStart
         case detachWhileRunningStartNoOps
         case detachWhileRunningThenReinstall
+        case detachAfterTTSDrainNoInterruption
+        case detachAfterTTSDrainNoInterruptionThenReinstall
         case returnToListenAfterTTS
         case close1000AfterTTSStayIdle
         case close1000AfterTTSStayLive
@@ -363,6 +409,31 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case .detachWhileRunningThenReinstall:
             tapLive = false
             tapLive = true
+        case .detachAfterTTSDrainNoInterruption, .detachAfterTTSDrainNoInterruptionThenReinstall:
+            let after = ListenResumePolicy.afterClientTTSFinished(
+                session: &session,
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                captureRunning: tapLive
+            )
+            stayLive = after.stayLive
+            close1000 = after.close1000
+            if after.startAgain {
+                startCount += 1
+            }
+            tapLive = false
+            if startAudioIfNeededWouldStart(engineRunning: true) {
+                startCount += 1
+                tapLive = true
+            }
+            if afterDrain == .detachAfterTTSDrainNoInterruptionThenReinstall,
+               shouldReinstallTapIfSilentWhileRunning(
+                tapInstalled: tapLive,
+                engineRunning: true,
+                wantsCapture: true
+               ) {
+                tapLive = true
+            }
         case .returnToListenAfterTTS:
             let after = ListenResumePolicy.afterClientTTSFinished(
                 session: &session,

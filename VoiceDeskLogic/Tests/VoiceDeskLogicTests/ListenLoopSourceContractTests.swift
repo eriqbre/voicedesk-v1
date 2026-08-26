@@ -131,6 +131,19 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(sim.contains("testTapStaysLiveAcrossPlayerPlaybackBargeInAndWriteTTS"), sim)
         XCTAssertTrue(sim.contains("testIOSDetachAfterTTSDrainSilentTapWhileRunningThenSameEngineReinstall"), sim)
         XCTAssertTrue(sim.contains("testProductPathAfterTTSDrainStayLiveThirdCommandIsATurn"), sim)
+        XCTAssertTrue(
+            sim.contains("testDetachAfterTTSDrainSilentTapWhileRunningReinstallsWithoutInterruption"),
+            sim
+        )
+        let noInterrupt = speakSlice(
+            sim,
+            from: "func testDetachAfterTTSDrainSilentTapWhileRunningReinstallsWithoutInterruption",
+            to: "private func waitUntilDrained"
+        )
+        XCTAssertFalse(noInterrupt.contains("postInterruption"), noInterrupt)
+        XCTAssertTrue(noInterrupt.contains("reinstallTapIfSilentWhileRunning"), noInterrupt)
+        XCTAssertTrue(noInterrupt.contains("simulateSystemTapDetachLeavingEngineRunning"), noInterrupt)
+        XCTAssertTrue(noInterrupt.contains("415c955"), noInterrupt)
         XCTAssertTrue(sim.contains("returnToListenAfterDeskTTS"), sim)
         XCTAssertTrue(sim.contains("plantSpeakStarted"), sim)
         let product = speakSlice(
@@ -160,6 +173,13 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("applyLeftoverGrokDuringClientTTS"), loop)
         XCTAssertTrue(loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSMustNotStayIdle"), loopTests)
         XCTAssertTrue(loop.contains("detachWhileRunningThenReinstallSameTap"), loop)
+        XCTAssertTrue(loop.contains("shouldReinstallTapIfSilentWhileRunning"), loop)
+        XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955DetachAfterTTSDrainNoInterruptionDropsThird"), loop)
+        XCTAssertTrue(loop.contains("detachAfterTTSDrainNoInterruptionThenReinstallSameTap"), loop)
+        XCTAssertTrue(
+            loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955DetachAfterTTSDrainNoInterruptionDropsThird"),
+            loopTests
+        )
         XCTAssertTrue(loop.contains("startAudioIfNeededWouldStart"), loop)
         XCTAssertTrue(loop.contains("415c955"), loop)
         XCTAssertTrue(loop.contains("18d5878"), loop)
@@ -169,6 +189,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let start = speakSlice(service, from: "private func startAudioIfNeeded() {", to: "private func armListenIfSessionLive")
         XCTAssertTrue(start.contains("!audio.isRunning"), start)
         XCTAssertTrue(service.contains("returnToListenAfterDeskTTS"), service)
+        XCTAssertTrue(service.contains("reinstallTapIfSilentWhileRunning"), service)
         XCTAssertTrue(service.contains("clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight"), service)
         XCTAssertTrue(service.contains("shouldApplyGrokTurnFinished"), service)
         XCTAssertTrue(service.contains("clientTTSInFlight: clientTTSInFlight"), service)
@@ -179,6 +200,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("AVAudioConverter"), engine)
         XCTAssertTrue(engine.contains("generation == stopped"), engine)
         XCTAssertTrue(engine.contains("reinstallTap"), engine)
+        XCTAssertTrue(engine.contains("reinstallTapIfSilentWhileRunning"), engine)
         XCTAssertTrue(engine.contains("simulateSystemTapDetachLeavingEngineRunning"), engine)
         XCTAssertTrue(engine.contains("interruptionNotification"), engine)
         XCTAssertTrue(engine.contains("mediaServicesWereResetNotification"), engine)
