@@ -253,6 +253,12 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         return payloads.compactMap { Self.typeOfSend($0) }
     }
 
+    var deliveredSends: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return deliveredForTests
+    }
+
     /// Dogfood: API key in `Authorization` plus `xai-client-secret.<key>` protocol.
     /// URLSession drops `Authorization` on the HTTP→WS upgrade (xAI VoiceTesterApp).
     /// Ephemeral tokens (`POST /v1/realtime/client_secrets`) are the next hardening — not a dogfood blocker.

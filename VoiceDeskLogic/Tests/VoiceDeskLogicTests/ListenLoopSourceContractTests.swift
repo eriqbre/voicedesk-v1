@@ -311,6 +311,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("func attachListenLoopSendTaskForTests()"), service)
         XCTAssertTrue(service.contains("listenLoopDeliveredAudioPCM"), service)
         XCTAssertTrue(service.contains("listenLoopDeliveredSendTypes"), service)
+        XCTAssertTrue(service.contains("listenLoopDeliveredSends"), service)
         XCTAssertTrue(service.contains("func simulateListenLoopSocketDidOpenThenSessionReady()"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopQueuedTurnClosed()"), service)
         XCTAssertTrue(service.contains("dropOutbound"), service)
@@ -318,13 +319,34 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let realtime = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/GrokRealtime.swift"))
         XCTAssertTrue(realtime.contains("func commitAudioBufferObject()"), realtime)
         XCTAssertTrue(realtime.contains("input_audio_buffer.commit"), realtime)
+        XCTAssertTrue(realtime.contains("func createResponse(inSessionUpdate"), realtime)
         let updated = speakSlice(service, from: "case .sessionUpdated:", to: "case .speechStarted:")
         XCTAssertTrue(updated.contains("markSessionReadyAndFlush"), updated)
         let didOpenService = speakSlice(service, from: "func grokWebSocketDidOpen()", to: "func grokWebSocketDidClose")
-        XCTAssertTrue(didOpenService.contains("sendSessionUpdate"), didOpenService)
+        XCTAssertTrue(didOpenService.contains("sendListenResumeSessionUpdate"), didOpenService)
+        XCTAssertFalse(
+            didOpenService.contains("sendSessionUpdate"),
+            "e89d443 DidOpen sent sessionUpdateObject — create_response omitted, Grok never answers"
+        )
         XCTAssertFalse(
             didOpenService.contains("markSessionReadyAndFlush"),
             "DidOpen is not session-ready — 19c1b33 flushed too early"
+        )
+        let created = speakSlice(service, from: "case .sessionCreated:", to: "case .sessionUpdated:")
+        XCTAssertFalse(
+            created.contains("sendSessionUpdate"),
+            "a second no-flag session.update wipes DidOpen create_response:true"
+        )
+        XCTAssertFalse(created.contains("sendListenResumeSessionUpdate"), created)
+        let hook = speakSlice(
+            service,
+            from: "func simulateListenLoopSocketDidOpenThenSessionReady()",
+            to: "func waitUntilListenLoopQueuedTurnClosed()"
+        )
+        XCTAssertTrue(hook.contains("grokWebSocketDidOpen"), hook)
+        XCTAssertFalse(
+            hook.contains("sendListenResumeSessionUpdate"),
+            "the hook must not paper-green e89d443 — DidOpen sends the one session.update"
         )
         let client = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoice.swift"))
         XCTAssertTrue(client.contains("outboundQueue"), client)
@@ -385,6 +407,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             to: "extension GrokVoiceService: LiveGrokVoiceClientDelegate"
         )
         XCTAssertTrue(recover.contains("connectAndConfigure"), recover)
+        XCTAssertFalse(
+            recover.contains("sendListenResumeSessionUpdate"),
+            "e89d443 sent listen-resume after connectAndConfigure — after the first session.updated, often after commit"
+        )
         XCTAssertFalse(
             recover.contains("interruptPlayback"),
             "socket recover is not a command and must not drop player buffers"
@@ -495,6 +521,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000AmbientTapStillClosesQueuedTurn"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000QueuedCommandRequestsResponse"),
             live
         )
         XCTAssertFalse(live.contains("TapSpeechEnergy"), live)
@@ -805,7 +835,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let ambientTap = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000AmbientTapStillClosesQueuedTurn",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000QueuedCommandRequestsResponse"
         )
         XCTAssertTrue(ambientTap.contains("GrokVoiceService("), ambientTap)
         XCTAssertTrue(ambientTap.contains("AppModel("), ambientTap)
@@ -843,6 +873,42 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("ambient-tap gate must flush, feed command PCM, then keep feeding radio")
+        }
+        let requestResponse = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000QueuedCommandRequestsResponse",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(requestResponse.contains("GrokVoiceService("), requestResponse)
+        XCTAssertTrue(requestResponse.contains("AppModel("), requestResponse)
+        XCTAssertTrue(requestResponse.contains("simulateListenLoopSocketClose1000"), requestResponse)
+        XCTAssertTrue(requestResponse.contains("feedTapPCM16(command2)"), requestResponse)
+        XCTAssertTrue(requestResponse.contains("simulateListenLoopSocketDidOpenThenSessionReady"), requestResponse)
+        XCTAssertTrue(requestResponse.contains("waitUntilListenLoopQueuedTurnClosed"), requestResponse)
+        XCTAssertTrue(requestResponse.contains("listenLoopDeliveredSends"), requestResponse)
+        XCTAssertTrue(requestResponse.contains("createResponse(inSessionUpdate"), requestResponse)
+        XCTAssertTrue(requestResponse.contains("e89d443"), requestResponse)
+        XCTAssertTrue(requestResponse.contains("input_audio_buffer.commit"), requestResponse)
+        XCTAssertTrue(requestResponse.contains("interruptResponse"), requestResponse)
+        XCTAssertFalse(requestResponse.contains("emitUser"), requestResponse)
+        XCTAssertFalse(requestResponse.contains("FakeLiveVoiceService"), requestResponse)
+        XCTAssertFalse(requestResponse.contains("attachListenLoopSendTaskForTests"), requestResponse)
+        XCTAssertFalse(requestResponse.contains("sendListenResumeSessionUpdate"), requestResponse)
+        if let openAt = requestResponse.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
+           let commitAt = requestResponse.range(of: "input_audio_buffer.commit"),
+           let createAt = requestResponse.range(of: "createResponse(inSessionUpdate") {
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                createAt.lowerBound,
+                "create_response is asserted after the real DidOpen recover"
+            )
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                commitAt.lowerBound,
+                "commit is asserted after flush, not by feeding more PCM"
+            )
+        } else {
+            XCTFail("response-request gate must DidClose, feed PCM 2, DidOpen, then require create_response before commit")
         }
     }
 

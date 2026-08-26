@@ -246,6 +246,18 @@ final class GrokRealtimeTests: XCTestCase {
             "verbatim leave-behind create_response:false must be flipped back on"
         )
         XCTAssertEqual((listenResume["session"] as? [String: Any])?["instructions"] as? String, "listen")
+
+        let resumeJSON = try XCTUnwrap(
+            String(data: JSONSerialization.data(withJSONObject: listenResume), encoding: .utf8)
+        )
+        XCTAssertEqual(GrokRealtime.createResponse(inSessionUpdate: resumeJSON), true)
+        let defaultJSON = try XCTUnwrap(
+            String(data: GrokRealtime.sessionUpdateJSON(voice: "eve"), encoding: .utf8)
+        )
+        XCTAssertNil(
+            GrokRealtime.createResponse(inSessionUpdate: defaultJSON),
+            "omitted create_response is not a response request"
+        )
     }
 
     func testCancelAndTextTurnPayloads() {

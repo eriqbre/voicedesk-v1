@@ -425,7 +425,6 @@ final class GrokVoiceService: VoiceServicing {
             }
             reconnectsUsed = 0
             eventHandler?(.recovered)
-            sendListenResumeSessionUpdate()
             armListenIfSessionLive(reason: "socket recover")
             isRecovering = false
         } catch {
@@ -443,7 +442,7 @@ final class GrokVoiceService: VoiceServicing {
 extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     func grokWebSocketDidOpen() {
         didConnectThisLaunch = true
-        sendSessionUpdate()
+        sendListenResumeSessionUpdate()
         startAudioIfNeeded()
     }
 
@@ -504,7 +503,6 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     func grokWebSocketDidReceive(json: [String: Any], type: String) {
         switch GrokRealtime.parse(type: type, json: json) {
         case .sessionCreated:
-            sendSessionUpdate()
             startAudioIfNeeded()
             finishReady()
         case .sessionUpdated:
@@ -624,6 +622,8 @@ extension GrokVoiceService {
     var listenLoopDeliveredAudioPCM: [Data] { client.deliveredAppendPCM }
 
     var listenLoopDeliveredSendTypes: [String] { client.deliveredSendTypes }
+
+    var listenLoopDeliveredSends: [String] { client.deliveredSends }
 
     /// Tiny hook. Not a mock Grok client. Flushes the dead-socket queue.
     func attachListenLoopSendTaskForTests() {

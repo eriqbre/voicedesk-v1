@@ -197,6 +197,19 @@ public enum GrokRealtime {
         )
     }
 
+    /// `nil` if this is not a session.update or the flag was omitted.
+    public static func createResponse(inSessionUpdate raw: String) -> Bool? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "session.update",
+              let session = object["session"] as? [String: Any],
+              let turn = session["turn_detection"] as? [String: Any],
+              turn["create_response"] != nil
+        else { return nil }
+        if let flag = turn["create_response"] as? Bool { return flag }
+        return (turn["create_response"] as? NSNumber)?.boolValue
+    }
+
     public static func sessionUpdateJSON(
         voice: String = defaultVoice,
         instructions: String = presenceInstructions

@@ -1135,6 +1135,127 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// After drain + DidClose 1000, command PCM 2 while dead, real
+    /// DidOpen + session.updated recover. e89d443 flushed+committed on
+    /// the no-flag session.update. Grok never answers. The first
+    /// session.update must request a response before commit.
+    /// `startCount` stays 1.
+    func testLiveConversationLoopDidClose1000QueuedCommandRequestsResponse() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-request-response")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(
+            session: session,
+            commands: [command1, command2, command3],
+            noise: noise
+        )
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        voice.startListenLoopAudioForTests()
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command1)
+        XCTAssertEqual(sink.turns, [command1])
+
+        await voice.speak(InboxGlance.spokenListAck())
+        XCTAssertEqual(engine.pendingPlaybackCount, 0)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+
+        await voice.simulateListenLoopSocketClose1000()
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertFalse(voice.listenLoopSocketHasSendTask)
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink.turns, [command1, command2])
+
+        voice.simulateListenLoopSocketDidOpenThenSessionReady()
+        await voice.waitUntilListenLoopQueuedTurnClosed()
+        XCTAssertEqual(engine.startCount, 1, "response-request recover must not audio.start")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertTrue(
+            voice.listenLoopDeliveredAudioPCM.contains(command2),
+            "queued command 2 must flush after session.updated"
+        )
+
+        let types = voice.listenLoopDeliveredSendTypes
+        let sends = voice.listenLoopDeliveredSends
+        guard let updateAt = types.firstIndex(of: "session.update"),
+              let commitAt = types.firstIndex(of: "input_audio_buffer.commit"),
+              let firstUpdate = sends.first(where: { LiveGrokVoiceClient.typeOfSend($0) == "session.update" })
+        else {
+            XCTFail("recover must send session.update and close the queued command")
+            voice.cancel()
+            return
+        }
+        XCTAssertLessThan(
+            updateAt,
+            commitAt,
+            "session.update must precede commit"
+        )
+        XCTAssertEqual(
+            GrokRealtime.createResponse(inSessionUpdate: firstUpdate),
+            true,
+            "e89d443 DidOpen sent sessionUpdateObject with create_response omitted — commit on a session that never asked for a response"
+        )
+
+        XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
+
+        let speaking = Task { await voice.speak(Self.laterDeskReply) }
+        await waitUntilPending(engine)
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
+        engine.feedTapPCM16(noise)
+        XCTAssertEqual(sink.ambient.last, noise)
+        XCTAssertEqual(sink.turns, [command1, command2], "ambient / radio / other-room is not a turn")
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "ambient must not cancel write→player")
+        XCTAssertTrue(engine.isPlayerPlaying)
+
+        model.voice.interruptResponse()
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "command intent drops playback")
+        XCTAssertTrue(engine.isRunning)
+        sink.startCount = engine.startCount
+        engine.feedTapPCM16(command3)
+        XCTAssertEqual(sink.turns.last, command3)
+        XCTAssertEqual(sink.turns, [command1, command2, command3])
+        XCTAssertEqual(engine.startCount, 1)
+        await speaking.value
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.count,
+            0,
+            "transcript injects do not count"
+        )
+
+        voice.cancel()
+    }
+
     private func waitUntilPending(_ engine: GrokVoiceAudioEngine) async {
         for _ in 0..<50 {
             if engine.pendingPlaybackCount > 0 { return }
