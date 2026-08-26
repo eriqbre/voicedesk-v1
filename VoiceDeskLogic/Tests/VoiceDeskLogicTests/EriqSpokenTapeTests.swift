@@ -1,12 +1,16 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// Each live walk line is one inject after client TTS. Mic stays live.
-/// Not VoiceTape intent matching. Not emit-twice.
+/// Each compact-tape line is one inject after client TTS. Mic stays live.
+/// Not VoiceTape catalog, not VoiceTapeGate 168-accept, not emit-twice.
 final class EriqSpokenTapeTests: XCTestCase {
     func testEachWalkLineLandsOnceAfterClientTTS() {
         let spoken = InboxGlance.spokenListAck()
         XCTAssertEqual(spoken, "Here they are.")
+        XCTAssertEqual(VoiceTape.catalog.count, 8, "do not expand VoiceTape.catalog")
+        XCTAssertEqual(EriqSpokenTape.spoken.count, 16)
+        XCTAssertEqual(EriqSpokenTape.intended.count, 8)
+        XCTAssertEqual(EriqSpokenTape.lines.count, 24)
         for line in EriqSpokenTape.lines {
             let walk = FirstHearListenLoop.twoTurnsThenOneDuringClientTTS(
                 first: "what version are we on",
@@ -20,11 +24,6 @@ final class EriqSpokenTapeTests: XCTestCase {
             XCTAssertTrue(walk.listenArmed, line)
             XCTAssertEqual(walk.leftoverDropped, ["here", "they"], line)
             XCTAssertNotEqual(walk.landed.last, "here", line)
-        }
-        XCTAssertEqual(EriqSpokenTape.walkLines.count, 12)
-        XCTAssertEqual(EriqSpokenTape.coverLines.count, 5)
-        XCTAssertEqual(EriqSpokenTape.lines.count, 17)
-        for line in EriqSpokenTape.lines {
             XCTAssertFalse(
                 VoiceTape.catalog.contains {
                     $0.say.compare(line, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
