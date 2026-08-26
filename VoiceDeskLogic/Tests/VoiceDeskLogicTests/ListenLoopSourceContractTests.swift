@@ -170,7 +170,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(delayedYank.contains("postInterruption"), delayedYank)
         XCTAssertTrue(delayedYank.contains("simulateHALTapYankLeavingInstalledFlagTrue"), delayedYank)
         XCTAssertTrue(delayedYank.contains("returnToListenAfterDeskTTS"), delayedYank)
-        XCTAssertTrue(delayedYank.contains("AVAudioEngineConfigurationChange"), delayedYank)
+        XCTAssertTrue(delayedYank.contains("postEngineConfigurationChange"), delayedYank)
+        XCTAssertTrue(sim.contains("AVAudioEngineConfigurationChange"), sim)
+        let configPost = speakSlice(
+            sim,
+            from: "private func postEngineConfigurationChange()",
+            to: "private func settleLifecycle()"
+        )
+        XCTAssertTrue(configPost.contains("AVAudioEngineConfigurationChange"), configPost)
+        XCTAssertFalse(configPost.contains("postInterruption"), configPost)
         if let listenAt = delayedYank.range(of: "returnToListenAfterDeskTTS"),
            let yankAt = delayedYank.range(of: "simulateHALTapYankLeavingInstalledFlagTrue") {
             XCTAssertLessThan(
@@ -197,7 +205,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "only the drain-time 573f654 repair; config change is the delayed-yank recovery"
         )
         if let yankAt = delayedYank.range(of: "simulateHALTapYankLeavingInstalledFlagTrue"),
-           let configAt = delayedYank.range(of: "AVAudioEngineConfigurationChange") {
+           let configAt = delayedYank.range(of: "postEngineConfigurationChange") {
             XCTAssertLessThan(
                 yankAt.lowerBound,
                 configAt.lowerBound,
