@@ -81,9 +81,27 @@ final class GrokVoiceAudioEngine {
     }
 
     /// Same callback the mic tap uses. Speech-shaped PCM is a turn, not a string.
+    /// After an iOS detach (`tapInstalled == false`) this must no-op so a
+    /// silent tap cannot be paper-greened by feeding PCM.
     func feedTapPCM16(_ pcm: Data) {
         guard tapInstalled, let onMicAudio else { return }
         onMicAudio(pcm.base64EncodedString())
+    }
+
+    var isTapInstalled: Bool { tapInstalled }
+
+    /// Sim HAL often leaves the tap up when we only post a session event.
+    /// Real iOS (fe1ffc8 / fa72e1c / 18d5878 / 415c955) yanks the tap and
+    /// leaves `engine.isRunning` true, so `startAudioIfNeeded` no-ops.
+    /// This is that detach. It must not increment `startCount`.
+    func simulateSystemTapDetachLeavingEngineRunning() {
+        guard let engine else { return }
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        tap?.detach()
+        tap = nil
     }
 
     func playAudioDelta(base64: String) {

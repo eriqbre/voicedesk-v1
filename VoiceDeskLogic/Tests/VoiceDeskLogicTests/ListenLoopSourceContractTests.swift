@@ -99,9 +99,36 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(sim.contains("turns.count, 3"), sim)
         XCTAssertTrue(sim.contains("silentTapWhileEngineRunning"), sim)
         XCTAssertTrue(sim.contains("firesAfterDrain"), sim)
+        XCTAssertTrue(sim.contains("simulateSystemTapDetachLeavingEngineRunning"), sim)
+        XCTAssertTrue(sim.contains("interruptionNotification"), sim)
+        XCTAssertTrue(sim.contains("postInterruption(.began)"), sim)
+        XCTAssertTrue(sim.contains("postInterruption(.ended)"), sim)
+        XCTAssertTrue(sim.contains("categoryChange"), sim)
+        XCTAssertTrue(sim.contains("engine.startCount, 1"), sim)
+        XCTAssertTrue(sim.contains("fe1ffc8"), sim)
+        XCTAssertTrue(sim.contains("fa72e1c"), sim)
+        XCTAssertTrue(sim.contains("18d5878"), sim)
+        XCTAssertTrue(sim.contains("415c955"), sim)
         XCTAssertFalse(sim.contains("keepListeningAfterClientTTS"), sim)
         XCTAssertFalse(sim.contains("resumeCapture"), sim)
         XCTAssertFalse(sim.contains("rearmTap"), sim)
+        XCTAssertFalse(sim.contains("synthesizer.speak("), sim)
+    }
+
+    func testFirstHearTapLoopEncodes415c955ClassDetach() throws {
+        let loop = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/FirstHearTapLoop.swift"))
+        let loopTests = try XCTUnwrap(repoFile("VoiceDeskLogic/Tests/VoiceDeskLogicTests/FirstHearTapLoopTests.swift"))
+        XCTAssertTrue(loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955DetachWhileRunningStartNoOpsDropsThird"), loopTests)
+        XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955DetachWhileRunningStartNoOpsDropsThird"), loop)
+        XCTAssertTrue(loop.contains("detachWhileRunningThenReinstallSameTap"), loop)
+        XCTAssertTrue(loop.contains("startAudioIfNeededWouldStart"), loop)
+        XCTAssertTrue(loop.contains("415c955"), loop)
+        XCTAssertTrue(loop.contains("18d5878"), loop)
+        XCTAssertTrue(loop.contains("fa72e1c"), loop)
+        XCTAssertTrue(loop.contains("fe1ffc8"), loop)
+        let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
+        let start = speakSlice(service, from: "private func startAudioIfNeeded() {", to: "private func armListenIfSessionLive")
+        XCTAssertTrue(start.contains("!audio.isRunning"), start)
     }
 
     func testEngineDoesNotTreatIsRunningAsTapLiveness() throws {
@@ -109,6 +136,18 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("AVAudioConverter"), engine)
         XCTAssertTrue(engine.contains("generation == stopped"), engine)
         XCTAssertTrue(engine.contains("reinstallTap"), engine)
+        XCTAssertTrue(engine.contains("simulateSystemTapDetachLeavingEngineRunning"), engine)
+        XCTAssertTrue(engine.contains("interruptionNotification"), engine)
+        XCTAssertTrue(engine.contains("mediaServicesWereResetNotification"), engine)
+        let detach = engineSlice(
+            engine,
+            from: "func simulateSystemTapDetachLeavingEngineRunning()",
+            to: "func playAudioDelta"
+        )
+        XCTAssertTrue(detach.contains("removeTap"), detach)
+        XCTAssertTrue(detach.contains("tapInstalled = false"), detach)
+        XCTAssertFalse(detach.contains("startCount +="), detach)
+        XCTAssertFalse(detach.contains("engine.stop"), detach)
         XCTAssertFalse(engine.contains(".mixWithOthers"), engine)
         XCTAssertFalse(engine.contains("MicLivenessMonitor"), engine)
         XCTAssertFalse(engine.contains("MicRepairBackoff"), engine)

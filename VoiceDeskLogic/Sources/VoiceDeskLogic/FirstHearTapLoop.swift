@@ -110,6 +110,50 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         )
     }
 
+    /// Same guard as 415c955 / 18d5878 / fa72e1c / fe1ffc8 `startAudioIfNeeded`:
+    /// `guard !userWantsVoiceOff, !audio.isRunning else { return }`.
+    /// Used by the SHA fixture so a revert to that loop drops the third.
+    public static func startAudioIfNeededWouldStart(
+        engineRunning: Bool,
+        userWantsVoiceOff: Bool = false
+    ) -> Bool {
+        !userWantsVoiceOff && !engineRunning
+    }
+
+    /// fe1ffc8 / fa72e1c / 18d5878 / 415c955: iOS detached the tap,
+    /// `engine.isRunning` stayed true, `startAudioIfNeeded` no-ops.
+    /// Third command PCM is not a turn. Trees are not replayed; this
+    /// is the failure mode those SHAs paper-greened.
+    public static func fe1ffc8Fa72e1c18d5878415c955DetachWhileRunningStartNoOpsDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .detachWhileRunningStartNoOps
+        )
+    }
+
+    /// Product: same detach, then same-engine reinstall (not `audio.start`).
+    /// Third command PCM is the next turn. `startCount` stays 1.
+    public static func detachWhileRunningThenReinstallSameTap(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .detachWhileRunningThenReinstall
+        )
+    }
+
     private enum DuringTTS {
         case keepListening
         case applySpeakStarted
@@ -119,6 +163,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case doNothing
         case idleClose
         case rearmWithoutStart
+        case detachWhileRunningStartNoOps
+        case detachWhileRunningThenReinstall
     }
 
     private static func run(
@@ -132,7 +178,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         session.apply(.tapTalk)
         var tapLive = true
         var stayLive = true
-        let startCount = 1
+        var startCount = 1
         var turns: [Data] = []
         var close1000 = ListenResumePolicy.afterSocketClose(
             userWantsVoiceOff: false,
@@ -184,6 +230,15 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             )
         case .rearmWithoutStart:
             tapLive = false
+        case .detachWhileRunningStartNoOps:
+            tapLive = false
+            if startAudioIfNeededWouldStart(engineRunning: true) {
+                startCount += 1
+                tapLive = true
+            }
+        case .detachWhileRunningThenReinstall:
+            tapLive = false
+            tapLive = true
         }
 
         take(third)

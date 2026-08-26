@@ -1,3 +1,4 @@
+@preconcurrency import AVFAudio
 import XCTest
 import VoiceDeskLogic
 @testable import VoiceDesk
@@ -103,6 +104,139 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         engine.stop()
     }
 
+    /// Honesty gate for fe1ffc8 / fa72e1c / 18d5878 / 415c955.
+    /// Those SHAs paper-greened tap-across-playback, then went first-hear-then-deaf
+    /// on device: iOS detached the tap, `isRunning` stayed true, `startAudioIfNeeded`
+    /// no-ops. Sim HAL often never fires that detach, so the after-drain 500ms
+    /// check can stay green while the phone is deaf.
+    ///
+    /// This test forces the iOS-shaped detach, posts interruption *began*
+    /// (lifecycle `.none`), and requires silent-tap-while-running. That is
+    /// the old loop, and it must fail there. Then interruption *ended*
+    /// reinstalls the same tap — no second `audio.start`, no `synthesizer.speak()`.
+    /// Category-change / override must not be the repair. Third command PCM
+    /// through the repaired tap is the next turn. `startCount` stays 1.
+    func testIOSDetachAfterTTSDrainSilentTapWhileRunningThenSameEngineReinstall() async throws {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+        let listen = TapListenBox(
+            session: session,
+            stayLive: true,
+            startCount: 1,
+            tapLive: false,
+            command1: command1,
+            command2: command2,
+            command3: command3,
+            noise: noise
+        )
+
+        let engine = GrokVoiceAudioEngine()
+        let logs = engine.start(echoCancellation: true) { base64 in
+            listen.onTap(base64)
+        }
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one engine: \(logs.joined(separator: "; "))")
+        }
+        listen.tapLive = true
+        listen.startCount = engine.startCount
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(engine.isTapInstalled)
+
+        engine.feedTapPCM16(command1)
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(listen.turns, [command1, command2])
+
+        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
+            engine.playPCM16(pcm)
+        }
+        await waitUntilDrained(engine)
+        XCTAssertEqual(engine.pendingPlaybackCount, 0)
+        XCTAssertEqual(engine.startCount, 1, "drain must not audio.start")
+        XCTAssertTrue(engine.isRunning)
+        listen.startCount = engine.startCount
+
+        engine.simulateSystemTapDetachLeavingEngineRunning()
+        XCTAssertFalse(engine.isTapInstalled)
+        XCTAssertTrue(engine.isRunning, "415c955-class detach leaves isRunning true")
+        XCTAssertEqual(engine.startCount, 1, "detach must not audio.start")
+
+        await postInterruption(.began)
+        XCTAssertFalse(engine.isTapInstalled, "interruption began must not reinstall")
+        XCTAssertTrue(engine.isRunning)
+        listen.tapLive = engine.isTapInstalled
+        listen.startCount = engine.startCount
+
+        let firesAfterDetach = listen.tapFires
+        try await Task.sleep(for: .milliseconds(400))
+        let arrivedWhileDetached = listen.tapFires > firesAfterDetach
+        if FirstHearTapLoop.silentTapWhileEngineRunning(
+            tapEmitting: arrivedWhileDetached,
+            engineRunning: engine.isRunning
+        ) {
+            // Expected: tap is silent, engine still claims running.
+        } else if arrivedWhileDetached {
+            XCTFail("tap still emitting after iOS-shaped detach; gate is not honest")
+        }
+        XCTAssertTrue(
+            FirstHearTapLoop.silentTapWhileEngineRunning(
+                tapEmitting: arrivedWhileDetached,
+                engineRunning: engine.isRunning
+            ),
+            "fe1ffc8/fa72e1c/18d5878/415c955: silent tap while isRunning — startAudioIfNeeded would no-op"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: engine.isRunning),
+            "old loop no-ops here; a second start is not the repair"
+        )
+
+        engine.feedTapPCM16(command3)
+        XCTAssertEqual(listen.sink, [command1, command2], "detached tap must not accept the third")
+        XCTAssertEqual(listen.turns, [command1, command2])
+
+        await postRouteChange(.categoryChange)
+        await postRouteChange(.override)
+        XCTAssertFalse(engine.isTapInstalled, "categoryChange/override must not reinstall the tap")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1)
+
+        await postInterruption(.ended)
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertTrue(engine.isTapInstalled, "interruption ended must reinstall the same tap")
+        XCTAssertEqual(engine.startCount, 1, "reinstall must not audio.start")
+        listen.tapLive = engine.isTapInstalled
+        listen.startCount = engine.startCount
+
+        let firesAfterReinstall = listen.tapFires
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertGreaterThan(
+            listen.tapFires,
+            firesAfterReinstall,
+            "same tap must emit new buffers after reinstall"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.silentTapWhileEngineRunning(
+                tapEmitting: listen.tapFires > firesAfterReinstall,
+                engineRunning: engine.isRunning
+            )
+        )
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("detach-repair-third.pcm")
+        try command3.write(to: fileURL)
+        let thirdFromFile = try Data(contentsOf: fileURL)
+        engine.feedTapPCM16(thirdFromFile)
+        XCTAssertEqual(listen.sink.last, thirdFromFile, "third command PCM must go through the repaired tap")
+        XCTAssertEqual(listen.turns.last, thirdFromFile, "after drain+repair, that PCM is the next turn")
+        XCTAssertEqual(listen.turns.count, 3)
+        XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
+        XCTAssertFalse(Self.clientVoiceSpeechSourceContainsSpeakCall())
+
+        engine.stop()
+    }
+
     private func waitUntilDrained(_ engine: GrokVoiceAudioEngine) async {
         if engine.pendingPlaybackCount == 0 { return }
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -134,6 +268,42 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
     /// Voiced-ish frame. Same tap callback as the mic — not a transcript string.
     private static func speechShapedPCM(hertz: Double = 140) -> Data {
         pcm16(seconds: 0.12, hertz: hertz)
+    }
+
+    private func postInterruption(_ type: AVAudioSession.InterruptionType) async {
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: [AVAudioSessionInterruptionTypeKey: type.rawValue]
+        )
+        await settleLifecycle()
+    }
+
+    private func postRouteChange(_ reason: AVAudioSession.RouteChangeReason) async {
+        NotificationCenter.default.post(
+            name: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: [AVAudioSessionRouteChangeReasonKey: reason.rawValue]
+        )
+        await settleLifecycle()
+    }
+
+    private func settleLifecycle() async {
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(80))
+    }
+
+    /// Source contract used by the detach test: repair must not be synthesizer.speak().
+    private static func clientVoiceSpeechSourceContainsSpeakCall() -> Bool {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 {
+            url.deleteLastPathComponent()
+            let candidate = url.appendingPathComponent("VoiceDesk/Voice/ClientVoiceSpeech.swift")
+            if let text = try? String(contentsOf: candidate, encoding: .utf8) {
+                return text.contains("synthesizer.speak(")
+            }
+        }
+        return true
     }
 }
 

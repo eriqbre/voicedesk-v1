@@ -26,6 +26,37 @@ final class AudioTapLifecycleTests: XCTestCase {
         )
     }
 
+    func testInterruptionBeganLeavesTapDeadWhileRunning() {
+        var interrupted = false
+        XCTAssertEqual(
+            AudioTapLifecycle.action(for: .interruptionBegan, wantsCapture: true, isInterrupted: &interrupted),
+            .none
+        )
+        XCTAssertTrue(interrupted)
+    }
+
+    func testInterruptionEndedReinstallsSameEngineTap() {
+        var interrupted = true
+        XCTAssertEqual(
+            AudioTapLifecycle.action(for: .interruptionEnded, wantsCapture: true, isInterrupted: &interrupted),
+            .reinstallTap
+        )
+        XCTAssertFalse(interrupted)
+    }
+
+    func testRouteDeviceChangeReinstallsUnlessInterrupted() {
+        var interrupted = false
+        XCTAssertEqual(
+            AudioTapLifecycle.action(for: .routeDeviceChanged, wantsCapture: true, isInterrupted: &interrupted),
+            .reinstallTap
+        )
+        interrupted = true
+        XCTAssertEqual(
+            AudioTapLifecycle.action(for: .routeDeviceChanged, wantsCapture: true, isInterrupted: &interrupted),
+            .none
+        )
+    }
+
     func testVoiceOffIsANoOp() {
         var interrupted = false
         XCTAssertEqual(
