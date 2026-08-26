@@ -49,6 +49,13 @@ enum VoiceEarcon {
     #if canImport(AVFAudio)
     private static func prepareSessionForClick() {
         let session = AVAudioSession.sharedInstance()
+        // Re-negotiating the category for a click is enough to detach a live
+        // mic tap, and it would drop the Bluetooth and voice-processing options
+        // the capture engine set up. If the session is already ours, leave it.
+        guard session.category != .playAndRecord else {
+            try? session.setActive(true)
+            return
+        }
         do {
             try session.setCategory(
                 .playAndRecord,
