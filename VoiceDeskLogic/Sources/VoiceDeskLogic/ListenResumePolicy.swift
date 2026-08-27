@@ -24,12 +24,6 @@ public enum ListenResumePolicy: Sendable {
         return .keepListening
     }
 
-    /// 4ac127a / 697147d: `session close code=1000 state=idle` after a desk
-    /// line is not user-stop. Reconnect when the live session should hear.
-    public static func isNormalClose(_ code: Int) -> Bool {
-        code == 1000 || code == 1001
-    }
-
     /// Armed on first Tap to talk, warmUp, or `audio.start`. Cleared only on
     /// user stop. Audio flowing is live unless they tapped stop.
     /// `clientTTSInFlight` keeps stayLive during write→player only.

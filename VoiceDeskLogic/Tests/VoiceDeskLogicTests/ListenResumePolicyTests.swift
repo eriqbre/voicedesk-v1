@@ -243,10 +243,6 @@ final class ListenResumePolicyTests: XCTestCase {
     }
 
     func testNormalClose1000WhileIdleStillReconnectsWhenLiveSessionArmed() {
-        XCTAssertTrue(ListenResumePolicy.isNormalClose(1000))
-        XCTAssertTrue(ListenResumePolicy.isNormalClose(1001))
-        XCTAssertFalse(ListenResumePolicy.isNormalClose(1006))
-
         XCTAssertTrue(
             ListenResumePolicy.sessionShouldStayLive(
                 userWantsVoiceOff: false,
