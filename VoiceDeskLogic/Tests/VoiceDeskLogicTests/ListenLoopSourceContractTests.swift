@@ -1172,6 +1172,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "barge-in during Grok player audio must not use desk speak"
         )
         XCTAssertFalse(
+            bargeIn.contains("milliseconds(400)"),
+            "400ms sleep after ambient misses the Grok barge-in window"
+        )
+        XCTAssertFalse(
             bargeIn.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"),
             "do not simulate the 415c955 idle death"
         )

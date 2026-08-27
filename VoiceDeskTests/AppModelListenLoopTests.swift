@@ -933,7 +933,6 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertTrue(voice.listenLoopArmed)
         XCTAssertTrue(voice.listenLoopStayLive)
         XCTAssertEqual(voice.listenLoopRecoverCount, 0)
-        try? await Task.sleep(for: .milliseconds(400))
         XCTAssertEqual(
             voice.listenLoopResponseCreatedCount,
             createdBeforeAmbient,
