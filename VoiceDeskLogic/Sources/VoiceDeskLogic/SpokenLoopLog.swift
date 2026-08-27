@@ -154,15 +154,6 @@ public enum SpokenLoopLog: Sendable {
         return fields
     }
 
-    public static func containsTranscriptOrBody(_ entry: VoiceInteractionEntry) -> Bool {
-        if !entry.userTranscript.isEmpty || !entry.assistantReply.isEmpty { return true }
-        let blob = entry.routingNotes.joined(separator: " ").lowercased()
-        return blob.contains("what version")
-            || blob.contains("rob clark")
-            || blob.contains("subject:")
-            || blob.contains("body=")
-    }
-
     public static func note(fields: [String: String]) -> String {
         let order = ["event", "session", "intent", "mouth", "first_audio", "listenArmed", "stayLive", "state", "code", "stayIdle", "response", "reason"]
         var seen = Set<String>()
