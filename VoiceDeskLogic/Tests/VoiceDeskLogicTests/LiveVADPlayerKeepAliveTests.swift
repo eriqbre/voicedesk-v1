@@ -89,7 +89,6 @@ final class LiveVADPlayerKeepAliveTests: XCTestCase {
         XCTAssertTrue(
             LiveVADPlayerKeep.shouldSendPresenceSessionUpdate(responseInFlight: false)
         )
-        XCTAssertFalse(LiveVADPlayerKeep.shouldBufferTranscriptUntilToolsFinish())
         XCTAssertTrue(
             LiveVADPlayerKeep.shouldAttachCardsOnFirstTranscriptDelta(liveVADTurn: true)
         )

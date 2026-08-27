@@ -102,10 +102,6 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
         liveVADTurn
     }
 
-    public static func shouldBufferTranscriptUntilToolsFinish() -> Bool {
-        false
-    }
-
     /// c1cd758 walk: `eve speaks identity` + empty assistantReply.
     /// 83a5c6a spoke the identity line via write→player.
     public static func isEmptyEveSpeaksIdentityLie(
