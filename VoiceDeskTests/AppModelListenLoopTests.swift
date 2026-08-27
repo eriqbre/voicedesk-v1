@@ -1385,7 +1385,22 @@ final class AppModelListenLoopTests: XCTestCase {
             "VoiceTape 3 after the interrupt answer must produce response.created — leftover created cannot green this"
         )
         XCTAssertGreaterThan(voice.listenLoopResponseCreatedCount, createdBeforeTalkAgain)
-        XCTAssertTrue(voice.listenLoopHasProductionSendTask)
+        let grokPlayingAfterTalkAgain = await voice.waitUntilListenLoopPendingPlayback()
+        XCTAssertTrue(
+            grokPlayingAfterTalkAgain,
+            "talk-again answer must schedule on the one-engine player — leftover created cannot green this"
+        )
+        XCTAssertGreaterThan(
+            engine.pendingPlaybackCount,
+            0,
+            "pendingPlayback must rise for the third answer — leftover created is not she talked"
+        )
+        XCTAssertTrue(engine.isTapInstalled, "talk-again answer must keep the one tap")
+        XCTAssertTrue(engine.isPlayerPlaying, "same AVAudioPlayerNode must be playing")
+        XCTAssertTrue(
+            voice.listenLoopHasProductionSendTask,
+            "opened && task must survive talk-again — sendRaw no-op is 415c955 first-hear-then-deaf"
+        )
         XCTAssertFalse(voice.listenLoopUsesTestSendSink)
         XCTAssertEqual(voice.listenLoopRecoverCount, 0)
         XCTAssertTrue(

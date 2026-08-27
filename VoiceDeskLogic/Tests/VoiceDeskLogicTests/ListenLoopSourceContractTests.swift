@@ -1496,6 +1496,23 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(composed.contains("recoverCountAfterDrain"), composed)
         XCTAssertTrue(composed.contains("createdBeforeTalkAgain"), composed)
         XCTAssertTrue(composed.contains("createdAfterTalkAgain"), composed)
+        XCTAssertTrue(composed.contains("grokPlayingAfterTalkAgain"), composed)
+        XCTAssertTrue(
+            composed.contains("talk-again answer must schedule on the one-engine player"),
+            composed
+        )
+        XCTAssertTrue(
+            composed.contains("pendingPlayback must rise for the third answer"),
+            composed
+        )
+        XCTAssertTrue(
+            composed.contains("leftover created is not she talked"),
+            composed
+        )
+        XCTAssertTrue(
+            composed.contains("listen must stay armed after talk-again created"),
+            composed
+        )
         XCTAssertTrue(composed.contains("pcm: thirdTapePCM"), composed)
         XCTAssertTrue(composed.contains("ListenInterrupt.isCommand"), composed)
         XCTAssertTrue(composed.contains("listenLoopArmed"), composed)
@@ -1578,7 +1595,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
            let drainAt = composed.range(of: "waitUntilListenLoopPlaybackDrained"),
            let recoverAt = composed.range(of: "recoverCountAfterDrain"),
            let tape3At = composed.range(of: "pcm: thirdTapePCM"),
-           let created3At = composed.range(of: "createdAfterTalkAgain") {
+           let created3At = composed.range(of: "createdAfterTalkAgain"),
+           let pending3At = composed.range(of: "grokPlayingAfterTalkAgain") {
             XCTAssertLessThan(
                 connectAt.lowerBound,
                 openAt.lowerBound,
@@ -1654,8 +1672,13 @@ final class ListenLoopSourceContractTests: XCTestCase {
                 created3At.lowerBound,
                 "talk-again response.created after VoiceTape 3"
             )
+            XCTAssertLessThan(
+                created3At.lowerBound,
+                pending3At.lowerBound,
+                "talk-again pending must rise after VoiceTape 3 created — leftover created cannot green this"
+            )
         } else {
-            XCTFail("composed loop must talk, barge-in, drain the interrupt answer, stay armed with no recover, then talk again")
+            XCTFail("composed loop must talk, barge-in, drain the interrupt answer, stay armed with no recover, then talk again and prove pending rises")
         }
         let deadSocket = speakSlice(
             live,
