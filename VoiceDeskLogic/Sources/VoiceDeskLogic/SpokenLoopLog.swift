@@ -140,11 +140,6 @@ public enum SpokenLoopLog: Sendable {
         return .absent
     }
 
-    public static func isTwoMouth(_ records: [VoiceInteractionEntry]) -> Bool {
-        let mouths = Set(mouths(in: records))
-        return mouths.contains(.desk) && mouths.contains(.eve)
-    }
-
     public static func mouths(in records: [VoiceInteractionEntry]) -> [Mouth] {
         records.compactMap { rec in
             guard parse(rec)["event"] == mouthEvent,
