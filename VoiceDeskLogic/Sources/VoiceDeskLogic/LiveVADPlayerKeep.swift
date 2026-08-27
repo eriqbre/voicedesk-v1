@@ -125,8 +125,9 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
     /// Eve `output_audio.delta` still hit the player while
     /// `speak()` wrote identity. Two mouths. Suppress and the
     /// identity write must both mute Eve PCM during the write.
-    /// After drain, `afterDeskTTSDrain` clears both flags —
-    /// 8927c2d leftover left them stuck and later Eve was silent.
+    /// After drain, `returnToListenAfterDeskTTS` clears both flags.
+    /// 8927c2d leftover cleared `clientTTSInFlight` only — drop
+    /// stayed true and later Eve was silent.
     public static func shouldPlayEveAudio(
         dropAssistantOutput: Bool,
         clientTTSInFlight: Bool
@@ -181,5 +182,16 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
         let line = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty, !identityLine.isEmpty else { return false }
         return line == identityLine
+    }
+
+    /// Flag-clear body of `GrokVoiceService.returnToListenAfterDeskTTS`.
+    /// 8927c2d leftover: `clientTTSInFlight = false` only. Drop stayed
+    /// true — following Eve delta is `shouldPlayBargeAudio` false.
+    public static func returnToListenAfterDeskTTS(
+        dropAssistantOutput: inout Bool,
+        clientTTSInFlight: inout Bool
+    ) {
+        clientTTSInFlight = false
+        dropAssistantOutput = false
     }
 }

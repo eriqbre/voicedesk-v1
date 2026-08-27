@@ -61,9 +61,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
             to: "private func waitUntilPlaybackDrained"
         )
         XCTAssertTrue(
-            afterDrain.contains("clientTTSInFlight = false"),
-            "stayLive after drain is armed+running, not a stuck TTS flag"
+            afterDrain.contains("LiveVADPlayerKeep.returnToListenAfterDeskTTS"),
+            "drain flag-clear is the same function the following-Eve gate calls"
         )
+        XCTAssertTrue(afterDrain.contains("dropAssistantOutput: &dropAssistantTranscript"), afterDrain)
+        XCTAssertTrue(afterDrain.contains("clientTTSInFlight: &clientTTSInFlight"), afterDrain)
         XCTAssertFalse(
             afterDrain.contains("disconnect"),
             "desk TTS is write→player — drain must not kill the live socket"

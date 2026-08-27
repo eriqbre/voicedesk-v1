@@ -187,10 +187,10 @@ final class GrokVoiceService: VoiceServicing {
             liveSessionArmed: liveSessionArmed,
             captureRunning: audio.isRunning
         )
-        clientTTSInFlight = false
-        // Identity mute is this write only. 8927c2d left
-        // dropAssistantTranscript stuck — later Eve PCM died.
-        dropAssistantTranscript = false
+        LiveVADPlayerKeep.returnToListenAfterDeskTTS(
+            dropAssistantOutput: &dropAssistantTranscript,
+            clientTTSInFlight: &clientTTSInFlight
+        )
         eventHandler?(.state(session.state))
         // One tap. Do not rearm after drain. 552ef0c's drain-time
         // reinstall left the live tap silent (no PCM, no sendRaw)

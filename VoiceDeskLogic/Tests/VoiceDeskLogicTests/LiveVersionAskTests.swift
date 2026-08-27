@@ -45,12 +45,11 @@ final class LiveVersionAskTests: XCTestCase {
         )
     }
 
-    /// 8927c2d leftover: dropAssistantOutput / clientTTSInFlight
-    /// stayed true after the identity write. Following live Eve
-    /// deltas hit shouldPlayEveAudio and died. Same class as
-    /// c1cd758 voice-cut. After production afterDeskTTSDrain the
-    /// next Eve delta must play.
-    func testFollowingEveDeltaPlaysAfterIdentityWriteDrain() {
+    /// 8927c2d leftover: returnToListenAfterDeskTTS cleared
+    /// clientTTSInFlight only. drop stayed true — following Eve
+    /// delta is shouldPlayBargeAudio false. Same function
+    /// GrokVoiceService.returnToListenAfterDeskTTS calls.
+    func testFollowingEveDeltaPlaysAfterIdentityWriteDrain() throws {
         var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: true)
         XCTAssertTrue(session.handleLiveUser(ask))
         XCTAssertTrue(session.speakDeskReply(session.spokenIdentityLine))
@@ -60,13 +59,23 @@ final class LiveVersionAskTests: XCTestCase {
             "Eve dropped during identity write only"
         )
 
-        session.afterDeskTTSDrain()
-        XCTAssertFalse(session.dropAssistantOutput)
-        XCTAssertFalse(session.clientTTSInFlight)
+        LiveVADPlayerKeep.returnToListenAfterDeskTTS(
+            dropAssistantOutput: &session.dropAssistantOutput,
+            clientTTSInFlight: &session.clientTTSInFlight
+        )
         XCTAssertTrue(
             playerAllowsEve(session),
-            "8927c2d leftover mute-stuck: following Eve delta was false / silent"
+            "8927c2d leftover cleared clientTTS only; drop stayed true and Eve stayed false"
         )
+
+        let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
+        let drain = drainSlice(service)
+        XCTAssertTrue(
+            drain.contains("LiveVADPlayerKeep.returnToListenAfterDeskTTS"),
+            drain
+        )
+        XCTAssertTrue(drain.contains("dropAssistantOutput: &dropAssistantTranscript"), drain)
+        XCTAssertTrue(drain.contains("clientTTSInFlight: &clientTTSInFlight"), drain)
     }
 
     private func playerAllowsEve(_ session: LiveVersionAsk) -> Bool {
@@ -82,5 +91,24 @@ final class LiveVersionAskTests: XCTestCase {
             lastScheduledResponseID: nil,
             hasPendingPlayback: true
         )
+    }
+
+    private func drainSlice(_ source: String) -> String {
+        guard let start = source.range(of: "private func returnToListenAfterDeskTTS()"),
+              let end = source.range(of: "private func waitUntilPlaybackDrained")
+        else { return "" }
+        return String(source[start.lowerBound..<end.lowerBound])
+    }
+
+    private func repoFile(_ relative: String) -> String? {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let candidate = url.appendingPathComponent(relative)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try? String(contentsOf: candidate, encoding: .utf8)
+            }
+        }
+        return nil
     }
 }
