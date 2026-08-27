@@ -24,6 +24,17 @@ final class GrokVoiceService: VoiceServicing {
     /// The response that actually scheduled player buffers. Barge-in
     /// cancel must target this id, not the next `response.created`.
     private var playingResponseID: String?
+    /// Latched when that answer first scheduled (or on speech_started).
+    /// A late transcript must not cancel a newer created already playing.
+    private var interruptTargetID: String?
+    /// Last id that scheduled buffers. Survives `response.done` so
+    /// speech_started can latch the old answer after its id was cleared.
+    private var lastScheduledResponseID: String?
+    /// `response.created` while the player was empty. Used only to tag
+    /// the first buffer of that answer — not the next created.
+    private var createdAwaitingAudioID: String?
+    /// Server VAD heard speech. Keep the latched target across done.
+    private var speechStartedBarge = false
     private var audioDeltaCount = 0
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
@@ -201,18 +212,27 @@ final class GrokVoiceService: VoiceServicing {
         // pending is already 0 kills the next response.created before
         // output_audio.delta can schedule — leftover created, pending 0.
         guard audio.hasPendingPlayback else { return }
-        interruptAssistant(sendCancel: true)
+        switch GrokRealtime.bargeInPlayback(
+            hasPendingPlayback: true,
+            playingResponseID: playingResponseID,
+            interruptTargetID: interruptTargetID
+        ) {
+        case .none:
+            return
+        case .keepNewAnswer:
+            // Player already has the interrupt answer. A late or
+            // duplicate transcript must not cancel it.
+            interruptTargetID = playingResponseID
+            speechStartedBarge = false
+        case .dropLocalOnly:
+            interruptAssistant(sendCancel: false)
+        case .cancel(let id):
+            interruptAssistant(sendCancel: true, responseID: id)
+        }
     }
 
     func suppressAssistantOutput(_ suppress: Bool) {
-        if suppress {
-            dropAssistantTranscript = true
-            if audio.hasPendingPlayback {
-                interruptAssistant(sendCancel: true)
-            }
-            return
-        }
-        dropAssistantTranscript = false
+        dropAssistantTranscript = suppress
     }
 
     func cancel() {
@@ -370,14 +390,28 @@ final class GrokVoiceService: VoiceServicing {
         VoiceCloudDogfoodClient.shared.enqueue(entry)
     }
 
-    private func interruptAssistant(sendCancel: Bool) {
-        if sendCancel, let id = GrokRealtime.responseIDToCancel(playingResponseID: playingResponseID) {
+    private func noteScheduledResponse(_ id: String?) {
+        guard let id = GrokRealtime.nonemptyID(id) else { return }
+        lastScheduledResponseID = id
+        interruptTargetID = GrokRealtime.latchedInterruptTarget(
+            existing: interruptTargetID,
+            scheduledResponseID: id
+        )
+    }
+
+    private func interruptAssistant(sendCancel: Bool, responseID: String? = nil) {
+        let target = responseID ?? playingResponseID
+        if sendCancel, let id = GrokRealtime.responseIDToCancel(playingResponseID: target) {
             client.sendJSON(GrokRealtime.responseCancelObject(responseID: id))
         }
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
         playingResponseID = nil
         currentResponseID = nil
+        interruptTargetID = nil
+        lastScheduledResponseID = nil
+        createdAwaitingAudioID = nil
+        speechStartedBarge = false
         audioDeltaCount = 0
         if session.state == .speaking || session.state == .thinking {
             apply(.turnFinished)
@@ -399,6 +433,10 @@ final class GrokVoiceService: VoiceServicing {
         client.dropOutbound()
         playingResponseID = nil
         currentResponseID = nil
+        interruptTargetID = nil
+        lastScheduledResponseID = nil
+        createdAwaitingAudioID = nil
+        speechStartedBarge = false
         audioDeltaCount = 0
         apply(.cancel)
         isTearingDown = false
@@ -515,7 +553,8 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
         if playingResponseID == nil {
-            playingResponseID = currentResponseID
+            playingResponseID = currentResponseID ?? createdAwaitingAudioID
+            noteScheduledResponse(playingResponseID)
         }
         audio.playPCM16(data)
     }
@@ -530,7 +569,14 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             finishReady()
             client.markSessionReadyAndFlush()
         case .speechStarted:
-            break
+            // Latch only. Energy must not cancel — radio / other-room
+            // stays ignored. The latched id is the answer barge-in may
+            // drop, not the next response.created.
+            interruptTargetID = GrokRealtime.latchedInterruptTarget(
+                existing: interruptTargetID,
+                scheduledResponseID: playingResponseID ?? lastScheduledResponseID
+            )
+            speechStartedBarge = true
         case .speechStopped:
             break
         case .audioCommitted:
@@ -545,6 +591,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             responseCreatedCountForTests += 1
             currentResponseID = id
             assistantGate.reset()
+            if playingResponseID == nil && !audio.hasPendingPlayback {
+                createdAwaitingAudioID = id
+            }
             // Leftover Grok-created used to park VoiceSession speaking
             // and disarm listen — 415c955 first-hear-then-deaf on the
             // next close 1000. Audio plays on the one-engine player.
@@ -559,6 +608,8 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             // without a rise is paper (415c955 / second engine).
             if playingResponseID == nil {
                 playingResponseID = GrokRealtime.responseID(in: json)
+                    ?? createdAwaitingAudioID
+                noteScheduledResponse(playingResponseID)
             }
             audio.playAudioDelta(base64: delta)
             audioDeltaCount += 1
@@ -576,7 +627,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             }
             playingResponseID = nil
             currentResponseID = nil
+            createdAwaitingAudioID = nil
             audioDeltaCount = 0
+            if !audio.hasPendingPlayback && !speechStartedBarge {
+                interruptTargetID = nil
+            }
             assistantGate.reset()
             eventHandler?(.assistantTranscript("", isFinal: true))
         case .ping(let timestamp):

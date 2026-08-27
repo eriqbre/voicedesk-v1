@@ -283,6 +283,65 @@ final class GrokRealtimeTests: XCTestCase {
             GrokRealtime.responseIDToCancel(playingResponseID: "   "),
             "do not cancel the next created — only the playing answer"
         )
+        XCTAssertEqual(
+            GrokRealtime.bargeInPlayback(
+                hasPendingPlayback: false,
+                playingResponseID: "resp_1",
+                interruptTargetID: "resp_1"
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeInPlayback(
+                hasPendingPlayback: true,
+                playingResponseID: "resp_1",
+                interruptTargetID: "resp_1"
+            ),
+            .cancel(responseID: "resp_1")
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeInPlayback(
+                hasPendingPlayback: true,
+                playingResponseID: "resp_1",
+                interruptTargetID: nil
+            ),
+            .cancel(responseID: "resp_1")
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeInPlayback(
+                hasPendingPlayback: true,
+                playingResponseID: "resp_2",
+                interruptTargetID: "resp_1"
+            ),
+            .keepNewAnswer,
+            "late transcript after the interrupt answer is on the player must not cancel it"
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeInPlayback(
+                hasPendingPlayback: true,
+                playingResponseID: nil,
+                interruptTargetID: "resp_1"
+            ),
+            .cancel(responseID: "resp_1")
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeInPlayback(
+                hasPendingPlayback: true,
+                playingResponseID: nil,
+                interruptTargetID: nil
+            ),
+            .dropLocalOnly
+        )
+        XCTAssertEqual(
+            GrokRealtime.latchedInterruptTarget(existing: "resp_1", scheduledResponseID: "resp_2"),
+            "resp_1",
+            "do not overwrite the barge target with the next created"
+        )
+        XCTAssertEqual(
+            GrokRealtime.latchedInterruptTarget(existing: nil, scheduledResponseID: "resp_1"),
+            "resp_1"
+        )
+        XCTAssertNil(GrokRealtime.latchedInterruptTarget(existing: "  ", scheduledResponseID: nil))
         XCTAssertEqual(GrokRealtime.clearBufferObject()["type"] as? String, "input_audio_buffer.clear")
         XCTAssertEqual(GrokRealtime.commitAudioBufferObject()["type"] as? String, "input_audio_buffer.commit")
 

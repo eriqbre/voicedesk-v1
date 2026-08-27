@@ -236,9 +236,52 @@ public enum GrokRealtime {
     /// Cancel the answer that is on the player. Do not fall back to
     /// `currentResponseID` — that is already the next created.
     public static func responseIDToCancel(playingResponseID: String?) -> String? {
-        guard let id = playingResponseID?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !id.isEmpty
-        else { return nil }
+        nonemptyID(playingResponseID)
+    }
+
+    /// What barge-in may do to the one-engine player.
+    ///
+    /// Server VAD often creates the interrupt answer before the user
+    /// transcript arrives. `playingResponseID` then becomes that new
+    /// created. Cancelling it is leftover created, pending 0.
+    public enum BargeInPlayback: Equatable, Sendable {
+        case none
+        case cancel(responseID: String)
+        case dropLocalOnly
+        case keepNewAnswer
+    }
+
+    public static func bargeInPlayback(
+        hasPendingPlayback: Bool,
+        playingResponseID: String?,
+        interruptTargetID: String?
+    ) -> BargeInPlayback {
+        guard hasPendingPlayback else { return .none }
+        let playing = nonemptyID(playingResponseID)
+        let target = nonemptyID(interruptTargetID) ?? playing
+        if let playing, let target, playing != target {
+            return .keepNewAnswer
+        }
+        if let target {
+            return .cancel(responseID: target)
+        }
+        return .dropLocalOnly
+    }
+
+    /// First `speech_started` / first scheduled buffer latches the
+    /// answer that barge-in may cancel. Do not overwrite with the next
+    /// created.
+    public static func latchedInterruptTarget(
+        existing: String?,
+        scheduledResponseID: String?
+    ) -> String? {
+        nonemptyID(existing) ?? nonemptyID(scheduledResponseID)
+    }
+
+    public static func nonemptyID(_ id: String?) -> String? {
+        guard let id = id?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            return nil
+        }
         return id
     }
 

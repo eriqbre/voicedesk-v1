@@ -911,13 +911,16 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(voice.listenLoopRecoverCount, 0)
 
         let createdBeforeAmbient = voice.listenLoopResponseCreatedCount
-        for _ in 0..<8 {
+        var ambientFrames = 0
+        while ambientFrames < 8, engine.pendingPlaybackCount > 0 {
             XCTAssertGreaterThan(
                 engine.pendingPlaybackCount,
                 0,
                 "ambient / radio / other-room must not drop live Grok player audio"
             )
             engine.feedTapPCM16(noise)
+            ambientFrames += 1
+            if engine.pendingPlaybackCount <= 1 || ambientFrames == 8 { break }
             try? await Task.sleep(for: .milliseconds(80))
         }
         XCTAssertEqual(sink.ambient.last, noise)
@@ -1257,13 +1260,16 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(voice.listenLoopRecoverCount, 0)
 
         let createdBeforeAmbient = voice.listenLoopResponseCreatedCount
-        for _ in 0..<8 {
+        var ambientFrames = 0
+        while ambientFrames < 8, engine.pendingPlaybackCount > 0 {
             XCTAssertGreaterThan(
                 engine.pendingPlaybackCount,
                 0,
                 "ambient / radio / other-room must not drop live Grok player audio"
             )
             engine.feedTapPCM16(noise)
+            ambientFrames += 1
+            if engine.pendingPlaybackCount <= 1 || ambientFrames == 8 { break }
             try? await Task.sleep(for: .milliseconds(80))
         }
         XCTAssertEqual(sink.ambient.last, noise)

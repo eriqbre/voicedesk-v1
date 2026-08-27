@@ -365,8 +365,11 @@ final class AppModel {
     }
 
     private func handleLiveUser(_ raw: String, itemID: String?) {
-        voice.interruptResponse()
+        // Duplicate item.created + transcription.completed used to
+        // interrupt before accept, then cancel the interrupt answer
+        // (playingResponseID already the next created).
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
+        voice.interruptResponse()
         rememberUserTurn(text, source: "live voice")
         completePlaybook()
 

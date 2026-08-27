@@ -96,6 +96,18 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(app.contains("shouldTakeLiveTurn"), app)
         XCTAssertTrue(app.contains("voice.interruptResponse()"), app)
         XCTAssertTrue(app.contains("handleLiveUser(event.text, itemID: event.itemID)"), app)
+        XCTAssertTrue(app.contains("userDedupe.accept"), app)
+        let handleUser = speakSlice(app, from: "private func handleLiveUser", to: "private func upsertLiveAssistant")
+        if let acceptAt = handleUser.range(of: "userDedupe.accept"),
+           let interruptAt = handleUser.range(of: "voice.interruptResponse()") {
+            XCTAssertLessThan(
+                acceptAt.lowerBound,
+                interruptAt.lowerBound,
+                "duplicate transcript interrupt cancels the interrupt answer"
+            )
+        } else {
+            XCTFail("handleLiveUser must accept before interruptResponse")
+        }
         XCTAssertFalse(app.contains("speakStarted"), app)
         XCTAssertFalse(app.contains("stayIdle"), app)
         XCTAssertFalse(app.contains("resumeCapture"), app)
@@ -143,9 +155,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(speakStartedPolicy.contains("return false"), speakStartedPolicy)
         let speech = speakSlice(speak, from: "case .speechStarted:", to: "case .speechStopped:")
+        XCTAssertTrue(speech.contains("latchedInterruptTarget"), speech)
         XCTAssertFalse(speech.contains("interruptAssistant"), speech)
         XCTAssertFalse(speech.contains("interruptPlayback"), speech)
         XCTAssertFalse(speech.contains("ClientVoiceSpeech.shared.stop"), speech)
+        XCTAssertFalse(speech.contains("responseCancelObject"), speech)
         let transcript = speakSlice(speak, from: "case .userTranscript", to: "case .responseCreated")
         XCTAssertFalse(transcript.contains("interruptPlayback"), transcript)
         XCTAssertFalse(transcript.contains("ClientVoiceSpeech.shared.stop"), transcript)
@@ -378,8 +392,16 @@ final class ListenLoopSourceContractTests: XCTestCase {
             interruptLive.contains("guard audio.hasPendingPlayback else { return }"),
             "cancel after pending is 0 kills the interrupt answer (leftover created, pending 0)"
         )
+        XCTAssertTrue(interruptLive.contains("bargeInPlayback"), interruptLive)
+        XCTAssertTrue(interruptLive.contains("keepNewAnswer"), interruptLive)
+        XCTAssertTrue(interruptLive.contains("interruptTargetID"), interruptLive)
         let suppressLive = speakSlice(service, from: "func suppressAssistantOutput", to: "func cancel()")
-        XCTAssertTrue(suppressLive.contains("audio.hasPendingPlayback"), suppressLive)
+        XCTAssertTrue(suppressLive.contains("dropAssistantTranscript"), suppressLive)
+        XCTAssertFalse(
+            suppressLive.contains("interruptResponse"),
+            "second cancel after keepNewAnswer retargets to the interrupt answer"
+        )
+        XCTAssertFalse(suppressLive.contains("interruptAssistant"), suppressLive)
         XCTAssertFalse(service.contains("dropAssistantAudio"), service)
         let interruptFn = speakSlice(service, from: "private func interruptAssistant", to: "private func teardown")
         XCTAssertTrue(interruptFn.contains("responseIDToCancel"), interruptFn)
@@ -404,6 +426,9 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func commitAudioBufferObject()"), realtime)
         XCTAssertTrue(realtime.contains("input_audio_buffer.commit"), realtime)
         XCTAssertTrue(realtime.contains("func createResponse(inSessionUpdate"), realtime)
+        XCTAssertTrue(realtime.contains("func bargeInPlayback"), realtime)
+        XCTAssertTrue(realtime.contains("keepNewAnswer"), realtime)
+        XCTAssertTrue(realtime.contains("func latchedInterruptTarget"), realtime)
         let updated = speakSlice(service, from: "case .sessionUpdated:", to: "case .speechStarted:")
         XCTAssertTrue(updated.contains("markSessionReadyAndFlush"), updated)
         let didOpenService = speakSlice(service, from: "func grokWebSocketDidOpen()", to: "func grokWebSocketDidClose")
@@ -1171,6 +1196,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(bargeIn.contains("pendingPlaybackCount"), bargeIn)
         XCTAssertTrue(bargeIn.contains("isPlayerPlaying"), bargeIn)
         XCTAssertTrue(bargeIn.contains("feedTapPCM16(noise)"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("ambientFrames"), bargeIn)
+        XCTAssertTrue(
+            bargeIn.contains("ambient / radio / other-room must not drop live Grok player audio"),
+            bargeIn
+        )
+        XCTAssertTrue(
+            bargeIn.contains("pendingPlayback must not drop to 0 because of the ambient tap"),
+            bargeIn
+        )
         XCTAssertTrue(bargeIn.contains("createdBeforeAmbient"), bargeIn)
         XCTAssertTrue(bargeIn.contains("createdBeforeCommand"), bargeIn)
         XCTAssertTrue(bargeIn.contains("createdAfterTalk"), bargeIn)
@@ -1483,6 +1517,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(composed.contains("isPlayerPlaying"), composed)
         XCTAssertTrue(composed.contains("isTapInstalled"), composed)
         XCTAssertTrue(composed.contains("feedTapPCM16(noise)"), composed)
+        XCTAssertTrue(composed.contains("ambientFrames"), composed)
+        XCTAssertTrue(
+            composed.contains("ambient / radio / other-room must not drop live Grok player audio"),
+            composed
+        )
+        XCTAssertTrue(
+            composed.contains("pendingPlayback must not drop to 0 because of the ambient tap"),
+            composed
+        )
         XCTAssertTrue(composed.contains("createdBeforeAmbient"), composed)
         XCTAssertTrue(composed.contains("createdBeforeBarge"), composed)
         XCTAssertTrue(composed.contains("createdAfterTalk"), composed)
