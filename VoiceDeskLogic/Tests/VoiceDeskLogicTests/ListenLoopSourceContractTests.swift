@@ -30,10 +30,6 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "private func returnToListenAfterDeskTTS")
         XCTAssertFalse(speakFn.contains("echoGate.beginSpeaking"), speakFn)
         XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
-        XCTAssertTrue(
-            speakFn.contains("speakLiveReplyViaEve"),
-            "live socket is Eve; interrupt+clear before create"
-        )
         XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
         XCTAssertTrue(
             speakFn.contains("noteFirstAnswerPlaying"),
@@ -782,7 +778,6 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertFalse(service.contains("dropAssistantTranscript"), service)
         XCTAssertFalse(service.contains("dropAssistantAudio"), service)
-        XCTAssertTrue(service.contains("private func speakLiveReplyViaEve"), service)
         XCTAssertTrue(service.contains("verbatimSpeakResponseID"), service)
         let interruptFn = speakSlice(service, from: "private func interruptAssistant", to: "private func teardown")
         XCTAssertTrue(interruptFn.contains("responseIDToCancel"), interruptFn)

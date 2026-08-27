@@ -2,9 +2,11 @@ import XCTest
 import VoiceDeskLogic
 @testable import VoiceDesk
 
-/// Drive production `GrokVoiceService.speak` through a fake
-/// `LiveGrokVoiceClient`. `LiveEveSpeak.plan` string lists are not
-/// this gate. A factory that sets `swallowed: true` is not this gate.
+/// Unit gate: production `GrokVoiceService.speak("1.2.3")` through a
+/// fake `LiveGrokVoiceClient`. `markOpenedForTests` is a testSendSink
+/// paper socket — no `URLSessionWebSocketTask`. Not a live WS proof.
+/// Not phone-proof. Linux `VoiceDeskLogic` never runs this file.
+/// Ryan Mac xcodebuild is the iOS gate.
 @MainActor
 final class GrokVoiceServiceSpeakTests: XCTestCase {
     override func tearDown() {
@@ -99,10 +101,9 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         voice.cancel()
     }
 
-    /// c1cd758 voice-cut as production behavior: empty eve-speaks-identity
-    /// is still a lie. Stacking `response.create` on in-flight VAD A
-    /// without interrupt starves Eve. Current speak interrupts + clears
-    /// first, then creates — one Eve mouth, no ClientVoiceSpeech.
+    /// Canned c1cd758 fixture stays red (empty eve-speaks-identity).
+    /// Not a device walk. In-flight VAD `speak()` must clear before
+    /// `response.create`. Do not flip a source scrape.
     func testInFlightVADSpeakInterruptsBeforeCreateAndDoesNotStarveEve() async {
         XCTAssertTrue(
             C1CD758Walk.isEmptyEveSpeaksIdentity(

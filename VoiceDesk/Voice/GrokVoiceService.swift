@@ -1026,8 +1026,8 @@ extension GrokVoiceService {
 
     var listenLoopDeliveredSends: [String] { client.deliveredSends }
 
-    /// Fake live socket. `notifyOpen` does not set `opened` without a
-    /// real task. `speak()` reads `client.isConnected`.
+    /// testSendSink paper socket. Not a live WS. `speak()` reads
+    /// `client.isConnected`.
     func markListenLoopOpenedForTests() {
         client.markOpenedForTests()
     }

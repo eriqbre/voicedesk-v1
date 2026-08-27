@@ -165,7 +165,7 @@ final class C1CD758WalkTests: XCTestCase {
         XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
         XCTAssertTrue(
             LiveVADPlayerKeep.c1cd758Regression().voiceCutsAfterFirstDelta,
-            "c1cd758 walk: first delta then silence after interrupt with no mouth"
+            "canned c1cd758 fixture stays red — not a device walk"
         )
         let speakTests = try XCTUnwrap(repoFile("VoiceDeskTests/GrokVoiceServiceSpeakTests.swift"))
         XCTAssertTrue(
