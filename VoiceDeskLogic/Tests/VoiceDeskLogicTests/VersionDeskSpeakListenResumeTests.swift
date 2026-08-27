@@ -178,8 +178,14 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
         XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
         XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
-        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS(socketConnected: false))
-        XCTAssertFalse(ListenResumePolicy.deskSpeakUsesClientTTS(socketConnected: true))
+        XCTAssertEqual(
+            LiveEveSpeak.plan(text: "1.2.3", socketConnected: false).mouth,
+            .clientTTS
+        )
+        XCTAssertEqual(
+            LiveEveSpeak.plan(text: "1.2.3", socketConnected: true).mouth,
+            .eve
+        )
         XCTAssertTrue(
             GrokRealtime.shouldSpeakViaRealtime(
                 usesLiveLoop: true,

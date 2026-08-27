@@ -101,7 +101,10 @@ public struct VersionDeskSpeakWalk: Equatable, Sendable {
             spokenIntent: replay.intent,
             cardsAttached: !replay.cardLabels.isEmpty,
             spokenLineCompleted: !barged && !spokenLine.isEmpty,
-            usesGrokVerbatim: ListenResumePolicy.deskSpeakUsesGrokVerbatim(socketConnected: false),
+            usesGrokVerbatim: LiveEveSpeak.plan(
+                text: spokenLine,
+                socketConnected: false
+            ).mouth == .eve,
             listenArmedDuringTTS: during.listenArmed,
             listenArmedAfterSpeak: after.listenArmed && after.captureArmed,
             close1000StayLive: stayLive,

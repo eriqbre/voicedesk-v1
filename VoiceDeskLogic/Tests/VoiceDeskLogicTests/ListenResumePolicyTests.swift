@@ -129,10 +129,12 @@ final class ListenResumePolicyTests: XCTestCase {
     }
 
     func testDeskSpeakUsesClientTTSNotGrokVerbatim() {
-        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS(socketConnected: false))
-        XCTAssertFalse(ListenResumePolicy.deskSpeakUsesGrokVerbatim(socketConnected: false))
-        XCTAssertFalse(ListenResumePolicy.deskSpeakUsesClientTTS(socketConnected: true))
-        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesGrokVerbatim(socketConnected: true))
+        let up = LiveEveSpeak.plan(text: "1.2.3", socketConnected: true)
+        XCTAssertEqual(up.mouth, .eve)
+        XCTAssertFalse(up.wroteClientTTS)
+        let down = LiveEveSpeak.plan(text: "1.2.3", socketConnected: false)
+        XCTAssertEqual(down.mouth, .clientTTS)
+        XCTAssertTrue(down.wroteClientTTS)
         XCTAssertTrue(
             GrokRealtime.shouldSpeakViaRealtime(
                 usesLiveLoop: true,
