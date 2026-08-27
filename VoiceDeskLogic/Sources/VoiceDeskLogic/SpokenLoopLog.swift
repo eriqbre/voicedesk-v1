@@ -159,15 +159,6 @@ public enum SpokenLoopLog: Sendable {
         }.first
     }
 
-    public static func closeIsStayIdle(_ records: [VoiceInteractionEntry]) -> Bool {
-        records.contains { rec in
-            let fields = parse(rec)
-            return fields["event"] == sessionCloseEvent
-                && fields["stayIdle"] == "true"
-                && fields["stayLive"] == "false"
-        }
-    }
-
     public static func parse(_ entry: VoiceInteractionEntry) -> [String: String] {
         parseNote(entry.routingNotes.first ?? "")
     }
