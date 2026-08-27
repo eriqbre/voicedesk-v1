@@ -728,8 +728,9 @@ final class AppModelListenLoopTests: XCTestCase {
             voice.listenLoopUsesTestSendSink,
             "do not re-arm testSendSink after recover — that is 415c955 first-hear-then-deaf"
         )
+        let recoveredProductionSend = await voice.waitUntilListenLoopHasProductionSendTask()
         XCTAssertTrue(
-            await voice.waitUntilListenLoopHasProductionSendTask(),
+            recoveredProductionSend,
             "phone sendRaw only sends when opened && task — recover must reach live Grok"
         )
         XCTAssertTrue(voice.listenLoopHasProductionSendTask)
@@ -748,8 +749,9 @@ final class AppModelListenLoopTests: XCTestCase {
             "command PCM 3 after the phone-log close is the next turn"
         )
         XCTAssertEqual(engine.startCount, 1)
+        let createdAfterCommand3 = await voice.waitUntilListenLoopResponseCreated(after: createdBeforeCommand3)
         XCTAssertTrue(
-            await voice.waitUntilListenLoopResponseCreated(after: createdBeforeCommand3),
+            createdAfterCommand3,
             "third command after 415c955 idle+1000 must produce response.created from live Grok — loopback bytes do not count"
         )
         XCTAssertGreaterThan(voice.listenLoopResponseCreatedCount, createdBeforeCommand3)

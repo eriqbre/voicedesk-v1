@@ -975,6 +975,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(grokCreates.contains("emitUser"), grokCreates)
         XCTAssertFalse(grokCreates.contains("FakeLiveVoiceService"), grokCreates)
         XCTAssertFalse(grokCreates.contains("quietCommitMaxPostponeMs"), grokCreates)
+        XCTAssertFalse(
+            grokCreates.contains("XCTAssertTrue(\n            await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        XCTAssertFalse(
+            grokCreates.contains("XCTAssertTrue(await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
         if let firstFeed = grokCreates.range(of: "feedTapPCM16(command1)"),
            let speakAt = grokCreates.range(of: "InboxGlance.spokenListAck"),
            let secondFeed = grokCreates.range(of: "feedTapPCM16(command2)"),
