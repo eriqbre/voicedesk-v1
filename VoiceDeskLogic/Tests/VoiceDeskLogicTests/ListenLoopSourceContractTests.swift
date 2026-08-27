@@ -511,17 +511,17 @@ final class ListenLoopSourceContractTests: XCTestCase {
             outputAudio.contains("tagged != cancelledPlaybackResponseID"),
             "leftover no-id JSON must not stamp the cancelled first-answer as the interrupt schedule"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             outputAudio.contains("isStalePlayingResponseAfterBarge"),
-            "interrupt JSON must write lastScheduled when playing is still the cancelled first-answer"
+            "stale playing on leftover leftover no-id stamps lastCreated — leftover paper"
         )
         XCTAssertTrue(
             binary.contains("tagged != cancelledPlaybackResponseID"),
             "leftover no-id binary must not mark interruptAnswerScheduled"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             binary.contains("isStalePlayingResponseAfterBarge"),
-            "interrupt binary must write lastScheduled when playing is still the cancelled first-answer"
+            "stale playing on leftover leftover no-id stamps lastCreated — leftover paper"
         )
         XCTAssertTrue(
             binary.contains("noteFirstAnswerPlaying"),
@@ -593,6 +593,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(
             interruptLive.contains("nonemptyID(lastScheduledResponseID)"),
             "command barge must set cancelled = lastScheduled so leftover inject matches the reject gate"
+        )
+        XCTAssertTrue(
+            interruptLive.contains("knownCancelled"),
+            "cancelled is the first-answer target — not lastScheduled after leftover leftover stamped lastCreated"
         )
         XCTAssertTrue(interruptLive.contains("shouldArmCommandBargeLatch"), interruptLive)
         XCTAssertFalse(

@@ -569,6 +569,16 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             "resp_1"
         )
+        XCTAssertEqual(
+            GrokRealtime.cancelledPlaybackResponseID(
+                interruptTargetID: "resp_1",
+                lastScheduledResponseID: "resp_2",
+                playingResponseID: "resp_2",
+                lastCreatedResponseID: "resp_2"
+            ),
+            "resp_1",
+            "leftover inject must stay first-answer — not lastScheduled after leftover leftover stamped lastCreated"
+        )
         XCTAssertFalse(
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: false,

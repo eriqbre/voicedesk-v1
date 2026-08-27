@@ -350,8 +350,8 @@ public enum GrokRealtime {
 
     /// First-answer PCM can drain before the transcript. Barge then
     /// latch-only (`dropLocal` false) and leaves this id in playing.
-    /// Interrupt audio must treat that as nil or lastScheduled stays
-    /// cancelled (created!=scheduled leftover paper).
+    /// Nil it there — do not stamp lastCreated onto lastScheduled
+    /// from leftover leftover no-id (07c1a72 leftover paper).
     public static func isStalePlayingResponseAfterBarge(
         playingResponseID: String?,
         cancelledResponseID: String?
