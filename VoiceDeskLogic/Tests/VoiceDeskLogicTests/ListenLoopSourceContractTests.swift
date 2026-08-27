@@ -874,7 +874,13 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loopbackSource.contains("101 Switching Protocols"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("Sec-WebSocket-Accept"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("session.updated"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("socket(AF_INET"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("127.0.0.1"), loopbackSource)
+        XCTAssertFalse(loopbackSource.contains("import Network"), loopbackSource)
+        XCTAssertFalse(loopbackSource.contains("NWListener"), loopbackSource)
         XCTAssertFalse(loopbackSource.contains("testSendSink"), loopbackSource)
+        XCTAssertTrue(connectFn.contains("override != nil"), connectFn)
+        XCTAssertTrue(connectFn.contains("webSocketTask(with: url)"), connectFn)
         if let loopAt = idleClose.range(of: "ListenLoopWebSocketLoopback"),
            let idleAt = idleClose.range(of: "simulateListenLoopIdleAfterDeskTTSPhoneLog"),
            let closeAt = idleClose.range(of: "simulateListenLoopSocketClose1000"),

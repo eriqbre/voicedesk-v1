@@ -291,7 +291,8 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         disconnect()
 
         lock.lock()
-        let url = realtimeURLOverrideForTests ?? GrokVoiceAPI.realtimeURL(model: model)
+        let override = realtimeURLOverrideForTests
+        let url = override ?? GrokVoiceAPI.realtimeURL(model: model)
         lock.unlock()
         let bridge = WebSocketBridge(client: self)
 
@@ -301,10 +302,17 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         session = urlSession
         // URLSession drops `Authorization` on the WS upgrade; VoiceTesterApp uses this protocol.
         // Same credential as Bearer. Ephemeral tokens are next hardening, not a dogfood blocker.
-        let wsTask = urlSession.webSocketTask(
-            with: url,
-            protocols: ["xai-client-secret.\(apiKey)"]
-        )
+        // Override is a local loopback — still URLSessionWebSocketTask. Skip the
+        // xAI subprotocol so the RFC 6455 handshake can finish.
+        let wsTask: URLSessionWebSocketTask
+        if override != nil {
+            wsTask = urlSession.webSocketTask(with: url)
+        } else {
+            wsTask = urlSession.webSocketTask(
+                with: url,
+                protocols: ["xai-client-secret.\(apiKey)"]
+            )
+        }
         task = wsTask
         opened = false
         timeoutTask?.cancel()

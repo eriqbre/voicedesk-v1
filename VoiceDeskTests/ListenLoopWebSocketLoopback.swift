@@ -1,24 +1,27 @@
 import CryptoKit
+import Darwin
 import Foundation
-import Network
 import XCTest
 @testable import VoiceDesk
 
 /// In-process WebSocket the real `URLSessionWebSocketTask` can open.
 /// xAI is unreachable in XCTest. This is still a socket, not a send recorder.
+/// POSIX bind on 127.0.0.1 — NWListener + requiredLocalEndpoint did not
+/// finish a URLSession handshake on the iPhone simulator.
 final class ListenLoopWebSocketLoopback: @unchecked Sendable {
     private let lock = NSLock()
-    private let queue = DispatchQueue(label: "listen-loop-ws-loopback")
-    private var listener: NWListener?
-    private var connections: [NWConnection] = []
+    private let acceptQueue = DispatchQueue(label: "listen-loop-ws-loopback-accept")
+    private var listenFD: Int32 = -1
+    private var clientFDs: [Int32] = []
     private var received: [String] = []
     private var port: UInt16 = 0
+    private var stopped = false
 
     var url: URL {
         lock.lock()
         let port = self.port
         lock.unlock()
-        return URL(string: "ws://127.0.0.1:\(port)")!
+        return URL(string: "ws://127.0.0.1:\(port)/")!
     }
 
     var receivedTexts: [String] {
@@ -33,19 +36,26 @@ final class ListenLoopWebSocketLoopback: @unchecked Sendable {
 
     static func start() async throws -> ListenLoopWebSocketLoopback {
         let server = ListenLoopWebSocketLoopback()
-        try await server.bind()
+        try server.bind()
         return server
     }
 
     func stop() {
         lock.lock()
-        let listener = self.listener
-        let connections = self.connections
-        self.listener = nil
-        self.connections = []
+        stopped = true
+        let listen = listenFD
+        listenFD = -1
+        let clients = clientFDs
+        clientFDs = []
         lock.unlock()
-        listener?.cancel()
-        connections.forEach { $0.cancel() }
+        if listen >= 0 {
+            shutdown(listen, SHUT_RDWR)
+            close(listen)
+        }
+        for fd in clients {
+            shutdown(fd, SHUT_RDWR)
+            close(fd)
+        }
     }
 
     func waitUntilReceived(
@@ -60,100 +70,86 @@ final class ListenLoopWebSocketLoopback: @unchecked Sendable {
         return receivedTexts.contains(where: matching)
     }
 
-    private func bind() async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            var resumed = false
-            let finish: (Result<Void, Error>) -> Void = { result in
-                self.lock.lock()
-                let already = resumed
-                if !already { resumed = true }
-                self.lock.unlock()
-                guard !already else { return }
-                switch result {
-                case .success:
-                    cont.resume()
-                case .failure(let error):
-                    cont.resume(throwing: error)
-                }
-            }
-            do {
-                let parameters = NWParameters.tcp
-                parameters.requiredLocalEndpoint = .hostPort(
-                    host: "127.0.0.1",
-                    port: NWEndpoint.Port(rawValue: 0)!
-                )
-                let listener = try NWListener(using: parameters)
-                self.listener = listener
-                listener.newConnectionHandler = { [weak self] connection in
-                    self?.accept(connection)
-                }
-                listener.stateUpdateHandler = { [weak self] state in
-                    guard let self else { return }
-                    switch state {
-                    case .ready:
-                        if let port = listener.port {
-                            self.lock.lock()
-                            self.port = port.rawValue
-                            self.lock.unlock()
-                            finish(.success(()))
-                        } else {
-                            finish(.failure(ListenLoopWebSocketLoopbackError.noPort))
-                        }
-                    case .failed(let error):
-                        finish(.failure(error))
-                    default:
-                        break
-                    }
-                }
-                listener.start(queue: queue)
-            } catch {
-                finish(.failure(error))
+    private func bind() throws {
+        let fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
+        guard fd >= 0 else { throw ListenLoopWebSocketLoopbackError.bindFailed }
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        var nosig: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        addr.sin_port = 0
+        let bindOK = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sock in
+                Darwin.bind(fd, sock, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
             }
         }
-    }
-
-    private func accept(_ connection: NWConnection) {
+        guard bindOK, listen(fd, 8) == 0 else {
+            close(fd)
+            throw ListenLoopWebSocketLoopbackError.bindFailed
+        }
+        var bound = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameOK = withUnsafeMutablePointer(to: &bound) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sock in
+                getsockname(fd, sock, &length) == 0
+            }
+        }
+        let port = UInt16(bigEndian: bound.sin_port)
+        guard nameOK, port > 0 else {
+            close(fd)
+            throw ListenLoopWebSocketLoopbackError.noPort
+        }
         lock.lock()
-        connections.append(connection)
+        listenFD = fd
+        self.port = port
         lock.unlock()
-        let stream = ConnectionStream()
-        connection.stateUpdateHandler = { state in
-            if case .failed = state { connection.cancel() }
-            if case .cancelled = state { return }
+        acceptQueue.async { [weak self] in
+            self?.acceptLoop(listenFD: fd)
         }
-        connection.start(queue: queue)
-        receive(on: connection, stream: stream)
     }
 
-    private func receive(on connection: NWConnection, stream: ConnectionStream) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            if let data, !data.isEmpty {
-                stream.buffer.append(data)
-                if !stream.upgraded {
-                    if let range = stream.buffer.range(of: Data("\r\n\r\n".utf8)) {
-                        let request = String(
-                            data: stream.buffer.subdata(in: stream.buffer.startIndex..<range.upperBound),
-                            encoding: .utf8
-                        ) ?? ""
-                        stream.buffer.removeSubrange(stream.buffer.startIndex..<range.upperBound)
-                        self.completeHandshake(request, on: connection)
-                        stream.upgraded = true
-                    }
-                }
-                if stream.upgraded {
-                    self.consumeFrames(from: &stream.buffer, on: connection)
+    private func acceptLoop(listenFD: Int32) {
+        while true {
+            lock.lock()
+            let done = stopped
+            lock.unlock()
+            if done { return }
+            var addr = sockaddr_in()
+            var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let client = withUnsafeMutablePointer(to: &addr) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sock in
+                    accept(listenFD, sock, &length)
                 }
             }
-            if isComplete || error != nil {
-                connection.cancel()
+            if client < 0 { return }
+            var nodelay: Int32 = 1
+            setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &nodelay, socklen_t(MemoryLayout<Int32>.size))
+            var nosig: Int32 = 1
+            setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &nosig, socklen_t(MemoryLayout<Int32>.size))
+            lock.lock()
+            if stopped {
+                lock.unlock()
+                close(client)
                 return
             }
-            self.receive(on: connection, stream: stream)
+            clientFDs.append(client)
+            lock.unlock()
+            acceptQueue.async { [weak self] in
+                self?.serve(client)
+            }
         }
     }
 
-    private func completeHandshake(_ request: String, on connection: NWConnection) {
+    private func serve(_ fd: Int32) {
+        var buffer = Data()
+        guard let request = readHTTPRequest(fd: fd, buffer: &buffer) else {
+            close(fd)
+            return
+        }
         var key: String?
         var proto: String?
         for line in request.split(whereSeparator: { $0 == "\n" }) {
@@ -167,51 +163,86 @@ final class ListenLoopWebSocketLoopback: @unchecked Sendable {
             }
         }
         guard let key else {
-            connection.cancel()
+            close(fd)
             return
         }
         let accept = Self.acceptKey(key)
-        var response = """
-        HTTP/1.1 101 Switching Protocols\r
-        Upgrade: websocket\r
-        Connection: Upgrade\r
-        Sec-WebSocket-Accept: \(accept)\r
-
-        """
+        var header = "HTTP/1.1 101 Switching Protocols\r\n"
+        header += "Upgrade: websocket\r\n"
+        header += "Connection: Upgrade\r\n"
+        header += "Sec-WebSocket-Accept: \(accept)\r\n"
         if let proto, !proto.isEmpty {
-            response = """
-            HTTP/1.1 101 Switching Protocols\r
-            Upgrade: websocket\r
-            Connection: Upgrade\r
-            Sec-WebSocket-Accept: \(accept)\r
-            Sec-WebSocket-Protocol: \(proto)\r
-
-            """
+            header += "Sec-WebSocket-Protocol: \(proto)\r\n"
         }
-        connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
-            connection.send(content: Self.encodeTextFrame(#"{"type":"session.created"}"#), completion: .contentProcessed { _ in
-                connection.send(content: Self.encodeTextFrame(#"{"type":"session.updated"}"#), completion: .idempotent)
-            })
-        })
+        header += "\r\n"
+        // 101 only. Extra WS bytes on the upgrade packet make URLSession
+        // reject DidOpen — opened stays false and sendRaw queues.
+        guard writeAll(fd, Data(header.utf8)) else {
+            close(fd)
+            return
+        }
+        guard writeAll(fd, Self.encodeTextFrame(#"{"type":"session.created"}"#)) else {
+            close(fd)
+            return
+        }
+        guard writeAll(fd, Self.encodeTextFrame(#"{"type":"session.updated"}"#)) else {
+            close(fd)
+            return
+        }
+        consumeFrames(fd: fd, buffer: &buffer)
+        close(fd)
     }
 
-    private func consumeFrames(from buffer: inout Data, on connection: NWConnection) {
-        while let frame = Self.popFrame(from: &buffer) {
-            switch frame.opcode {
-            case 1:
-                if let text = String(data: frame.payload, encoding: .utf8) {
-                    lock.lock()
-                    received.append(text)
-                    lock.unlock()
-                }
-            case 8:
-                connection.cancel()
-                return
-            case 9:
-                connection.send(content: Self.encodeFrame(opcode: 0x8A, payload: frame.payload), completion: .idempotent)
-            default:
-                break
+    private func readHTTPRequest(fd: Int32, buffer: inout Data) -> String? {
+        var chunk = [UInt8](repeating: 0, count: 4096)
+        while buffer.count < 32 * 1024 {
+            let count = read(fd, &chunk, chunk.count)
+            if count <= 0 { return nil }
+            buffer.append(contentsOf: chunk[0..<count])
+            if let range = buffer.range(of: Data("\r\n\r\n".utf8)) {
+                let request = String(data: buffer[buffer.startIndex..<range.upperBound], encoding: .utf8)
+                buffer.removeSubrange(buffer.startIndex..<range.upperBound)
+                return request
             }
+        }
+        return nil
+    }
+
+    private func consumeFrames(fd: Int32, buffer: inout Data) {
+        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            while let frame = Self.popFrame(from: &buffer) {
+                switch frame.opcode {
+                case 1:
+                    if let text = String(data: frame.payload, encoding: .utf8) {
+                        lock.lock()
+                        received.append(text)
+                        lock.unlock()
+                    }
+                case 8:
+                    return
+                case 9:
+                    _ = writeAll(fd, Self.encodeFrame(opcode: 0x8A, payload: frame.payload))
+                default:
+                    break
+                }
+            }
+            let count = read(fd, &chunk, chunk.count)
+            if count <= 0 { return }
+            buffer.append(contentsOf: chunk[0..<count])
+        }
+    }
+
+    private func writeAll(_ fd: Int32, _ data: Data) -> Bool {
+        data.withUnsafeBytes { raw in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return false }
+            var sent = 0
+            while sent < data.count {
+                let count = Darwin.send(fd, base + sent, data.count - sent, 0)
+                if count <= 0 { return false }
+                sent += count
+            }
+            return true
         }
     }
 
@@ -281,10 +312,5 @@ final class ListenLoopWebSocketLoopback: @unchecked Sendable {
 
 private enum ListenLoopWebSocketLoopbackError: Error {
     case noPort
-}
-
-/// One accepted TCP connection. Receive callbacks must not use `inout` locals.
-private final class ConnectionStream {
-    var buffer = Data()
-    var upgraded = false
+    case bindFailed
 }
