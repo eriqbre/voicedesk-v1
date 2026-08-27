@@ -943,7 +943,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
             to: "func grokWebSocketDidFail"
         )
         XCTAssertTrue(didClose.contains("recoverAfterDrop"), didClose)
-        XCTAssertTrue(didClose.contains("sha415c955StayLiveAfterClose1000"), didClose)
+        XCTAssertTrue(didClose.contains("sessionShouldStayLive"), didClose)
+        XCTAssertFalse(
+            didClose.contains("sha415c955StayLiveAfterClose1000"),
+            "listen-armed-only stayLive is L424 idle stayIdle after a real reply"
+        )
         XCTAssertTrue(didClose.contains("liveSessionArmed"), didClose)
         XCTAssertFalse(
             didClose.contains("teardown"),

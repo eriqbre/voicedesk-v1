@@ -1,28 +1,67 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// Spoken loop on the production seams AppModel.handleLiveUser,
-/// AppModel.speakDeskReply, GrokVoiceService.returnToListenAfterDeskTTS,
-/// and GrokVoiceService.shouldPlayBargeAudio call.
+/// Spoken loop against the a2727b1 restore-walk (L417–L424).
+/// Production seams: handleLiveUser / speakDeskReply / shouldPlayBargeAudio /
+/// DidClose → sessionShouldStayLive + afterSocketClose.
 ///
-/// a2727b1 two-mouth: desk identity PCM AND Eve on the same live turn.
-/// Eve voice-cut: interrupt while she still has pending playback.
-/// Post-email deaf: mute stuck / listen dies after she speaks.
-/// This family is red on those leftovers. Not flash-ready.
+/// Walk holes this family is red on:
+/// - L420+L421 same-second desk identity write + Eve stayLive (two-mouth)
+/// - Eve cut / no firstAudio on the version turn while desk drained
+/// - L424 DidClose 1000 stayIdle after the last reply, no audio.start after
+///
+/// jsonl has no dropAssistantOutput / clientTTSInFlight / unmute / firstAudio.
+/// Do not invent those tokens. Phone stays a2727b1.
 final class LiveVersionAskTests: XCTestCase {
-    private let ask = "Good morning. What version are we on?"
+    func testRestoreWalkIsTwoMouthEveCutAndStayIdle() throws {
+        let records = A2727B1Walk.window
+        let start = try XCTUnwrap(A2727B1Walk.audioStart(in: records))
+        XCTAssertTrue(start.routingNotes.contains(where: { $0.contains("audio.start") }))
 
-    func testLiveVersionAskIsOneEveMouthSheFinishesThenListenStays() {
-        var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: true)
-        XCTAssertTrue(session.handleLiveUser(ask))
-        XCTAssertEqual(session.assistantReply, "VoiceDesk point 1, build 6.")
-        XCTAssertEqual(session.voicePath, "Eve realtime")
-        XCTAssertTrue(session.routingNotes.contains("local build identity"))
-        XCTAssertTrue(session.routingNotes.contains("0.1.0 build 6 sha a2727b1"))
-        XCTAssertFalse(
-            session.routingNotes.contains(where: { $0.contains("eve speaks identity") }),
-            "c1cd758 empty eve-speaks-identity silent return must not come back"
+        let drain = try XCTUnwrap(A2727B1Walk.drain(in: records))
+        XCTAssertEqual(drain.routingNotes, [A2727B1Walk.drainNote])
+        XCTAssertTrue(drain.routingNotes[0].contains("stayLive=true"))
+
+        let version = try XCTUnwrap(A2727B1Walk.versionTurn(in: records))
+        XCTAssertEqual(version.userTranscript, A2727B1Walk.versionAsk)
+        XCTAssertEqual(version.assistantReply, A2727B1Walk.spokenIdentity)
+        XCTAssertEqual(version.voicePath, A2727B1Walk.eveRealtime)
+        XCTAssertTrue(version.routingNotes.contains(A2727B1Walk.versionIdentityNote))
+        XCTAssertTrue(version.routingNotes.contains(A2727B1Walk.versionDogfoodNote))
+        XCTAssertEqual(version.timestamp, drain.timestamp, "L420+L421 same second")
+
+        XCTAssertTrue(A2727B1Walk.versionIsDualMouth(in: records))
+        XCTAssertTrue(A2727B1Walk.versionMouth(in: records).isDualMouth)
+        XCTAssertTrue(
+            A2727B1Walk.versionHasNoFirstAudioWhileDeskDrained(in: records),
+            "Eve cut: desk drained, no firstAudio on the version turn"
         )
+
+        let last = try XCTUnwrap(A2727B1Walk.lastUserTurn(in: records))
+        XCTAssertEqual(last.userTranscript, A2727B1Walk.lastUserAsk)
+        XCTAssertEqual(last.cardsAttached, [])
+        XCTAssertEqual(last.voicePath, A2727B1Walk.eveRealtime)
+        XCTAssertTrue(A2727B1Walk.diedStayIdleAfterLastReply(in: records))
+        XCTAssertFalse(A2727B1Walk.hasAudioStart(after: last, in: records))
+
+        let close = try XCTUnwrap(A2727B1Walk.sessionClose(in: records))
+        XCTAssertTrue(close.routingNotes.contains(where: { $0.contains(A2727B1Walk.closeNote) }))
+
+        XCTAssertFalse(A2727B1Walk.mentionsEveSpeaksIdentity(in: records))
+        XCTAssertFalse(
+            A2727B1Walk.mentionsMuteFlagTokens(in: records),
+            "window has no dropAssistantOutput / clientTTSInFlight / unmute"
+        )
+    }
+
+    func testProductionSpokenLoopFailsRestoreWalkLeftovers() {
+        var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: true)
+        XCTAssertTrue(session.handleLiveUser(A2727B1Walk.versionAsk))
+        XCTAssertEqual(session.assistantReply, A2727B1Walk.spokenIdentity)
+        XCTAssertEqual(session.voicePath, A2727B1Walk.eveRealtime)
+        XCTAssertTrue(session.routingNotes.contains(A2727B1Walk.versionIdentityNote))
+        XCTAssertTrue(session.routingNotes.contains(A2727B1Walk.versionDogfoodNote))
+        XCTAssertFalse(session.routingNotes.contains(where: { $0.contains("eve speaks identity") }))
         XCTAssertFalse(
             LiveVADPlayerKeep.isEmptyEveSpeaksIdentityLie(
                 routingNotes: session.routingNotes,
@@ -31,58 +70,58 @@ final class LiveVersionAskTests: XCTestCase {
             )
         )
 
-        // TWO-MOUTH: a2727b1 wrote desk identity on live VAD while Eve also played.
+        // TWO-MOUTH: walk wrote desk identity while Eve stayLive.
         XCTAssertFalse(
             session.speakDeskReply(session.spokenIdentityLine),
-            "desk write on live VAD is the second mouth"
+            "L420+L421 desk write on live VAD is the second mouth"
         )
         XCTAssertFalse(session.wroteIdentityPCM)
-        let eve = playerAllowsEve()
-        XCTAssertTrue(eve, "Eve is the live-Talk mouth")
-        XCTAssertFalse(
-            session.wroteIdentityPCM && eve,
-            "a2727b1: identity write + Eve PCM on the same turn"
-        )
-        XCTAssertTrue(
-            LiveTalkMouth.liveTalkEveOnly().eveVoicePath
-                && !LiveTalkMouth.liveTalkEveOnly().clientVoiceSpeechWrite
-        )
-        XCTAssertTrue(LiveTalkMouth.firstAskDeskIdentityPlusEve().isDualMouth)
+        XCTAssertTrue(playerAllowsEve(), "Eve is the live-Talk mouth")
+        XCTAssertFalse(session.wroteIdentityPCM && playerAllowsEve())
 
-        // VOICE-CUT: a2727b1 deskWritesIdentity interrupted while Eve had pending.
+        // EVE CUT: no firstAudio while desk drained. Do not interrupt her
+        // pending mouth. jsonl has no mute-flag token to flip.
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
                 alreadyBarged: false,
                 hasPendingPlayback: true
             ),
-            "Eve must finish; interrupt is the next turn on a real command"
-        )
-        XCTAssertFalse(
-            LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
-                alreadyBarged: true,
-                hasPendingPlayback: true
-            )
-        )
-        XCTAssertTrue(
-            LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
-                alreadyBarged: false,
-                hasPendingPlayback: false
-            ),
-            "after she finishes, a real next-turn command may interrupt leftover"
+            "Eve must finish; version drain is not a barge cut"
         )
 
-        // POST-EMAIL DEAF: after version, next Eve delta still plays; listen stays.
-        XCTAssertTrue(
-            playerAllowsEve(),
-            "8927c2d mute stuck: following Eve (emails) was silent / mic felt deaf"
-        )
+        // POST-EMAIL DEAF: L424 DidClose 1000 stayIdle after a real reply.
+        // Production DidClose uses sessionShouldStayLive, not listen-armed-only.
         XCTAssertTrue(
             ListenResumePolicy.sessionShouldStayLive(
                 userWantsVoiceOff: false,
                 liveSessionArmed: true,
-                audioStarted: true,
-                clientTTSInFlight: false
+                audioStarted: true
             )
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: true,
+                closeCode: 1000,
+                voiceState: .idle,
+                liveSessionArmed: true
+            ),
+            .reconnect,
+            "L424 leftover: state=idle stayLive=false stayIdle after the last reply"
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+                    userWantsVoiceOff: false,
+                    listenArmed: false
+                ),
+                closeCode: 1000,
+                voiceState: .idle,
+                liveSessionArmed: false
+            ),
+            .stayIdle,
+            "walk DidClose: idle + listen-armed stayLive=false + unarmed → stayIdle"
         )
         var listen = VoiceSession()
         listen.apply(.tapTalk)
@@ -92,18 +131,17 @@ final class LiveVersionAskTests: XCTestCase {
             liveSessionArmed: true,
             captureRunning: true
         )
-        XCTAssertTrue(after.stayLive, "GrokVoiceService.returnToListenAfterDeskTTS stayLive")
-        XCTAssertTrue(after.listenArmed)
-        XCTAssertNotEqual(after.close1000, .stayIdle, "close 1000 after she speaks is not mic-deaf")
-        XCTAssertFalse(after.startAgain)
+        XCTAssertTrue(after.stayLive)
+        XCTAssertNotEqual(after.close1000, .stayIdle)
+        XCTAssertFalse(after.startAgain, "no audio.start after a real reply")
     }
 
     func testOfflineVersionStillWritesIdentityNotEmptyEveLie() {
         var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: false)
-        XCTAssertTrue(session.handleLiveUser(ask))
+        XCTAssertTrue(session.handleLiveUser(A2727B1Walk.versionAsk))
         XCTAssertTrue(session.speakDeskReply(session.spokenIdentityLine))
         XCTAssertTrue(session.wroteIdentityPCM)
-        XCTAssertEqual(session.identityPCM, "VoiceDesk point 1, build 6.")
+        XCTAssertEqual(session.identityPCM, A2727B1Walk.spokenIdentity)
         XCTAssertFalse(
             LiveVADPlayerKeep.isEmptyEveSpeaksIdentityLie(
                 routingNotes: session.routingNotes,
@@ -116,8 +154,7 @@ final class LiveVersionAskTests: XCTestCase {
                 liveVADTurn: true,
                 spoken: session.spokenIdentityLine,
                 identityLine: session.spokenIdentityLine
-            ),
-            "live VAD must not add a desk mouth"
+            )
         )
     }
 

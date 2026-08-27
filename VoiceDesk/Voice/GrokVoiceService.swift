@@ -617,10 +617,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
 
     func grokWebSocketDidClose(code: Int, reason: String?) {
         failReady(GrokVoiceError.connectFailed("closed \(code) \(reason ?? "")"))
-        let stayLive = ListenResumePolicy.sha415c955StayLiveAfterClose1000(
-            userWantsVoiceOff: userWantsVoiceOff,
-            listenArmed: ListenResumePolicy.isListenArmed(state: session.state)
-        )
+        let stayLive = sessionShouldStayLive
         let decision = ListenResumePolicy.afterSocketClose(
             userWantsVoiceOff: userWantsVoiceOff,
             sessionShouldStayLive: stayLive,
@@ -852,10 +849,7 @@ extension GrokVoiceService {
     var listenLoopClose1000: ListenResumeDecision {
         ListenResumePolicy.afterSocketClose(
             userWantsVoiceOff: userWantsVoiceOff,
-            sessionShouldStayLive: ListenResumePolicy.sha415c955StayLiveAfterClose1000(
-                userWantsVoiceOff: userWantsVoiceOff,
-                listenArmed: ListenResumePolicy.isListenArmed(state: session.state)
-            ),
+            sessionShouldStayLive: sessionShouldStayLive,
             closeCode: 1000,
             voiceState: session.state,
             liveSessionArmed: liveSessionArmed

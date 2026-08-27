@@ -101,7 +101,7 @@ public struct LiveTalkMouth: Equatable, Sendable {
         return identity && drain && eveAlsoSpoke
     }
 
-    /// a2727b1 walk L401+L402: drain record + version turn with
+    /// a2727b1 restore-walk L420+L421: drain record + version turn with
     /// `local build identity`, spoken “VoiceDesk point 1, build 6.”,
     /// and `voicePath` Eve realtime. No eve-speaks-identity. That
     /// is two mouths. Do not take a boolean — the log has voicePath.
