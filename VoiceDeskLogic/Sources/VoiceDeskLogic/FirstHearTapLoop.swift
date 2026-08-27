@@ -241,7 +241,6 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         }
 
         take(first)
-        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
         var after = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: false,
@@ -255,7 +254,6 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         }
 
         take(second)
-        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
         after = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: false,
@@ -365,7 +363,6 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         }
 
         take(first)
-        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
         let after = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: false,
@@ -793,7 +790,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case .applySpeakStarted:
             session.apply(.speakStarted)
         case .leftoverGrokSpeakAndDone:
-            ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
+            break
         }
 
         switch afterDrain {

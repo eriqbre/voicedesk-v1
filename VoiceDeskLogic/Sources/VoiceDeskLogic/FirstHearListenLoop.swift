@@ -55,7 +55,6 @@ public struct FirstHearListenLoop: Equatable, Sendable {
         _ = inject(first)
         _ = inject(second)
 
-        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
         let after = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: false,

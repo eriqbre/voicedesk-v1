@@ -1393,7 +1393,6 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func speak(_ text: String) async {
         spoken.append(text)
-        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
         let after = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: false,

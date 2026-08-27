@@ -221,7 +221,6 @@ final class GrokVoiceService: VoiceServicing {
     /// After write→player drain. Leftover created/done must not park
     /// speaking. Session back to listening. No second start.
     private func returnToListenAfterDeskTTS() {
-        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
         let result = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: userWantsVoiceOff,

@@ -72,7 +72,10 @@ final class ListenResumePolicyTests: XCTestCase {
     func testLeftoverGrokDuringClientTTSDoesNotParkSpeaking() {
         var session = VoiceSession()
         session.apply(.tapTalk)
-        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
+        XCTAssertFalse(
+            ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true),
+            "leftover done during desk TTS must not leave listen"
+        )
         XCTAssertEqual(session.state, .listening, "leftover created/done must not park speaking")
         XCTAssertTrue(ListenResumePolicy.isListenArmed(state: session.state))
     }
