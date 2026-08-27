@@ -91,27 +91,15 @@ public enum A2727B1Walk {
     /// L420 drain + L421 identity write + Eve stayLive. No eve-speaks-identity.
     public static func versionIsDualMouth(in records: [VoiceInteractionEntry] = window) -> Bool {
         guard let version = versionTurn(in: records) else { return false }
-        let drainNotes = drain(in: records)?.routingNotes ?? []
-        return LiveTalkMouth.versionTurnIsDualMouth(
-            versionNotes: version.routingNotes,
-            assistantReply: version.assistantReply,
-            voicePath: version.voicePath,
-            drainNotes: drainNotes
-        )
-    }
-
-    public static func versionMouth(in records: [VoiceInteractionEntry] = window) -> LiveTalkMouth {
-        let version = versionTurn(in: records)
-        let wroteIdentity = version?.routingNotes.contains(where: { $0.contains(versionIdentityNote) }) == true
-            && !(version?.assistantReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        return LiveTalkMouth(
-            afterDeskTTSDrain: drain(in: records) != nil,
-            eveVoicePath: version?.voicePath.localizedCaseInsensitiveContains(eveRealtime) == true,
-            skippedGlanceStubFirstAudio: false,
-            clientVoiceSpeechWrite: wroteIdentity,
-            liveVADResponse: true,
-            sentVerbatimCreate: false
-        )
+        let versionBlob = version.routingNotes.joined(separator: "\n")
+        let drainBlob = (drain(in: records)?.routingNotes ?? []).joined(separator: "\n")
+        let identityWrite = versionBlob.contains(versionIdentityNote)
+            && version.assistantReply.localizedCaseInsensitiveContains("VoiceDesk point")
+        let drained = drainBlob.contains("after desk tts drain")
+            || versionBlob.contains("after desk tts drain")
+        let eveRealtimePath = version.voicePath.localizedCaseInsensitiveContains(eveRealtime)
+        let silentEveLie = versionBlob.contains("eve speaks identity")
+        return identityWrite && drained && eveRealtimePath && !silentEveLie
     }
 
     /// jsonl has no firstAudio on the version turn. Desk drained. User heard Eve cut.

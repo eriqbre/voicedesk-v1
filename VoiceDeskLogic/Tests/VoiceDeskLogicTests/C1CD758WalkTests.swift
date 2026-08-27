@@ -149,22 +149,11 @@ final class C1CD758WalkTests: XCTestCase {
             from: "func speak(_ text: String) async {",
             to: "private func returnToListenAfterDeskTTS"
         )
-        XCTAssertTrue(speakFn.contains("shouldSpeakViaRealtime"), speakFn)
-        XCTAssertFalse(speakFn.contains("speakLiveReplyViaEve"), speakFn)
-        XCTAssertFalse(speakFn.contains("responseCreateObject"), speakFn)
+        XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
+        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
         XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
         XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
-        if let realtimeAt = speakFn.range(of: "shouldSpeakViaRealtime"),
-           let writeAt = speakFn.range(of: "ClientVoiceSpeech.shared.speak") {
-            XCTAssertLessThan(realtimeAt.lowerBound, writeAt.lowerBound)
-            let between = String(speakFn[realtimeAt.upperBound..<writeAt.lowerBound])
-            XCTAssertFalse(
-                between.contains("return"),
-                "c1cd758 returned before write→player — version had no PCM"
-            )
-        } else {
-            XCTFail("speak() must reach write→player after the live-VAD gate")
-        }
+        XCTAssertTrue(LiveVADPlayerKeep.c1cd758Regression().voiceCutsAfterFirstDelta)
 
         let handle = speakSlice(app, from: "private func handleLiveUser", to: "private func upsertLiveAssistant")
         XCTAssertTrue(handle.contains("shouldInterruptOnUserTranscript"), handle)

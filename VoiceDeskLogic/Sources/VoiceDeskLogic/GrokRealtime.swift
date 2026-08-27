@@ -16,8 +16,9 @@ public enum GrokRealtime {
     /// Disconnected / first-run sample desk. Do not use after Google is connected.
     public static let presenceInstructions = presenceInstructions(for: .disconnected)
 
-    /// Second-person VoiceDesk presence. Cards attach in the iOS app from desk evidence;
-    /// Eve speaks the reply. The client owns cards, mic, and fetches.
+    /// Second-person VoiceDesk presence. Eve speaks the reply from
+    /// last-synced facts. Do not teach leftover desk-routing language
+    /// ("the app will take this", "stay silent, the client owns it").
     public static func presenceInstructions(
         for context: DeskContext,
         identity: BuildIdentity = .unknown
@@ -34,11 +35,11 @@ public enum GrokRealtime {
         }
 
         let deskObjective = context.isConnected
-            ? "When the topic is their desk, you speak the answer from the last-synced facts. The iOS app attaches cards and fetches mail. You own intent and the spoken reply."
+            ? "When the topic is their desk, you speak the answer from the last-synced facts. You own intent and the spoken reply."
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, answer from the facts you have. If a body is not in the facts yet, you may acknowledge that you heard them and that you are checking — in your own words. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. Do not mention any sample listing or sample inbox as if it were live mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER describe mail as snippet-only. NEVER narrate routing. NEVER say you’ll let the app handle that, you’ll look that up in the app, or that you’re handing the turn off."
+            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, answer from the facts you have. If a body is not in the facts yet, acknowledge that you heard them and that you are checking — in your own words. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. Do not mention any sample listing or sample inbox as if it were live mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER describe mail as snippet-only."
             : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
         let googleConnectGuard: String
@@ -74,13 +75,12 @@ public enum GrokRealtime {
         Spoken word only: no markdown, no bullets, no emojis. One or two short sentences unless they want more. Warm, direct, English. Vary phrasing.
 
         ## CRITICAL INSTRUCTIONS
-        NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above. The iOS app attaches evidence cards separately — you just talk.
+        NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above.
         NEVER tell them to open Settings, Account, or Integrations. Those screens do not exist.
         NEVER say you cannot connect Google. NEVER bounce them to Gmail for a message body.
-        NEVER mention an Email card or that a full message is waiting on a card. The client attaches cards. NEVER say pull-to-refresh.
+        NEVER mention an Email card or that a full message is waiting on a card. NEVER say pull-to-refresh.
         NEVER paste a full email body or quoted thread into the conversation.
-        NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, or that all you have is a snippet. The client fetches full bodies.
-        NEVER narrate routing. NEVER say you’ll let the app handle that or that you’ll look that up in the app.
+        NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, or that all you have is a snippet.
         If they ask for a full email, summary, or body, answer from the facts. If the body is not there yet, acknowledge in your own words that you heard them and are checking. Do not invent the body.
         \(context.isConnected
             ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
@@ -98,7 +98,7 @@ public enum GrokRealtime {
 
     public static func connectedDeskFacts(_ snapshot: DeskSnapshot) -> String {
         var lines: [String] = [
-            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts: from, subject, and when, plus a body when the client has fetched it. The client fetches mail. You speak the answer. Do not invent mail. Do not say a message is not synced or that you only have a snippet."
+            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts: from, subject, and when, plus a body when it is here. You speak the answer. Do not invent mail. Do not say a message is not synced or that you only have a snippet."
         ]
         if let synced = snapshot.lastSyncedAt {
             lines.append("Last synced: \(DeskSnapshot.timeLabel(synced)).")
@@ -622,10 +622,39 @@ public enum GrokRealtime {
         !liveVADTurn
     }
 
+    /// 12:54 / 3:27 live-Grok leak. Eve paraphrased routing-narration.
+    /// Detector only — not a mute, not a transcript scrub.
+    public static func isLeftoverDeskRoutingReply(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+            .replacingOccurrences(of: "‘", with: "'")
+        if lower.contains("app will take") { return true }
+        if lower.contains("let the app handle") { return true }
+        if raw.hasPrefix(" "), isLeftoverDeskRoutingReply(
+            raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        ) {
+            return true
+        }
+        return false
+    }
+
+    /// Connected presence must not teach stay-silent / app-owns routing.
+    public static func teachesLeftoverDeskRouting(_ instructions: String) -> Bool {
+        let lower = instructions.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+        if lower.contains("stay silent") { return true }
+        if lower.contains("let the app handle") { return true }
+        if lower.contains("the ios app owns") { return true }
+        if lower.contains("the client owns those turns") { return true }
+        if lower.contains("the client handles all gmail") { return true }
+        if lower.contains("the client interrupts you") { return true }
+        return false
+    }
+
     public static func verbatimSpeakInstructions(text: String) -> String {
         """
         Speak the SPEAK_VERBATIM block word-for-word. No other words. No greeting. No paraphrase.
-        Do not say you will let the app handle anything. After you finish, stay silent.
+        After you finish, do not add more.
 
         SPEAK_VERBATIM
         \(text)

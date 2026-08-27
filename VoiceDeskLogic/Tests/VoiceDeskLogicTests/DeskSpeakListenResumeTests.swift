@@ -128,7 +128,7 @@ final class DeskSpeakListenResumeTests: XCTestCase {
             )
             XCTAssertTrue(GmailSearchQuery.hasSenderPattern(sender), sender)
         }
-        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
+        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS(socketConnected: false))
         for calendar in Self.calendarFamily {
             let walk = DeskSpeakListenResume.afterNamedSenderThenCalendar(
                 senderAsk: "It's the email from Katherine.",

@@ -101,7 +101,7 @@ public struct VersionDeskSpeakWalk: Equatable, Sendable {
             spokenIntent: replay.intent,
             cardsAttached: !replay.cardLabels.isEmpty,
             spokenLineCompleted: !barged && !spokenLine.isEmpty,
-            usesGrokVerbatim: ListenResumePolicy.deskSpeakUsesGrokVerbatim(),
+            usesGrokVerbatim: ListenResumePolicy.deskSpeakUsesGrokVerbatim(socketConnected: false),
             listenArmedDuringTTS: during.listenArmed,
             listenArmedAfterSpeak: after.listenArmed && after.captureArmed,
             close1000StayLive: stayLive,

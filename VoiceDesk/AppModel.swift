@@ -37,8 +37,6 @@ final class AppModel {
     private var pendingDeskTopic: ConversationPresence.Topic?
     private var userDedupe = TranscriptDedupe()
     private var waitingToOfferConnectAfterTalk = false
-    /// After we script Connect / email-body locally, drop Grok’s spoken contradiction.
-    private var suppressLiveAssistant = false
     /// Live VAD desk cards parked until Eve's first transcript delta.
     /// Must attach on the stream — not after glanceInbox — or show-latest
     /// is a blob.
@@ -439,12 +437,10 @@ final class AppModel {
                     )
                 }
                 if yieldGrokInterruptAnswer {
-                    unmuteGrokAssistant()
                     return
                 }
                 // Live VAD already has Eve's mouth. Do not claimLocal —
                 // that drops her in-flight audio. Cards and tools still run.
-                unmuteGrokAssistant()
                 Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
                 return
             }
@@ -459,14 +455,11 @@ final class AppModel {
                 parkOrAttachLiveDeskCards(evidence.cards)
             }
             if yieldGrokInterruptAnswer {
-                unmuteGrokAssistant()
                 return
             }
-            unmuteGrokAssistant()
             surfaceDeskEvidence(evidence)
             return
         }
-        unmuteGrokAssistant()
         pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         pendingGeneralVoiceLog = true
         if ConversationPresence.wantsTour(text) {
@@ -479,9 +472,6 @@ final class AppModel {
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
         if ConversationPresence.isGrokDeskMeta(text) {
-            return
-        }
-        if suppressLiveAssistant {
             return
         }
         if text.isEmpty, isFinal {
@@ -649,7 +639,6 @@ final class AppModel {
         }
 
         if voice.usesLiveLoop {
-            unmuteGrokAssistant()
             pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
             pendingGeneralVoiceLog = true
             await voice.sendTextTurn(text)
@@ -720,11 +709,11 @@ final class AppModel {
         logVoiceTurn(intentHint: "general", reply: plan.text, cards: cards, notes: ["local plan"])
     }
 
-    /// Stop Grok from contradicting a local Connect / email-body reply on the thread.
+    /// Typed / Connect: interrupt Eve so a local bubble is not contradicted.
+    /// No mute flags — those stuck (8927c2d silence). Live VAD desk
+    /// turns do not call this.
     private func claimLocalAssistantReply() {
-        suppressLiveAssistant = true
         voice.interruptResponse()
-        voice.suppressAssistantOutput(true)
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
             turns.remove(at: index)
         }
@@ -732,11 +721,6 @@ final class AppModel {
         pendingDeskTopic = nil
         pendingLiveDeskCards = []
         scrubGrokDeskRefusals()
-    }
-
-    private func unmuteGrokAssistant() {
-        suppressLiveAssistant = false
-        voice.suppressAssistantOutput(false)
     }
 
     private func scrubGrokDeskRefusals() {
@@ -916,8 +900,8 @@ final class AppModel {
             )
             if !isLiveVADTurn {
                 appendAssistant(line)
-                await speakDeskReply(line)
             }
+            await speakDeskReply(line)
             logVoiceTurn(
                 evidence: evidence,
                 intentHint: "version",
@@ -1156,6 +1140,13 @@ final class AppModel {
         liveVersionAsk.identity = buildIdentity
         liveVersionAsk.lastUserUtterance = lastUserUtterance
         liveVersionAsk.lastSpokenDeskReply = lastSpokenDeskReply
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if isLiveVADTurn {
+            lastSpokenDeskReply = trimmed
+            await voice.speak(trimmed)
+            return
+        }
         guard liveVersionAsk.speakDeskReply(text) else { return }
         lastSpokenDeskReply = liveVersionAsk.lastSpokenDeskReply
         guard let spoken = liveVersionAsk.lastSpokenDeskReply, !spoken.isEmpty else { return }

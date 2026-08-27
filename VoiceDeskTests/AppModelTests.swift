@@ -1352,7 +1352,7 @@ final class AppModelTests: XCTestCase {
 
 /// Live Grok stand-in. Desk speak is `speak` (on-device TTS). `sentTurns` is
 /// a fake Grok user turn — desk replies must not use it. The socket stays
-/// in listen; do not treat output-suppress as “session muted.”
+/// in listen. No mute / suppress flags.
 @MainActor
 final class FakeLiveVoiceService: VoiceServicing {
     private var session = VoiceSession()
@@ -1365,7 +1365,6 @@ final class FakeLiveVoiceService: VoiceServicing {
     var cancelled = false
     var sentTurns: [String] = []
     var spoken: [String] = []
-    var assistantOutputSuppressed = false
     var hasPendingPlayback = false
     var listenLoopBargeConsumed = false
     var interruptCount = 0
@@ -1444,10 +1443,6 @@ final class FakeLiveVoiceService: VoiceServicing {
         interruptCount += 1
         hasPendingPlayback = false
         listenLoopBargeConsumed = true
-    }
-
-    func suppressAssistantOutput(_ suppress: Bool) {
-        assistantOutputSuppressed = suppress
     }
 }
 

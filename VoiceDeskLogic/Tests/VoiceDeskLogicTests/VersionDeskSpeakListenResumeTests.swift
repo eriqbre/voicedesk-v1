@@ -165,17 +165,18 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
         XCTAssertFalse(tts.contains("synthesizer.speak("), tts)
         XCTAssertTrue(tts.contains("usesApplicationAudioSession = false"), tts)
         XCTAssertFalse(tts.contains("usesApplicationAudioSession = true"), tts)
-        XCTAssertTrue(source.contains("shouldSpeakViaRealtime"), source)
-        XCTAssertFalse(
+        XCTAssertTrue(source.contains("LiveEveSpeak.plan"), source)
+        XCTAssertTrue(
             source.contains("speakLiveReplyViaEve"),
-            "live VAD must not stack a second response.create"
+            "live socket is Eve after interrupt+clear"
         )
-        XCTAssertFalse(source.contains("verbatimSpeakSessionUpdateObject"), source)
+        XCTAssertTrue(source.contains("verbatimSpeakSessionUpdateObject"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"desk speak\")"), source)
         XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
         XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
-        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
+        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS(socketConnected: false))
+        XCTAssertFalse(ListenResumePolicy.deskSpeakUsesClientTTS(socketConnected: true))
         XCTAssertTrue(
             GrokRealtime.shouldSpeakViaRealtime(
                 usesLiveLoop: true,

@@ -33,24 +33,7 @@ final class FirstAskOneMouthTests: XCTestCase {
             A2727B1Walk.versionIsDualMouth(in: records),
             "desk identity write + Eve realtime on the same version turn"
         )
-        XCTAssertTrue(A2727B1Walk.versionMouth(in: records).isDualMouth)
-        XCTAssertTrue(
-            LiveTalkMouth.versionTurnIsDualMouth(
-                versionNotes: version.routingNotes,
-                assistantReply: version.assistantReply,
-                voicePath: version.voicePath,
-                drainNotes: drain.routingNotes
-            )
-        )
-        XCTAssertFalse(
-            LiveTalkMouth.versionTurnIsDualMouth(
-                versionNotes: version.routingNotes,
-                assistantReply: version.assistantReply,
-                voicePath: version.voicePath,
-                drainNotes: []
-            ),
-            "drain is the sibling listen-resume, not a boolean eveAlsoSpoke"
-        )
+        XCTAssertTrue(A2727B1Walk.versionIsDualMouth(in: records))
         XCTAssertTrue(ConversationPresence.wantsVersionAsk(A2727B1Walk.versionAsk))
         XCTAssertTrue(A2727B1Walk.versionIsDualMouth())
         XCTAssertTrue(A2727B1Walk.versionHasNoFirstAudioWhileDeskDrained(in: records))
@@ -59,24 +42,17 @@ final class FirstAskOneMouthTests: XCTestCase {
     }
 
     func testFirstAskDeskPlusEveIsTwoMouthsAndFixIsEveOnly() {
-        let hole = LiveTalkMouth.firstAskDeskIdentityPlusEve()
-        XCTAssertTrue(hole.afterDeskTTSDrain)
-        XCTAssertTrue(hole.liveVADResponse)
-        XCTAssertTrue(hole.clientVoiceSpeechWrite)
-        XCTAssertTrue(hole.eveVoicePath)
-        XCTAssertFalse(hole.sentVerbatimCreate)
-        XCTAssertTrue(
-            hole.isDualMouth,
-            "desk TTS write + Eve realtime is two mouths"
+        XCTAssertTrue(A2727B1Walk.versionIsDualMouth())
+        XCTAssertFalse(
+            LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
+                liveVADTurn: true,
+                spoken: A2727B1Walk.spokenIdentity,
+                identityLine: A2727B1Walk.spokenIdentity
+            )
         )
-
-        let keep = LiveTalkMouth.liveTalkEveOnly()
-        XCTAssertFalse(keep.afterDeskTTSDrain)
-        XCTAssertFalse(keep.clientVoiceSpeechWrite)
-        XCTAssertTrue(keep.eveVoicePath)
-        XCTAssertFalse(keep.sentVerbatimCreate)
-        XCTAssertFalse(keep.isDualMouth)
-        XCTAssertFalse(GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: true))
+        let eve = LiveEveSpeak.plan(text: "1.2.3", socketConnected: true)
+        XCTAssertEqual(eve.mouth, .eve)
+        XCTAssertFalse(eve.wroteClientTTS)
     }
 
     func testVersionAskKeepsEveMouthAndDoesNotWriteDesk() {
@@ -115,11 +91,13 @@ final class FirstAskOneMouthTests: XCTestCase {
     /// a2727b1: desk write→player AND Eve live VAD PCM. Mute flags
     /// tried to hide Eve and stuck. Live Talk is Eve only.
     func testIdentityWriteAndEveDeltasBothReachPlayerIsTheHole() throws {
-        XCTAssertTrue(
-            LiveTalkMouth.firstAskDeskIdentityPlusEve().isDualMouth
-        )
+        XCTAssertTrue(A2727B1Walk.versionIsDualMouth())
         XCTAssertFalse(
-            LiveTalkMouth.liveTalkEveOnly().isDualMouth
+            LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
+                liveVADTurn: true,
+                spoken: A2727B1Walk.spokenIdentity,
+                identityLine: A2727B1Walk.spokenIdentity
+            )
         )
 
         let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
@@ -128,18 +106,9 @@ final class FirstAskOneMouthTests: XCTestCase {
             from: "func speak(_ text: String) async {",
             to: "private func returnToListenAfterDeskTTS"
         )
+        XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
+        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
         XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
-        XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
-        if let realtimeAt = speakFn.range(of: "shouldSpeakViaRealtime"),
-           let writeAt = speakFn.range(of: "ClientVoiceSpeech.shared.speak") {
-            let between = String(speakFn[realtimeAt.upperBound..<writeAt.lowerBound])
-            XCTAssertFalse(
-                between.contains("return"),
-                "do not restore empty eve-speaks-identity / silent player"
-            )
-        } else {
-            XCTFail("identity must still write→player")
-        }
         XCTAssertFalse(service.contains("eve speaks identity"), service)
     }
 

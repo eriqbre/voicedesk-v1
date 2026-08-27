@@ -42,23 +42,14 @@ final class LiveVADOneMouthTests: XCTestCase {
     }
 
     func testLiveVADPlusVerbatimStubIsTwoMouthsAndTheFixIsOne() {
-        let walk = LiveTalkMouth.liveVADPlusVerbatimStub()
-        XCTAssertTrue(walk.liveVADResponse)
-        XCTAssertTrue(walk.sentVerbatimCreate)
-        XCTAssertTrue(walk.skippedGlanceStubFirstAudio)
-        XCTAssertTrue(
-            walk.stacksSecondCreate,
-            "83a5c6a stacked A (uncancelled VAD) + B (verbatim create)"
+        XCTAssertTrue(LiveVADPlayerKeep.c1cd758Regression().voiceCutsAfterFirstDelta)
+        XCTAssertFalse(
+            LiveVADPlayerKeep.oneMouthFullReply(cardCount: 3).voiceCutsAfterFirstDelta
         )
-        XCTAssertTrue(walk.isDualMouth)
-        XCTAssertFalse(GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: true))
-        XCTAssertTrue(GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: false))
-        let eve = LiveTalkMouth.liveTalkEveOnly()
-        XCTAssertTrue(eve.liveVADResponse)
-        XCTAssertFalse(eve.sentVerbatimCreate)
-        XCTAssertFalse(eve.stacksSecondCreate)
-        XCTAssertFalse(eve.isDualMouth)
-        XCTAssertFalse(eve.skippedGlanceStubFirstAudio)
+        let eve = LiveEveSpeak.plan(text: "1.2.3", socketConnected: true)
+        XCTAssertEqual(eve.mouth, .eve)
+        XCTAssertFalse(eve.wroteClientTTS)
+        XCTAssertEqual(eve.wireTypes, LiveEveSpeak.eveWireTypes)
     }
 
     func testLiveSpeakDoesNotSendSecondCreateOrClientStub() throws {
@@ -68,19 +59,13 @@ final class LiveVADOneMouthTests: XCTestCase {
             from: "func speak(_ text: String) async {",
             to: "private func returnToListenAfterDeskTTS"
         )
-        XCTAssertTrue(speakFn.contains("shouldSpeakViaRealtime"), speakFn)
-        XCTAssertFalse(
-            speakFn.contains("speakLiveReplyViaEve"),
-            "live VAD must not call speakLiveReplyViaEve"
-        )
-        XCTAssertFalse(
-            speakFn.contains("responseCreateObject"),
-            "live VAD must not send a second response.create"
-        )
-        XCTAssertFalse(speakFn.contains("verbatimSpeakSessionUpdateObject"), speakFn)
-        XCTAssertFalse(speakFn.contains("textItemObject"), speakFn)
+        XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
+        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
         XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
-        XCTAssertFalse(source.contains("private func speakLiveReplyViaEve"), source)
+        XCTAssertTrue(source.contains("private func speakLiveReplyViaEve"), source)
+        XCTAssertTrue(source.contains("interruptAssistant(sendCancel: true)"), source)
+        XCTAssertTrue(source.contains("clearBufferObject"), source)
+        XCTAssertTrue(source.contains("verbatimSpeakResponseID"), source)
         XCTAssertFalse(source.contains("restorePresenceAfterEveSpeak"), source)
 
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
@@ -96,23 +81,28 @@ final class LiveVADOneMouthTests: XCTestCase {
         let live = speakSlice(
             app,
             from: "if ConversationPresence.ownsConnectedDeskTurn",
-            to: "unmuteGrokAssistant()\n        pendingDeskTopic"
+            to: "pendingDeskTopic"
         )
-        XCTAssertTrue(live.contains("unmuteGrokAssistant()"), live)
+        XCTAssertFalse(live.contains("unmuteGrokAssistant()"), live)
+        XCTAssertFalse(live.contains("suppressLiveAssistant"), live)
         XCTAssertFalse(
             live.contains("deskWritesIdentity"),
             "version claimLocal was the Eve cut + second mouth"
+        )
+        XCTAssertTrue(
+            live.contains("fulfillConnectedDeskTurn"),
+            live
         )
         let inbox = speakSlice(
             live,
             from: "if yieldGrokInterruptAnswer",
             to: "if let evidence = ConversationPresence.deskEvidence"
         )
-        XCTAssertTrue(inbox.contains("unmuteGrokAssistant()"), inbox)
         XCTAssertFalse(
             inbox.contains("claimLocalAssistantReply()"),
             "claimLocal drops in-flight Eve audio on a live VAD inbox turn"
         )
+        XCTAssertTrue(app.contains("await voice.speak"), app)
     }
 
     func testReadLatestFamilyDoesNotSkipToolsOrSpeakListStub() {
@@ -191,7 +181,8 @@ final class LiveVADOneMouthTests: XCTestCase {
         XCTAssertFalse(text.contains("Here they are."), text)
         XCTAssertFalse(text.contains("I'm checking"), text)
         XCTAssertFalse(text.contains("I don’t know"), text)
-        XCTAssertTrue(text.contains("let the app handle"), text)
+        XCTAssertFalse(text.contains("let the app handle"), text)
+        XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(text), text)
         let facts = GrokRealtime.connectedDeskFacts(hotSnapshot)
         XCTAssertFalse(facts.contains("stay silent"), facts)
         XCTAssertTrue(facts.contains("You speak the answer"), facts)

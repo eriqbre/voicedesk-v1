@@ -96,8 +96,9 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(text.contains("stay silent"))
         XCTAssertTrue(text.contains("you speak the answer"))
         XCTAssertTrue(text.contains("in your own words"))
-        XCTAssertTrue(text.contains("let the app handle"))
-        XCTAssertTrue(text.contains("NEVER narrate routing"))
+        XCTAssertFalse(text.contains("let the app handle"))
+        XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(text))
+        XCTAssertFalse(text.contains("NEVER narrate routing"))
     }
 
     func testConnectedDeskFactsNeverLabelSnippetOnly() {
@@ -222,7 +223,8 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(GrokRealtime.isVerbatimSpeakPrompt(prompt))
         XCTAssertTrue(prompt.contains(spoken))
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("word-for-word"))
-        XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("let the app handle"))
+        XCTAssertFalse(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("let the app handle"))
+        XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(GrokRealtime.verbatimSpeakInstructions(text: spoken)))
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains(spoken))
         XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
 

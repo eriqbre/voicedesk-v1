@@ -29,10 +29,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(speak.contains("EarlyFinalHold"), speak)
         let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "private func returnToListenAfterDeskTTS")
         XCTAssertFalse(speakFn.contains("echoGate.beginSpeaking"), speakFn)
-        XCTAssertTrue(speakFn.contains("shouldSpeakViaRealtime"), speakFn)
-        XCTAssertFalse(
+        XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
+        XCTAssertTrue(
             speakFn.contains("speakLiveReplyViaEve"),
-            "live VAD must not stack a second response.create"
+            "live socket is Eve; interrupt+clear before create"
         )
         XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
         XCTAssertTrue(
@@ -144,7 +144,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
 
     func testFakeLiveInterruptCountOnlyTicksWhenPlaybackIsPending() throws {
         let tests = try XCTUnwrap(repoFile("VoiceDeskTests/AppModelTests.swift"))
-        let interrupt = speakSlice(tests, from: "func interruptResponse() {", to: "func suppressAssistantOutput")
+        let interrupt = speakSlice(tests, from: "func interruptResponse() {", to: "final class GoogleSliceTests")
         XCTAssertTrue(interrupt.contains("guard hasPendingPlayback else { return }"), interrupt)
         XCTAssertTrue(interrupt.contains("interruptCount += 1"), interrupt)
         let speak = speakSlice(tests, from: "func speak(_ text: String) async {", to: "func sendTextTurn")
@@ -711,7 +711,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let interruptLive = speakSlice(
             service,
             from: "func interruptResponse() {",
-            to: "func suppressAssistantOutput"
+            to: "func cancel()"
         )
         XCTAssertFalse(
             interruptLive.contains("guard audio.hasPendingPlayback else { return }"),
@@ -776,14 +776,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
             interruptLive.contains("keepNewAnswer"),
             "retargeting keepNewAnswer to playing lets claimLocal cancel the interrupt answer"
         )
-        let suppressLive = speakSlice(service, from: "func suppressAssistantOutput", to: "func cancel()")
-        XCTAssertTrue(suppressLive.contains("dropAssistantTranscript"), suppressLive)
         XCTAssertFalse(
-            suppressLive.contains("interruptResponse"),
-            "second cancel after keepNewAnswer retargets to the interrupt answer"
+            service.contains("func suppressAssistantOutput"),
+            "mute/unmute pile stuck Eve silent (8927c2d)"
         )
-        XCTAssertFalse(suppressLive.contains("interruptAssistant"), suppressLive)
+        XCTAssertFalse(service.contains("dropAssistantTranscript"), service)
         XCTAssertFalse(service.contains("dropAssistantAudio"), service)
+        XCTAssertTrue(service.contains("private func speakLiveReplyViaEve"), service)
+        XCTAssertTrue(service.contains("verbatimSpeakResponseID"), service)
         let interruptFn = speakSlice(service, from: "private func interruptAssistant", to: "private func teardown")
         XCTAssertTrue(interruptFn.contains("responseIDToCancel"), interruptFn)
         XCTAssertTrue(interruptFn.contains("responseCancelObject(responseID:"), interruptFn)

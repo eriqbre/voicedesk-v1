@@ -24,14 +24,33 @@ public enum ListenResumePolicy: Sendable {
         return .keepListening
     }
 
-    /// Offline / down-socket leftover walks still model ClientVoiceSpeech.
-    /// Live Talk (socket up) speaks through Eve — see shouldSpeakViaRealtime.
-    public static func deskSpeakUsesClientTTS() -> Bool {
-        true
+    /// One contract with `speak()`. Live socket up = Eve. Down = ClientVoiceSpeech.
+    public static func deskSpeakUsesClientTTS(
+        socketConnected: Bool,
+        liveSessionArmed: Bool = true,
+        usesLiveLoop: Bool = true,
+        userWantsVoiceOff: Bool = false
+    ) -> Bool {
+        LiveEveSpeak.mouth(
+            usesLiveLoop: usesLiveLoop,
+            socketConnected: socketConnected,
+            liveSessionArmed: liveSessionArmed,
+            userWantsVoiceOff: userWantsVoiceOff
+        ) == .clientTTS
     }
 
-    public static func deskSpeakUsesGrokVerbatim() -> Bool {
-        !deskSpeakUsesClientTTS()
+    public static func deskSpeakUsesGrokVerbatim(
+        socketConnected: Bool,
+        liveSessionArmed: Bool = true,
+        usesLiveLoop: Bool = true,
+        userWantsVoiceOff: Bool = false
+    ) -> Bool {
+        !deskSpeakUsesClientTTS(
+            socketConnected: socketConnected,
+            liveSessionArmed: liveSessionArmed,
+            usesLiveLoop: usesLiveLoop,
+            userWantsVoiceOff: userWantsVoiceOff
+        )
     }
 
     /// 4ac127a / 697147d: `session close code=1000 state=idle` after a desk

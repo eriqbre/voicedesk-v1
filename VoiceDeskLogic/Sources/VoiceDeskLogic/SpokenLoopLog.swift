@@ -13,6 +13,10 @@ public enum SpokenLoopLog: Sendable {
     public static let firstAudioEvent = "spoken_loop.first_audio"
     public static let deskTTSDrainEvent = "spoken_loop.desk_tts.drain"
     public static let sessionCloseEvent = "spoken_loop.session.close"
+    public static let liveSpeakStartEvent = "live.speak.start"
+    public static let liveSpeakSentEvent = "live.speak.sent"
+    public static let liveSpeakDoneEvent = "live.speak.done"
+    public static let liveSpeakSkippedEvent = "live.speak.skipped"
 
     public enum Mouth: String, Equatable, Sendable {
         case desk
@@ -68,6 +72,43 @@ public enum SpokenLoopLog: Sendable {
             "listenArmed": bool(listenArmed),
             "stayLive": bool(stayLive),
             "state": state
+        ])
+    }
+
+    public static func liveSpeakStart(sessionID: String) -> VoiceInteractionEntry {
+        entry(fields: [
+            "event": liveSpeakStartEvent,
+            "session": sessionID
+        ])
+    }
+
+    public static func liveSpeakSent(sessionID: String, responseID: String?) -> VoiceInteractionEntry {
+        var fields = [
+            "event": liveSpeakSentEvent,
+            "session": sessionID
+        ]
+        if let responseID, !responseID.isEmpty {
+            fields["response"] = responseID
+        }
+        return entry(fields: fields)
+    }
+
+    public static func liveSpeakDone(sessionID: String, responseID: String?) -> VoiceInteractionEntry {
+        var fields = [
+            "event": liveSpeakDoneEvent,
+            "session": sessionID
+        ]
+        if let responseID, !responseID.isEmpty {
+            fields["response"] = responseID
+        }
+        return entry(fields: fields)
+    }
+
+    public static func liveSpeakSkipped(sessionID: String, reason: String) -> VoiceInteractionEntry {
+        entry(fields: [
+            "event": liveSpeakSkippedEvent,
+            "session": sessionID,
+            "reason": reason
         ])
     }
 
@@ -163,7 +204,7 @@ public enum SpokenLoopLog: Sendable {
     }
 
     public static func note(fields: [String: String]) -> String {
-        let order = ["event", "session", "intent", "mouth", "first_audio", "listenArmed", "stayLive", "state", "code", "stayIdle"]
+        let order = ["event", "session", "intent", "mouth", "first_audio", "listenArmed", "stayLive", "state", "code", "stayIdle", "response", "reason"]
         var seen = Set<String>()
         var parts: [String] = []
         for key in order where fields[key] != nil {

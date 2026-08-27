@@ -62,7 +62,6 @@ final class GrokVoiceService: VoiceServicing {
     /// User tap-stop / cancel / explicit voice off. Blocks auto-reconnect and
     /// auto `startListening` until the next Tap to talk.
     private var userWantsVoiceOff = false
-    private var dropAssistantTranscript = false
     private var instructions = GrokRealtime.presenceInstructions
     /// In-flight `connectAndConfigure` so warmup and first tap share one handshake.
     private var connectingTask: Task<Void, Error>?
@@ -79,6 +78,10 @@ final class GrokVoiceService: VoiceServicing {
     /// `session.update` mid-reply — that cut c1cd758 after the first
     /// delta and stalled transcripts. Flush when idle.
     private var pendingPresenceSessionUpdate = false
+    /// Bound to the speak's `response.created`. Foreign `response.done`
+    /// must not restore listen / clear verbatim mode.
+    private var awaitingVerbatimSpeakID = false
+    private var verbatimSpeakResponseID: String?
     /// How many times socket recover ran. Tests only — not a second loop.
     private var recoverAfterDropCount = 0
     /// Live `response.created` events. Tests only — not a second loop.
@@ -156,14 +159,24 @@ final class GrokVoiceService: VoiceServicing {
     func speak(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        if GrokRealtime.shouldSpeakViaRealtime(
+        let plan = LiveEveSpeak.plan(
+            text: trimmed,
+            socketConnected: client.isConnected,
+            liveSessionArmed: liveSessionArmed,
             usesLiveLoop: usesLiveLoop,
-            isConnected: client.isConnected && liveSessionArmed,
             userWantsVoiceOff: userWantsVoiceOff
-        ) {
-            // Live VAD: do not stack session.update + fake user text +
-            // response.create. Version identity writes PCM on this
-            // player — 83a5c6a bar. Inbox stubs never reach here.
+        )
+        logSpokenLoop(SpokenLoopLog.liveSpeakStart(sessionID: SpokenLoopLog.currentSessionID))
+        if plan.mouth == .eve {
+            if speakLiveReplyViaEve(trimmed) {
+                return
+            }
+            logSpokenLoop(
+                SpokenLoopLog.liveSpeakSkipped(
+                    sessionID: SpokenLoopLog.currentSessionID,
+                    reason: "socket"
+                )
+            )
         }
         if !audio.isRunning, !userWantsVoiceOff {
             startAudioIfNeeded()
@@ -176,6 +189,28 @@ final class GrokVoiceService: VoiceServicing {
         }
         await waitUntilPlaybackDrained()
         returnToListenAfterDeskTTS()
+    }
+
+    /// Socket up + live Talk: Eve says the line. Interrupt + clear
+    /// first so residual mic does not stack a second Eve mouth.
+    /// Guard-return is a skip log + caller fallback — never swallow.
+    @discardableResult
+    private func speakLiveReplyViaEve(_ text: String) -> Bool {
+        guard client.isConnected else { return false }
+        interruptAssistant(sendCancel: true)
+        client.sendJSON(GrokRealtime.clearBufferObject())
+        client.sendJSON(GrokRealtime.verbatimSpeakSessionUpdateObject(voice: voiceID, text: text))
+        client.sendJSON(GrokRealtime.textItemObject(GrokRealtime.verbatimSpeakUserText(text: text)))
+        client.sendJSON(GrokRealtime.responseCreateObject())
+        verbatimSpeakResponseID = nil
+        awaitingVerbatimSpeakID = true
+        logSpokenLoop(
+            SpokenLoopLog.liveSpeakSent(
+                sessionID: SpokenLoopLog.currentSessionID,
+                responseID: nil
+            )
+        )
+        return true
     }
 
     /// After write→player drain. Leftover created/done must not park
@@ -311,10 +346,6 @@ final class GrokVoiceService: VoiceServicing {
         if decision.dropLocal {
             interruptAssistant(sendCancel: false)
         }
-    }
-
-    func suppressAssistantOutput(_ suppress: Bool) {
-        dropAssistantTranscript = suppress
     }
 
     func cancel() {
@@ -590,6 +621,8 @@ final class GrokVoiceService: VoiceServicing {
         rejectedCancelledDeltaCount = 0
         audioDeltaCount = 0
         pendingPresenceSessionUpdate = false
+        awaitingVerbatimSpeakID = false
+        verbatimSpeakResponseID = nil
         apply(.cancel)
         isTearingDown = false
     }
@@ -772,6 +805,19 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             responseCreatedCountForTests += 1
             currentResponseID = GrokRealtime.nonemptyID(id)
             lastCreatedResponseID = GrokRealtime.nonemptyID(id)
+            if awaitingVerbatimSpeakID {
+                verbatimSpeakResponseID = LiveEveSpeak.bindVerbatimResponseID(
+                    existing: verbatimSpeakResponseID,
+                    createdID: id
+                )
+                awaitingVerbatimSpeakID = false
+                logSpokenLoop(
+                    SpokenLoopLog.liveSpeakSent(
+                        sessionID: SpokenLoopLog.currentSessionID,
+                        responseID: verbatimSpeakResponseID
+                    )
+                )
+            }
             assistantGate.reset()
             if audio.hasPendingPlayback {
                 // First-answer PCM already scheduled without response_id.
@@ -783,7 +829,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             // and disarm listen — 415c955 first-hear-then-deaf on the
             // next close 1000. Audio plays on the one-engine player.
         case .assistantTranscriptDelta(let delta, let source):
-            guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
+            guard !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
             eventHandler?(.assistantTranscript(delta, isFinal: false))
         case .assistantTranscriptDone:
             break
@@ -816,6 +862,19 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             break
         case .responseDone(let doneID):
             responseDoneCountForTests += 1
+            if LiveEveSpeak.shouldRestorePresence(
+                doneResponseID: doneID,
+                verbatimResponseID: verbatimSpeakResponseID
+            ) {
+                logSpokenLoop(
+                    SpokenLoopLog.liveSpeakDone(
+                        sessionID: SpokenLoopLog.currentSessionID,
+                        responseID: verbatimSpeakResponseID
+                    )
+                )
+                verbatimSpeakResponseID = nil
+                sendListenResumeSessionUpdate()
+            }
             if ListenResumePolicy.shouldApplyGrokTurnFinished(
                 clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight
             ) {
