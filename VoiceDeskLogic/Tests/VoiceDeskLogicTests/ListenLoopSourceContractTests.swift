@@ -330,6 +330,13 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("flagLiesAfterTTSDrainThenReinstallSameTap"), loop)
         XCTAssertTrue(loop.contains("drainOnly573f654DelayedYankAfterReturnToListenDropsThird"), loop)
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenConfigChangeReinstallsSameTap"), loop)
+        XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenDelayedRepairLandsThird"), loop)
+        XCTAssertTrue(loop.contains("delayedSilentTapRepairMilliseconds"), loop)
+        XCTAssertTrue(loop.contains("shouldScheduleDelayedSilentTapRepairAfterDrain"), loop)
+        XCTAssertTrue(
+            loopTests.contains("testDelayedYankAfterReturnToListenThenDelayedRepairLandsThird"),
+            loopTests
+        )
         XCTAssertTrue(
             loopTests.contains("testDrainOnly573f654DelayedYankAfterReturnToListenDropsThird"),
             loopTests
@@ -355,6 +362,25 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(start.contains("frames.emit"), start)
         XCTAssertTrue(service.contains("returnToListenAfterDeskTTS"), service)
         XCTAssertTrue(service.contains("reinstallTapIfSilentWhileRunning"), service)
+        XCTAssertTrue(service.contains("scheduleDelayedSilentTapRepair"), service)
+        XCTAssertTrue(service.contains("waitUntilListenLoopDelayedSilentTapRepair"), service)
+        XCTAssertTrue(service.contains("delayedSilentTapRepairMilliseconds"), service)
+        let returnToListen = speakSlice(
+            service,
+            from: "private func returnToListenAfterDeskTTS",
+            to: "private func scheduleDelayedSilentTapRepair"
+        )
+        XCTAssertTrue(returnToListen.contains("reinstallTapIfSilentWhileRunning"), returnToListen)
+        XCTAssertTrue(returnToListen.contains("scheduleDelayedSilentTapRepair"), returnToListen)
+        let delayedRepair = speakSlice(
+            service,
+            from: "private func scheduleDelayedSilentTapRepair",
+            to: "private func waitUntilPlaybackDrained"
+        )
+        XCTAssertFalse(delayedRepair.contains("while "), delayedRepair)
+        XCTAssertFalse(delayedRepair.contains("for _ in"), delayedRepair)
+        XCTAssertTrue(delayedRepair.contains("Task.sleep"), delayedRepair)
+        XCTAssertTrue(delayedRepair.contains("reinstallTapIfSilentWhileRunning"), delayedRepair)
         XCTAssertTrue(service.contains("var listenLoopEngine"), service)
         XCTAssertTrue(service.contains("onMicFrame"), service)
         XCTAssertTrue(service.contains("func startListenLoopAudioForTests()"), service)
@@ -856,6 +882,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live
         )
         XCTAssertTrue(
+            live.contains("testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
             live.contains("testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"),
             live
         )
@@ -992,7 +1022,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let prevent = speakSlice(
             live,
             from: "func testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession",
-            to: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"
+            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
         )
         XCTAssertFalse(prevent.contains("postEngineConfigurationChange"), prevent)
         XCTAssertFalse(prevent.contains("postInterruption"), prevent)
@@ -1001,6 +1031,28 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(prevent.contains("simulateHALTapYankLeavingInstalledFlagTrue"), prevent)
         XCTAssertTrue(prevent.contains("zero-notification yank must not be paper-greened"), prevent)
         XCTAssertTrue(prevent.contains("feedTapPCM16"), prevent)
+        let zeroNote = speakSlice(
+            live,
+            from: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn",
+            to: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"
+        )
+        XCTAssertFalse(zeroNote.contains("postEngineConfigurationChange"), zeroNote)
+        XCTAssertFalse(zeroNote.contains("postInterruption"), zeroNote)
+        XCTAssertFalse(zeroNote.contains("AVAudioEngineConfigurationChange"), zeroNote)
+        XCTAssertTrue(zeroNote.contains("simulateHALTapYankLeavingInstalledFlagTrue"), zeroNote)
+        XCTAssertTrue(zeroNote.contains("waitUntilListenLoopDelayedSilentTapRepair"), zeroNote)
+        XCTAssertTrue(zeroNote.contains("still deaf until the delayed silent-tap reinstall"), zeroNote)
+        XCTAssertTrue(zeroNote.contains("listenLoopRecoverCount"), zeroNote)
+        XCTAssertFalse(zeroNote.contains("for _ in 0..<"), zeroNote)
+        XCTAssertFalse(zeroNote.contains("while "), zeroNote)
+        if let yankAt = zeroNote.range(of: "simulateHALTapYankLeavingInstalledFlagTrue"),
+           let deafAt = zeroNote.range(of: "still deaf until the delayed silent-tap reinstall"),
+           let repairAt = zeroNote.range(of: "waitUntilListenLoopDelayedSilentTapRepair") {
+            XCTAssertLessThan(yankAt.lowerBound, deafAt.lowerBound)
+            XCTAssertLessThan(deafAt.lowerBound, repairAt.lowerBound)
+        } else {
+            XCTFail("zero-notification gate must yank, prove deaf, then wait for delayed repair")
+        }
         let conversation = speakSlice(
             live,
             from: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat",

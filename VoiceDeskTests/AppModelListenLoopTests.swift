@@ -99,9 +99,10 @@ final class AppModelListenLoopTests: XCTestCase {
     /// Prevention: live write→player must not flicker the session.
     /// `usesApplicationAudioSession = true` let TTS flip category/mode
     /// or deactivate and yank the tap. After version + glance drain,
-    /// the session stays playAndRecord + voiceChat. A delayed HAL yank
-    /// with zero notifications is not recovered here — that is not
-    /// paper-greened. Do not poll for a silent tap.
+    /// the session stays playAndRecord + voiceChat. Immediate feed
+    /// after a delayed HAL yank stays deaf here. Recovery without a
+    /// notification is `testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn`.
+    /// Do not poll for a silent tap.
     func testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession() async throws {
         let voice = GrokVoiceService(apiKey: "test-listen-loop-session")
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
@@ -158,6 +159,100 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command3)
         XCTAssertTrue(sink.frames.isEmpty, "zero-notification yank must not be paper-greened")
         XCTAssertTrue(sink.turns.isEmpty, "no interruption and no configurationChange — third stays rejected")
+
+        voice.cancel()
+    }
+
+    /// Honesty: version + glance write→player on `GrokVoiceService`.
+    /// Delayed HAL yank after `returnToListen` leaves the flag true,
+    /// `isRunning` true, no interruption, no configuration change.
+    /// First command PCM is not a turn (still deaf). Product's one
+    /// delayed silent-tap reinstall puts the same tap back. Same PCM
+    /// is then the next turn. Transcript injects do not count.
+    /// `startCount` stays 1. recoverCount 0. Do not poll.
+    func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-zero-note")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(session: session, command: command3)
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        await model.applyUserTurn("what version are we on")
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive, "version write→player must stayLive on the live service")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "close 1000 stayIdle after version is a fail")
+        XCTAssertTrue(model.turns.contains { $0.text.contains("VoiceDesk") })
+
+        await model.applyUserTurn("show me my emails")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1, "glance write→player must not audio.start")
+        XCTAssertTrue(voice.listenLoopStayLive, "glance write→player must stayLive on the live service")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "close 1000 stayIdle after glance is a fail")
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "live speak() must drain before returnToListen")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.simulateHALTapYankLeavingInstalledFlagTrue()
+        XCTAssertTrue(engine.isTapInstalled, "flag still says installed after delayed HAL yank")
+        XCTAssertTrue(engine.isRunning, "415c955-class yank leaves isRunning true")
+        XCTAssertEqual(engine.startCount, 1, "yank must not audio.start")
+        XCTAssertFalse(
+            FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: engine.isRunning),
+            "old loop no-ops here; a second start is not the repair"
+        )
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle)
+
+        engine.feedTapPCM16(command3)
+        XCTAssertTrue(sink.frames.isEmpty, "delayed yank with zero notifications must not paper-green the third")
+        XCTAssertTrue(sink.turns.isEmpty, "still deaf until the delayed silent-tap reinstall")
+
+        await voice.waitUntilListenLoopDelayedSilentTapRepair()
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertTrue(engine.isTapInstalled, "delayed silent-tap reinstall must put the same tap back")
+        XCTAssertEqual(engine.startCount, 1, "reinstall must not audio.start")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0, "repair is not recoverAfterDrop")
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("live-path-zero-note-third.pcm")
+        try command3.write(to: fileURL)
+        let thirdFromFile = try Data(contentsOf: fileURL)
+        engine.feedTapPCM16(thirdFromFile)
+        XCTAssertEqual(sink.frames.last, thirdFromFile, "third command PCM must go through the live tap")
+        XCTAssertEqual(sink.turns.last, thirdFromFile, "after delayed silent-tap reinstall, that PCM is the next turn")
+        XCTAssertEqual(sink.turns.count, 1)
+        XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle)
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.map(\.text),
+            ["what version are we on", "show me my emails"],
+            "transcript injects do not count as the third turn"
+        )
 
         voice.cancel()
     }

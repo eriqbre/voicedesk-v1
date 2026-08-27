@@ -294,6 +294,38 @@ final class FirstHearTapLoopTests: XCTestCase {
         )
     }
 
+    func testDelayedYankAfterReturnToListenThenDelayedRepairLandsThird() {
+        XCTAssertTrue(
+            FirstHearTapLoop.shouldScheduleDelayedSilentTapRepairAfterDrain(
+                wantsCapture: true,
+                engineRunning: true
+            )
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.shouldScheduleDelayedSilentTapRepairAfterDrain(
+                wantsCapture: true,
+                engineRunning: false
+            )
+        )
+        XCTAssertEqual(FirstHearTapLoop.delayedSilentTapRepairMilliseconds, 400)
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.delayedYankAfterReturnToListenThenDelayedRepairLandsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1, "delayed silent-tap reinstall must not audio.start")
+        XCTAssertFalse(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
+        )
+    }
+
     func testDetachAfterTTSDrainNoInterruptionThenReinstallLandsThird() {
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)

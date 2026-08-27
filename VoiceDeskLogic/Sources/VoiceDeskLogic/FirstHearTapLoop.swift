@@ -43,6 +43,17 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         wantsCapture && engineRunning
     }
 
+    /// One check after write→player drain. iOS can yank the HAL tap
+    /// a beat later with zero notifications. Not a poll loop.
+    public static let delayedSilentTapRepairMilliseconds = 400
+
+    public static func shouldScheduleDelayedSilentTapRepairAfterDrain(
+        wantsCapture: Bool,
+        engineRunning: Bool
+    ) -> Bool {
+        wantsCapture && engineRunning
+    }
+
     /// bf0af19 / 415c955: trusted `tapInstalled`. HAL yank left the
     /// flag true, so the repair no-oped and the third never landed.
     public static func bf0af19ShouldReinstallTapIfSilentWhileRunning(
@@ -379,6 +390,23 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         )
     }
 
+    /// Drain-time repair ran while the tap was live. Delayed HAL yank
+    /// with zero notifications. One delayed silent-tap reinstall puts
+    /// the same tap back. Third command PCM is the next turn.
+    public static func delayedYankAfterReturnToListenThenDelayedRepairLandsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .drainThenDelayedYankThenDelayedRepair
+        )
+    }
+
     /// Product: same detach, then same-engine reinstall (not `audio.start`).
     /// Third command PCM is the next turn. `startCount` stays 1.
     public static func detachWhileRunningThenReinstallSameTap(
@@ -413,6 +441,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case flagLiesAfterTTSDrainThenReinstall
         case drainThenDelayedYankNoConfigChange
         case drainThenDelayedYankThenConfigChange
+        case drainThenDelayedYankThenDelayedRepair
         case returnToListenAfterTTS
         case close1000AfterTTSStayIdle
         case close1000AfterTTSStayLive
@@ -549,7 +578,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             } else if oldRepair {
                 tapLive = true
             }
-        case .drainThenDelayedYankNoConfigChange, .drainThenDelayedYankThenConfigChange:
+        case .drainThenDelayedYankNoConfigChange, .drainThenDelayedYankThenConfigChange, .drainThenDelayedYankThenDelayedRepair:
             // 573f654: returnToListen + reinstall while the tap is still live.
             let after = ListenResumePolicy.afterClientTTSFinished(
                 session: &session,
@@ -583,6 +612,17 @@ public struct FirstHearTapLoop: Equatable, Sendable {
                 ) == .reinstallTap {
                     tapLive = true
                 }
+            }
+            if afterDrain == .drainThenDelayedYankThenDelayedRepair,
+               shouldScheduleDelayedSilentTapRepairAfterDrain(
+                wantsCapture: true,
+                engineRunning: true
+               ),
+               shouldReinstallTapIfSilentWhileRunning(
+                engineRunning: true,
+                wantsCapture: true
+               ) {
+                tapLive = true
             }
         case .returnToListenAfterTTS:
             let after = ListenResumePolicy.afterClientTTSFinished(
