@@ -391,11 +391,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("func playListenLoopOutputAudioDeltaForTests"), service)
         XCTAssertTrue(service.contains("cancelledPlaybackResponseID"), service)
         XCTAssertTrue(service.contains("func shouldPlayBargeAudio"), service)
+        XCTAssertTrue(service.contains("func noteFirstAnswerPlaying"), service)
+        XCTAssertTrue(service.contains("latchWhenFirstAnswerPlaying"), service)
+        XCTAssertTrue(service.contains("playbackEpochLatch"), service)
         XCTAssertTrue(service.contains("func connectListenLoopProductionForTests"), service)
         let outputAudio = speakSlice(service, from: "case .outputAudioDelta", to: "case .outputAudioDone")
         XCTAssertTrue(outputAudio.contains("playAudioDelta"), outputAudio)
         XCTAssertTrue(outputAudio.contains("shouldPlayBargeAudio"), outputAudio)
         XCTAssertTrue(outputAudio.contains("scheduledResponseID"), outputAudio)
+        XCTAssertTrue(outputAudio.contains("noteFirstAnswerPlaying"), outputAudio)
         XCTAssertFalse(
             outputAudio.contains("currentResponseID"),
             "leftover response_id skip leaves pending at 0"
@@ -421,6 +425,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(
             interruptLive.contains("lastCreatedResponseID"),
             "Grok PCM omits response_id — latch the first created or the leftover filter never arms"
+        )
+        XCTAssertTrue(
+            interruptLive.contains("playbackEpochLatch"),
+            "barge latch must not stay nil when created/scheduled ids are empty"
         )
         XCTAssertTrue(
             interruptLive.contains("interruptAssistant(sendCancel: false)"),
@@ -471,6 +479,12 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func shouldScheduleAfterBarge"), realtime)
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)
+        XCTAssertTrue(realtime.contains("func latchWhenFirstAnswerPlaying"), realtime)
+        XCTAssertTrue(realtime.contains("func playbackEpochLatch"), realtime)
+        XCTAssertTrue(
+            speakSlice(realtime, from: "case \"response.created\"", to: "case \"response.output_audio_transcript.delta\"").contains("responseID(in:"),
+            "response.created must read response_id — response.id is often empty"
+        )
         XCTAssertTrue(realtime.contains("func interruptAnswerID"), realtime)
         XCTAssertTrue(realtime.contains("func bargeProofLine"), realtime)
         XCTAssertTrue(realtime.contains("func latchedInterruptTarget"), realtime)

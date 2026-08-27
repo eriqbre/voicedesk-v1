@@ -300,6 +300,24 @@ public enum GrokRealtime {
         return BargeInDecision(cancelResponseID: nil, dropLocal: true)
     }
 
+    /// Client-side latch when Grok omits `response_id` on PCM.
+    public static func playbackEpochLatch(_ epoch: Int) -> String {
+        "playback-epoch-\(epoch)"
+    }
+
+    /// First answer is on the player. Copy `response.created` onto the
+    /// schedule latch. If that id is also empty, use the playback epoch.
+    /// Never return nil — leftover inject needs this id.
+    public static func latchWhenFirstAnswerPlaying(
+        existingScheduledID: String?,
+        createdID: String?,
+        playbackEpoch: Int
+    ) -> String {
+        nonemptyID(createdID)
+            ?? nonemptyID(existingScheduledID)
+            ?? playbackEpochLatch(playbackEpoch)
+    }
+
     /// First-answer id that barge dropped. Leftover deltas with this
     /// id must not raise pending after `interruptPlayback`.
     /// `lastCreated` is the first `response.created` when Grok PCM
@@ -560,8 +578,7 @@ public enum GrokRealtime {
             guard let text = userText(in: json), !text.isEmpty else { return .ignored }
             return .userTranscript(text: text, itemID: itemID(in: json))
         case "response.created":
-            let id = (json["response"] as? [String: Any])?["id"] as? String ?? ""
-            return .responseCreated(id: id)
+            return .responseCreated(id: responseID(in: json) ?? "")
         case "response.output_audio_transcript.delta", "response.audio_transcript.delta":
             return .assistantTranscriptDelta((json["delta"] as? String) ?? "", source: .audio)
         case "response.output_text.delta":

@@ -41,7 +41,7 @@ final class GrokVoiceAudioEngine {
     private var echoCancellation = true
     private var tapInstalled = false
     private var pendingPlaybackBuffers = 0
-    private var playbackEpoch = 0
+    private(set) var playbackEpoch = 0
     private var generation = 0
     private var wantsCapture = false
     private var isInterrupted = false

@@ -248,7 +248,7 @@ final class GrokVoiceService: VoiceServicing {
             lastScheduledResponseID: lastScheduledResponseID,
             playingResponseID: playingResponseID,
             lastCreatedResponseID: lastCreatedResponseID
-        )
+        ) ?? GrokRealtime.playbackEpochLatch(audio.playbackEpoch)
         if decision.dropLocal {
             interruptAssistant(sendCancel: false)
         }
@@ -450,6 +450,19 @@ final class GrokVoiceService: VoiceServicing {
         )
     }
 
+    /// Grok PCM often omits `response_id`. Copy `response.created` (or
+    /// the playback epoch) onto lastScheduled while the first answer
+    /// is on the player so barge can latch leftover.
+    private func noteFirstAnswerPlaying() {
+        guard !bargeConsumed else { return }
+        let id = GrokRealtime.latchWhenFirstAnswerPlaying(
+            existingScheduledID: lastScheduledResponseID,
+            createdID: lastCreatedResponseID ?? createdAwaitingAudioID ?? currentResponseID,
+            playbackEpoch: audio.playbackEpoch
+        )
+        noteScheduledResponse(id)
+    }
+
     private func interruptAssistant(sendCancel: Bool, responseID: String? = nil) {
         let target = responseID ?? playingResponseID
         if sendCancel, let id = GrokRealtime.responseIDToCancel(playingResponseID: target) {
@@ -617,6 +630,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             noteScheduledResponse(playingResponseID)
         }
         audio.playPCM16(data)
+        noteFirstAnswerPlaying()
     }
 
     func grokWebSocketDidReceive(json: [String: Any], type: String) {
@@ -654,11 +668,14 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
             responseCreatedCountForTests += 1
-            currentResponseID = id
+            currentResponseID = GrokRealtime.nonemptyID(id)
             lastCreatedResponseID = GrokRealtime.nonemptyID(id)
             assistantGate.reset()
-            if playingResponseID == nil && !audio.hasPendingPlayback {
-                createdAwaitingAudioID = id
+            if audio.hasPendingPlayback {
+                // First-answer PCM already scheduled without response_id.
+                noteFirstAnswerPlaying()
+            } else if playingResponseID == nil {
+                createdAwaitingAudioID = lastCreatedResponseID
             }
             // Leftover Grok-created used to park VoiceSession speaking
             // and disarm listen — 415c955 first-hear-then-deaf on the
@@ -684,6 +701,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             }
             audio.playAudioDelta(base64: delta)
             audioDeltaCount += 1
+            noteFirstAnswerPlaying()
         case .outputAudioDone:
             break
         case .responseDone:

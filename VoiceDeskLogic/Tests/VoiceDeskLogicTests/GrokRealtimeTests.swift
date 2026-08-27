@@ -397,6 +397,42 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             "resp_2"
         )
+        XCTAssertEqual(GrokRealtime.playbackEpochLatch(3), "playback-epoch-3")
+        XCTAssertEqual(
+            GrokRealtime.latchWhenFirstAnswerPlaying(
+                existingScheduledID: nil,
+                createdID: "resp_1",
+                playbackEpoch: 0
+            ),
+            "resp_1",
+            "copy response.created onto the latch while the first answer is on the player"
+        )
+        XCTAssertEqual(
+            GrokRealtime.latchWhenFirstAnswerPlaying(
+                existingScheduledID: "playback-epoch-0",
+                createdID: "resp_1",
+                playbackEpoch: 0
+            ),
+            "resp_1",
+            "created id wins over a prior epoch latch"
+        )
+        XCTAssertEqual(
+            GrokRealtime.latchWhenFirstAnswerPlaying(
+                existingScheduledID: nil,
+                createdID: nil,
+                playbackEpoch: 4
+            ),
+            "playback-epoch-4",
+            "empty created id still latches leftover via playbackEpoch"
+        )
+        XCTAssertEqual(
+            GrokRealtime.parse(
+                type: "response.created",
+                json: ["response_id": "resp_created_top"]
+            ),
+            .responseCreated(id: "resp_created_top"),
+            "xAI may put the created id at response_id, not response.id"
+        )
         XCTAssertEqual(
             GrokRealtime.interruptAnswerID(
                 createdAwaitingAudioID: "resp_2",
