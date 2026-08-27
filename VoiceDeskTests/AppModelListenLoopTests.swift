@@ -1345,7 +1345,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             paired.filter { $0.1 == continued }.count,
             12,
-            "must keep feeding command-shaped PCM longer than quietCommitMs"
+            "must keep feeding command-shaped PCM longer than quietCommitMs — 7350153 held until the last frame"
         )
         await voice.waitUntilListenLoopQueuedTurnClosed()
         let after = voice.listenLoopDeliveredSendTypes
@@ -1474,7 +1474,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             paired.filter { $0.1 == continued }.count,
             12,
-            "must keep feeding real-speech PCM longer than quietCommitMs"
+            "must keep feeding real-speech PCM longer than quietCommitMs — 6264a07 was a sine detector"
         )
         await voice.waitUntilListenLoopQueuedTurnClosed()
         let after = voice.listenLoopDeliveredSendTypes

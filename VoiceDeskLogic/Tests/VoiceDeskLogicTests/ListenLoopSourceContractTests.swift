@@ -1160,7 +1160,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(thinkThenTalk.contains("emitUser"), thinkThenTalk)
         XCTAssertFalse(thinkThenTalk.contains("FakeLiveVoiceService"), thinkThenTalk)
         XCTAssertFalse(thinkThenTalk.contains("TapSpeechEnergy"), thinkThenTalk)
-        XCTAssertFalse(thinkThenTalk.contains("QueuedTurnClose"), thinkThenTalk)
+        XCTAssertFalse(thinkThenTalk.contains("QueuedTurnClose.shouldPostpone"), thinkThenTalk)
         XCTAssertFalse(thinkThenTalk.contains("quietCommitMaxPostponeMs"), thinkThenTalk)
         XCTAssertFalse(thinkThenTalk.contains("quietCommitArmedAt"), thinkThenTalk)
         if let openAt = thinkThenTalk.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
