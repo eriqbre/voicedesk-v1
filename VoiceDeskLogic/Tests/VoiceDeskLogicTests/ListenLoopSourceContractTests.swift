@@ -679,6 +679,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live
         )
         XCTAssertTrue(
+            live.contains("testLiveConversationLoopAfterVersionWritePlayerNoRecoverNextVoiceTapeCreatesAndPendingRises"),
+            live
+        )
+        XCTAssertTrue(
             live.contains("testLiveConversationLoopTalkBargeInTalkAgainNoRecoverNextVoiceTapeCreatesResponse"),
             live
         )
@@ -1346,7 +1350,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let stayArmed = speakSlice(
             live,
             from: "func testLiveConversationLoopStayArmedAfterAnswerNoRecoverNextVoiceTapeCreatesResponse",
-            to: "func testLiveConversationLoopTalkBargeInTalkAgainNoRecoverNextVoiceTapeCreatesResponse"
+            to: "func testLiveConversationLoopAfterVersionWritePlayerNoRecoverNextVoiceTapeCreatesAndPendingRises"
         )
         XCTAssertTrue(stayArmed.contains("GrokVoiceService("), stayArmed)
         XCTAssertTrue(stayArmed.contains("AppModel("), stayArmed)
@@ -1492,6 +1496,122 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("stay-armed gate must connect live, prove Grok pending rises, drain, stay armed with no recover, then talk again")
+        }
+        let versionWrite = speakSlice(
+            live,
+            from: "func testLiveConversationLoopAfterVersionWritePlayerNoRecoverNextVoiceTapeCreatesAndPendingRises",
+            to: "func testLiveConversationLoopTalkBargeInTalkAgainNoRecoverNextVoiceTapeCreatesResponse"
+        )
+        XCTAssertTrue(versionWrite.contains("GrokVoiceService("), versionWrite)
+        XCTAssertTrue(versionWrite.contains("AppModel("), versionWrite)
+        XCTAssertTrue(versionWrite.contains("startListenLoopAudioForTests"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("connectListenLoopProductionForTests"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("VoiceTape.shouldSkipLive"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("VoiceDeskSecrets.xaiAPIKey"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("voiceTapePCM16"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("mint-voice-tapes.sh"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("feedVoiceTapeThroughLiveTap"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("waitUntilListenLoopHasProductionSendTask"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("listenLoopHasProductionSendTask"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("spokenIdentityLine"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("voice.speak(versionLine)"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("waitUntilListenLoopPendingPlayback"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("pendingPlaybackCount"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("isPlayerPlaying"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("isTapInstalled"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("versionPlaying"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("recoverCountAfterVersion"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("createdBeforeTalk"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("createdAfterTalk"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("grokPlayingAfterVersion"), versionWrite)
+        XCTAssertTrue(
+            versionWrite.contains("pendingPlayback must rise from AVSpeechSynthesizer.write"),
+            versionWrite
+        )
+        XCTAssertTrue(
+            versionWrite.contains("pendingPlayback must rise after version write→player"),
+            versionWrite
+        )
+        XCTAssertTrue(versionWrite.contains("listenLoopArmed"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("listenLoopStayLive"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("listenLoopRecoverCount"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("engine.startCount"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("transcript injects do not count"), versionWrite)
+        XCTAssertTrue(versionWrite.contains("415c955"), versionWrite)
+        XCTAssertFalse(
+            versionWrite.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"),
+            "do not simulate the 415c955 idle death"
+        )
+        XCTAssertFalse(
+            versionWrite.contains("simulateListenLoopSocketClose1000"),
+            "do not simulate DidClose 1000 — recover is a crutch"
+        )
+        XCTAssertFalse(versionWrite.contains("simulateListenLoopSocketDidOpenThenSessionReady"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("attachTestSendRecorder"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("attachListenLoopSendTaskForTests"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("ListenLoopWebSocketLoopback"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("setListenLoopRealtimeURLOverrideForTests"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("listenLoopDeliveredAudioPCM"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("applyUserTurn"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("emitUser"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("FakeLiveVoiceService"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("role == .user }.count"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("synthesizer.speak"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("apply(.speakStarted)"), versionWrite)
+        XCTAssertFalse(versionWrite.contains("dropAssistantAudio"), versionWrite)
+        XCTAssertFalse(
+            versionWrite.contains("XCTAssertTrue(\n            await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        XCTAssertFalse(
+            versionWrite.contains("XCTAssertTrue(await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        if let connectAt = versionWrite.range(of: "connectListenLoopProductionForTests"),
+           let openAt = versionWrite.range(of: "waitUntilListenLoopHasProductionSendTask"),
+           let speakAt = versionWrite.range(of: "voice.speak(versionLine)"),
+           let versionPendingAt = versionWrite.range(of: "versionPlaying"),
+           let recoverAt = versionWrite.range(of: "recoverCountAfterVersion"),
+           let tapeAt = versionWrite.range(of: "pcm: firstTapePCM"),
+           let createdAt = versionWrite.range(of: "createdAfterTalk"),
+           let grokPendingAt = versionWrite.range(of: "grokPlayingAfterVersion") {
+            XCTAssertLessThan(
+                connectAt.lowerBound,
+                openAt.lowerBound,
+                "real connect must prove opened && task before version write→player"
+            )
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                speakAt.lowerBound,
+                "version write→player must follow the live handshake"
+            )
+            XCTAssertLessThan(
+                speakAt.lowerBound,
+                versionPendingAt.lowerBound,
+                "version write→player must schedule on the one-engine player"
+            )
+            XCTAssertLessThan(
+                versionPendingAt.lowerBound,
+                recoverAt.lowerBound,
+                "recoverCount must stay 0 after version drain"
+            )
+            XCTAssertLessThan(
+                recoverAt.lowerBound,
+                tapeAt.lowerBound,
+                "VoiceTape must follow version drain with no recover"
+            )
+            XCTAssertLessThan(
+                tapeAt.lowerBound,
+                createdAt.lowerBound,
+                "response.created after VoiceTape"
+            )
+            XCTAssertLessThan(
+                createdAt.lowerBound,
+                grokPendingAt.lowerBound,
+                "pendingPlayback must rise after version write→player — leftover created cannot green this"
+            )
+        } else {
+            XCTFail("version write→player gate must connect live, speak version on the one player, stay armed with no recover, then prove Grok pending rises")
         }
         let composed = speakSlice(
             live,
