@@ -278,12 +278,6 @@ public enum GrokRealtime {
     /// the old id — can kill that in-flight created on xAI (leftover
     /// created, pending 0). Local drop is the player. Do not drop if
     /// the interrupt answer is already scheduled.
-    public enum BargeInPlayback: Equatable, Sendable {
-        case none
-        case cancel(responseID: String)
-        case dropLocalOnly
-    }
-
     public struct BargeInDecision: Equatable, Sendable {
         public var cancelResponseID: String?
         public var dropLocal: Bool
@@ -561,33 +555,6 @@ public enum GrokRealtime {
             return target
         }
         return playing
-    }
-
-    public static func bargeInPlayback(
-        hasPendingPlayback: Bool,
-        playingResponseID: String?,
-        interruptTargetID: String?,
-        currentResponseID: String? = nil,
-        createdCountAtLatch: Int = 0,
-        createdCountNow: Int = 0,
-        alreadyBarged: Bool = false
-    ) -> BargeInPlayback {
-        let decision = bargeInDecision(
-            hasPendingPlayback: hasPendingPlayback,
-            alreadyBarged: alreadyBarged,
-            playingResponseID: playingResponseID,
-            interruptTargetID: interruptTargetID,
-            currentResponseID: currentResponseID,
-            createdCountAtLatch: createdCountAtLatch,
-            createdCountNow: createdCountNow
-        )
-        if !hasPendingPlayback || alreadyBarged || !decision.dropLocal {
-            return .none
-        }
-        if let id = decision.cancelResponseID {
-            return .cancel(responseID: id)
-        }
-        return .dropLocalOnly
     }
 
     /// First `speech_started` / first scheduled buffer latches the

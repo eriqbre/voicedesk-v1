@@ -312,41 +312,54 @@ final class GrokRealtimeTests: XCTestCase {
             "do not cancel the next created — only the playing answer"
         )
         XCTAssertEqual(
-            GrokRealtime.bargeInPlayback(
+            GrokRealtime.bargeInDecision(
                 hasPendingPlayback: false,
+                alreadyBarged: false,
                 playingResponseID: "resp_1",
-                interruptTargetID: "resp_1"
+                interruptTargetID: "resp_1",
+                currentResponseID: nil,
+                createdCountAtLatch: 0,
+                createdCountNow: 0
             ),
-            .none
+            GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: false)
         )
         XCTAssertEqual(
-            GrokRealtime.bargeInPlayback(
+            GrokRealtime.bargeInDecision(
                 hasPendingPlayback: true,
+                alreadyBarged: false,
                 playingResponseID: "resp_1",
-                interruptTargetID: "resp_1"
+                interruptTargetID: "resp_1",
+                currentResponseID: nil,
+                createdCountAtLatch: 0,
+                createdCountNow: 0
             ),
-            .dropLocalOnly,
+            GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: true),
             "barge drops local — do not send response.cancel"
         )
         XCTAssertEqual(
-            GrokRealtime.bargeInPlayback(
+            GrokRealtime.bargeInDecision(
                 hasPendingPlayback: true,
+                alreadyBarged: false,
                 playingResponseID: "resp_1",
-                interruptTargetID: nil
+                interruptTargetID: nil,
+                currentResponseID: nil,
+                createdCountAtLatch: 0,
+                createdCountNow: 0
             ),
-            .dropLocalOnly,
+            GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: true),
             "barge drops local — do not send response.cancel"
         )
         XCTAssertEqual(
-            GrokRealtime.bargeInPlayback(
+            GrokRealtime.bargeInDecision(
                 hasPendingPlayback: true,
+                alreadyBarged: false,
                 playingResponseID: "resp_2",
                 interruptTargetID: "resp_1",
                 currentResponseID: "resp_2",
                 createdCountAtLatch: 1,
                 createdCountNow: 2
             ),
-            .none,
+            GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: false),
             "interrupt answer already on the player — do not drop or cancel it"
         )
         XCTAssertTrue(
@@ -359,15 +372,16 @@ final class GrokRealtimeTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            GrokRealtime.bargeInPlayback(
+            GrokRealtime.bargeInDecision(
                 hasPendingPlayback: true,
+                alreadyBarged: false,
                 playingResponseID: "resp_1",
                 interruptTargetID: "resp_1",
                 currentResponseID: "resp_2",
                 createdCountAtLatch: 1,
                 createdCountNow: 2
             ),
-            .dropLocalOnly,
+            GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: true),
             "old answer still on the player — drop local, do not cancel the in-flight created"
         )
         XCTAssertEqual(
@@ -821,21 +835,29 @@ final class GrokRealtimeTests: XCTestCase {
             "second interruptResponse must not cancel the interrupt answer"
         )
         XCTAssertEqual(
-            GrokRealtime.bargeInPlayback(
+            GrokRealtime.bargeInDecision(
                 hasPendingPlayback: true,
+                alreadyBarged: false,
                 playingResponseID: nil,
-                interruptTargetID: "resp_1"
+                interruptTargetID: "resp_1",
+                currentResponseID: nil,
+                createdCountAtLatch: 0,
+                createdCountNow: 0
             ),
-            .dropLocalOnly,
+            GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: true),
             "barge drops local — do not send response.cancel"
         )
         XCTAssertEqual(
-            GrokRealtime.bargeInPlayback(
+            GrokRealtime.bargeInDecision(
                 hasPendingPlayback: true,
+                alreadyBarged: false,
                 playingResponseID: nil,
-                interruptTargetID: nil
+                interruptTargetID: nil,
+                currentResponseID: nil,
+                createdCountAtLatch: 0,
+                createdCountNow: 0
             ),
-            .dropLocalOnly
+            GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: true)
         )
         XCTAssertNil(
             GrokRealtime.responseIDToCancelOnBarge(
