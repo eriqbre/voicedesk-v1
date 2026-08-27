@@ -802,10 +802,10 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertFalse(voice.listenLoopUsesTestSendSink)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(engine.isRunning)
-        XCTAssertEqual(
-            model.turns.filter { $0.role == .user }.count,
-            0,
-            "transcript injects do not count"
+        let liveUserTurns = model.turns.filter { $0.role == .user }
+        XCTAssertFalse(
+            liveUserTurns.contains(where: { $0.text == "what version are we on" || $0.text == "show me my emails" }),
+            "transcript injects do not count — applyUserTurn strings are not a hear; live Grok transcription of VoiceTape PCM is the real path"
         )
 
         voice.cancel()

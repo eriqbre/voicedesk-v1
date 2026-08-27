@@ -981,6 +981,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "delivered PCM is the testSendSink recorder — live Grok must create a response"
         )
         XCTAssertFalse(grokCreates.contains("applyUserTurn"), grokCreates)
+        XCTAssertFalse(
+            grokCreates.contains("role == .user }.count"),
+            "live Grok transcription of VoiceTape is the real path — do not require user turns == 0"
+        )
         XCTAssertFalse(grokCreates.contains("emitUser"), grokCreates)
         XCTAssertFalse(grokCreates.contains("FakeLiveVoiceService"), grokCreates)
         XCTAssertFalse(grokCreates.contains("quietCommitMaxPostponeMs"), grokCreates)
