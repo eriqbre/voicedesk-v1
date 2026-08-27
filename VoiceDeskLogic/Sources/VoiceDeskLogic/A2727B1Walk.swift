@@ -135,10 +135,10 @@ public enum A2727B1Walk {
 
     /// Tokens the restore-walk window does not have. Do not invent them.
     public static func mentionsMuteFlagTokens(in records: [VoiceInteractionEntry] = window) -> Bool {
-        let text = blob(records).localizedCaseInsensitiveContains
-        return text("dropAssistantOutput")
-            || text("clientTTSInFlight")
-            || text("unmute")
+        let text = blob(records)
+        return text.localizedCaseInsensitiveContains("dropAssistantOutput")
+            || text.localizedCaseInsensitiveContains("clientTTSInFlight")
+            || text.localizedCaseInsensitiveContains("unmute")
     }
 
     public static func mentionsEveSpeaksIdentity(in records: [VoiceInteractionEntry] = window) -> Bool {
