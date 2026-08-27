@@ -6,6 +6,7 @@ Native iPhone voice assistant for Florida realtors. Conversation is the chrome; 
 
 - [PRODUCT_REQUIREMENTS.md](./PRODUCT_REQUIREMENTS.md) — what to build
 - [TESTING_AND_BRANCHING.md](./TESTING_AND_BRANCHING.md) — how to test, branch, and merge (read this before opening PRs)
+- [VOICE_LOOP_RECOMMENDATION.md](./VOICE_LOOP_RECOMMENDATION.md) — CoS review: one listen-speak loop; freeze stacked voice PRs until the phone stays live
 
 Rename later (Voxa is taken).
 
@@ -94,7 +95,7 @@ This Linux cloud agent **cannot** run `xcodebuild` or the Simulator. `ios-macos`
 
 ## Next slice
 
-`slice/3-graph-listings` — email↔listing↔people graph, claim UX. Full Gmail send on confirm is slice 5.
+Voice loop first — see `VOICE_LOOP_RECOMMENDATION.md`. Do not start `slice/3-graph-listings` or Gmail write while Talk goes deaf after the first spoken reply.
 
 Hardening after dogfood: ephemeral-token backend so the long-lived xAI key never lives on device.
 
@@ -111,4 +112,5 @@ VoiceDeskUITests/        XCUITest launch / card smoke
 .github/workflows/ci.yml Linux unit + macOS Simulator (dispatch only)
 PRODUCT_REQUIREMENTS.md  Product spec
 TESTING_AND_BRANCHING.md Gates, branches, walk checklists
+VOICE_LOOP_RECOMMENDATION.md  CoS: one listen-speak loop before more product PRs
 ```
