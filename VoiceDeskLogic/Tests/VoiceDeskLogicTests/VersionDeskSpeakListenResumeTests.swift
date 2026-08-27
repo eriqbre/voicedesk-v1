@@ -97,7 +97,10 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             XCTAssertEqual(replay.intent, "calendar", ask)
             XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(replay.onScreen), ask)
             XCTAssertFalse(replay.onScreen.contains("Massimo"), ask)
-            XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
+            if !replay.reply.isEmpty {
+                XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
+            }
+            XCTAssertNotEqual(replay.reply, InboxGlance.spokenListAck(), ask)
 
             let during = DeskSpeakListenResume.whileClientTTSSpeaking(
                 ask: ask,
