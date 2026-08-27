@@ -167,11 +167,6 @@ final class C1CD758WalkTests: XCTestCase {
             LiveVADPlayerKeep.c1cd758Regression().voiceCutsAfterFirstDelta,
             "canned c1cd758 fixture stays red — not a device walk"
         )
-        let speakTests = try XCTUnwrap(repoFile("VoiceDeskTests/GrokVoiceServiceSpeakTests.swift"))
-        XCTAssertTrue(
-            speakTests.contains("testInFlightVADSpeakInterruptsBeforeCreateAndDoesNotStarveEve"),
-            speakTests
-        )
 
         let handle = speakSlice(app, from: "private func handleLiveUser", to: "private func upsertLiveAssistant")
         XCTAssertTrue(handle.contains("shouldInterruptOnUserTranscript"), handle)

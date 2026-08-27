@@ -392,18 +392,6 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// testSendSink paper socket for `speak()` unit tests. Not a live
-    /// WS. `notifyOpen` leaves `opened` false when there is no real
-    /// task. This sets `opened` so `speak()` takes the Eve branch and
-    /// `sendJSON` still hits the test sink.
-    func markOpenedForTests() {
-        lock.lock()
-        opened = true
-        testSendSink = true
-        sessionReady = true
-        lock.unlock()
-    }
-
     func markSessionReadyAndFlush() {
         lock.lock()
         sessionReady = true

@@ -1026,12 +1026,6 @@ extension GrokVoiceService {
 
     var listenLoopDeliveredSends: [String] { client.deliveredSends }
 
-    /// testSendSink paper socket. Not a live WS. `speak()` reads
-    /// `client.isConnected`.
-    func markListenLoopOpenedForTests() {
-        client.markOpenedForTests()
-    }
-
     var listenLoopVerbatimSpeakResponseID: String? { verbatimSpeakResponseID }
 
     var listenLoopAwaitingVerbatimSpeakID: Bool { awaitingVerbatimSpeakID }

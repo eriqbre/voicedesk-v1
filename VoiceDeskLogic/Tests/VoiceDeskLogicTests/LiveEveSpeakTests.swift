@@ -1,9 +1,11 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// Leftover-phrase presence only. `speak("1.2.3")` wire proof lives on
-/// `GrokVoiceService` + a fake `LiveGrokVoiceClient` in VoiceDeskTests.
-/// This file does not call `LiveEveSpeak.plan` as the speak gate.
+/// Leftover-phrase gate (Linux). A spoken leftover reply must fail.
+/// Presence must not teach stay silent / let the app handle.
+/// `speak("1.2.3")` wire proof is iOS `GrokVoiceServiceSpeakTests`
+/// on the loopback `URLSessionWebSocketTask`. This package never
+/// runs VoiceDeskTests.
 final class LiveEveSpeakTests: XCTestCase {
     func testLeftoverDeskRoutingReplyFailsAndPresenceDoesNotTeachIt() {
         XCTAssertTrue(GrokRealtime.isLeftoverDeskRoutingReply(" The app will take care of it."))
