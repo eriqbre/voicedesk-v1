@@ -629,6 +629,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live
         )
         XCTAssertTrue(
+            live.contains("testLiveConversationLoopTalkBargeInTalkAgainNoRecoverNextVoiceTapeCreatesResponse"),
+            live
+        )
+        XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"),
             live
         )
@@ -1283,7 +1287,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let stayArmed = speakSlice(
             live,
             from: "func testLiveConversationLoopStayArmedAfterAnswerNoRecoverNextVoiceTapeCreatesResponse",
-            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+            to: "func testLiveConversationLoopTalkBargeInTalkAgainNoRecoverNextVoiceTapeCreatesResponse"
         )
         XCTAssertTrue(stayArmed.contains("GrokVoiceService("), stayArmed)
         XCTAssertTrue(stayArmed.contains("AppModel("), stayArmed)
@@ -1429,6 +1433,204 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("stay-armed gate must connect live, prove Grok pending rises, drain, stay armed with no recover, then talk again")
+        }
+        let composed = speakSlice(
+            live,
+            from: "func testLiveConversationLoopTalkBargeInTalkAgainNoRecoverNextVoiceTapeCreatesResponse",
+            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+        )
+        XCTAssertTrue(composed.contains("GrokVoiceService("), composed)
+        XCTAssertTrue(composed.contains("AppModel("), composed)
+        XCTAssertTrue(composed.contains("startListenLoopAudioForTests"), composed)
+        XCTAssertTrue(composed.contains("connectListenLoopProductionForTests"), composed)
+        XCTAssertTrue(composed.contains("VoiceTape.shouldSkipLive"), composed)
+        XCTAssertTrue(composed.contains("VoiceDeskSecrets.xaiAPIKey"), composed)
+        XCTAssertTrue(composed.contains("voiceTapePCM16"), composed)
+        XCTAssertTrue(composed.contains("mint-voice-tapes.sh"), composed)
+        XCTAssertTrue(composed.contains("VoiceTape.composedLoopTriple"), composed)
+        XCTAssertTrue(composed.contains("VoiceTape.secondAskPair"), composed)
+        XCTAssertTrue(composed.contains("feedVoiceTapeThroughLiveTap"), composed)
+        XCTAssertTrue(composed.contains("speechShapedPCM(hertz: 90)"), composed)
+        XCTAssertTrue(composed.contains("waitUntilListenLoopHasProductionSendTask"), composed)
+        XCTAssertTrue(composed.contains("listenLoopHasProductionSendTask"), composed)
+        XCTAssertTrue(composed.contains("waitUntilListenLoopPendingPlayback"), composed)
+        XCTAssertTrue(composed.contains("pendingPlaybackCount"), composed)
+        XCTAssertTrue(composed.contains("isPlayerPlaying"), composed)
+        XCTAssertTrue(composed.contains("isTapInstalled"), composed)
+        XCTAssertTrue(composed.contains("feedTapPCM16(noise)"), composed)
+        XCTAssertTrue(composed.contains("createdBeforeAmbient"), composed)
+        XCTAssertTrue(composed.contains("createdBeforeBarge"), composed)
+        XCTAssertTrue(composed.contains("createdAfterTalk"), composed)
+        XCTAssertTrue(composed.contains("createdAfterBarge"), composed)
+        XCTAssertTrue(composed.contains("grokPlayingAfterTalk"), composed)
+        XCTAssertTrue(composed.contains("grokPlayingAfterBarge"), composed)
+        XCTAssertTrue(composed.contains("waitUntilListenLoopResponseCreated"), composed)
+        XCTAssertTrue(composed.contains("waitUntilListenLoopResponseDone"), composed)
+        XCTAssertTrue(composed.contains("waitUntilListenLoopPlaybackDrained"), composed)
+        XCTAssertTrue(composed.contains("waitUntilPlaybackZero"), composed)
+        XCTAssertTrue(composed.contains("recoverCountAfterDrain"), composed)
+        XCTAssertTrue(composed.contains("createdBeforeTalkAgain"), composed)
+        XCTAssertTrue(composed.contains("createdAfterTalkAgain"), composed)
+        XCTAssertTrue(composed.contains("pcm: thirdTapePCM"), composed)
+        XCTAssertTrue(composed.contains("ListenInterrupt.isCommand"), composed)
+        XCTAssertTrue(composed.contains("listenLoopArmed"), composed)
+        XCTAssertTrue(composed.contains("listenLoopStayLive"), composed)
+        XCTAssertTrue(composed.contains("listenLoopRecoverCount"), composed)
+        XCTAssertTrue(composed.contains("engine.startCount"), composed)
+        XCTAssertTrue(composed.contains("transcript injects do not count"), composed)
+        XCTAssertTrue(
+            composed.contains("live Grok audio must still be on the player when the command tape starts"),
+            composed
+        )
+        XCTAssertTrue(
+            composed.contains("pendingPlayback must rise again for the interrupt answer"),
+            composed
+        )
+        XCTAssertFalse(
+            composed.contains("bargeInDeskReply"),
+            "a local desk line is not live Grok player audio"
+        )
+        XCTAssertFalse(
+            composed.contains("InboxGlance.spokenListAck"),
+            "desk speak cannot green the composed loop"
+        )
+        XCTAssertFalse(
+            composed.contains("voice.speak("),
+            "Eve on this gate is live Grok — not desk speak"
+        )
+        XCTAssertFalse(
+            composed.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"),
+            "do not simulate the 415c955 idle death"
+        )
+        XCTAssertFalse(
+            composed.contains("simulateListenLoopSocketClose1000"),
+            "do not simulate DidClose 1000 — recover is a crutch"
+        )
+        XCTAssertFalse(
+            composed.contains("milliseconds(400)"),
+            "400ms sleep after ambient misses the Grok barge-in window"
+        )
+        XCTAssertFalse(
+            composed.contains("interruptResponse"),
+            "paper tests call interruptResponse — Eve / the model must decide command vs not"
+        )
+        XCTAssertFalse(composed.contains("apply(.speakStarted)"), composed)
+        XCTAssertFalse(composed.contains("dropAssistantAudio"), composed)
+        XCTAssertFalse(composed.contains("simulateListenLoopSocketDidOpenThenSessionReady"), composed)
+        XCTAssertFalse(composed.contains("attachTestSendRecorder"), composed)
+        XCTAssertFalse(composed.contains("attachListenLoopSendTaskForTests"), composed)
+        XCTAssertFalse(composed.contains("ListenLoopWebSocketLoopback"), composed)
+        XCTAssertFalse(composed.contains("setListenLoopRealtimeURLOverrideForTests"), composed)
+        XCTAssertFalse(composed.contains("listenLoopDeliveredAudioPCM"), composed)
+        XCTAssertFalse(composed.contains("applyUserTurn"), composed)
+        XCTAssertFalse(composed.contains("emitUser"), composed)
+        XCTAssertFalse(composed.contains("FakeLiveVoiceService"), composed)
+        XCTAssertFalse(composed.contains("role == .user }.count"), composed)
+        XCTAssertFalse(composed.contains("quietCommitMaxPostponeMs"), composed)
+        XCTAssertFalse(composed.contains("leftover-echo"), composed)
+        XCTAssertFalse(composed.contains("TapSpeechEnergy"), composed)
+        XCTAssertFalse(composed.contains("synthesizer.speak"), composed)
+        XCTAssertFalse(
+            composed.contains("XCTAssertTrue(\n            await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        XCTAssertFalse(
+            composed.contains("XCTAssertTrue(await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        if let connectAt = composed.range(of: "connectListenLoopProductionForTests"),
+           let openAt = composed.range(of: "waitUntilListenLoopHasProductionSendTask"),
+           let tape1At = composed.range(of: "pcm: firstTapePCM"),
+           let created1At = composed.range(of: "createdAfterTalk"),
+           let pending1At = composed.range(of: "grokPlayingAfterTalk"),
+           let ambientAt = composed.range(of: "feedTapPCM16(noise)"),
+           let beforeBargeAt = composed.range(of: "createdBeforeBarge"),
+           let tape2At = composed.range(of: "pcm: bargeTapePCM"),
+           let cancelAt = composed.range(of: "waitUntilPlaybackZero"),
+           let created2At = composed.range(of: "createdAfterBarge"),
+           let pending2At = composed.range(of: "grokPlayingAfterBarge"),
+           let doneAt = composed.range(of: "waitUntilListenLoopResponseDone"),
+           let drainAt = composed.range(of: "waitUntilListenLoopPlaybackDrained"),
+           let recoverAt = composed.range(of: "recoverCountAfterDrain"),
+           let tape3At = composed.range(of: "pcm: thirdTapePCM"),
+           let created3At = composed.range(of: "createdAfterTalkAgain") {
+            XCTAssertLessThan(
+                connectAt.lowerBound,
+                openAt.lowerBound,
+                "real connect must prove opened && task before talking to Grok"
+            )
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                tape1At.lowerBound,
+                "talk VoiceTape must follow the live handshake"
+            )
+            XCTAssertLessThan(
+                tape1At.lowerBound,
+                created1At.lowerBound,
+                "first response.created after the talk VoiceTape"
+            )
+            XCTAssertLessThan(
+                created1At.lowerBound,
+                pending1At.lowerBound,
+                "pendingPlayback must rise from live Grok after response.created"
+            )
+            XCTAssertLessThan(
+                pending1At.lowerBound,
+                ambientAt.lowerBound,
+                "ambient must be fed while live Grok audio is on the player"
+            )
+            XCTAssertLessThan(
+                ambientAt.lowerBound,
+                beforeBargeAt.lowerBound,
+                "snapshot barge-in response.created after ambient"
+            )
+            XCTAssertLessThan(
+                beforeBargeAt.lowerBound,
+                tape2At.lowerBound,
+                "command VoiceTape must follow the pending>0 barge-in assert"
+            )
+            XCTAssertLessThan(
+                tape2At.lowerBound,
+                cancelAt.lowerBound,
+                "command must cancel player buffers after the tape"
+            )
+            XCTAssertLessThan(
+                tape2At.lowerBound,
+                created2At.lowerBound,
+                "barge-in response.created after the command VoiceTape"
+            )
+            XCTAssertLessThan(
+                created2At.lowerBound,
+                pending2At.lowerBound,
+                "interrupt answer pending must rise after barge-in created"
+            )
+            XCTAssertLessThan(
+                pending2At.lowerBound,
+                doneAt.lowerBound,
+                "interrupt answer must finish after audio hits the player"
+            )
+            XCTAssertLessThan(
+                doneAt.lowerBound,
+                drainAt.lowerBound,
+                "player drain after the interrupt answer"
+            )
+            XCTAssertLessThan(
+                drainAt.lowerBound,
+                recoverAt.lowerBound,
+                "recoverCount must stay 0 after the interrupt answer"
+            )
+            XCTAssertLessThan(
+                recoverAt.lowerBound,
+                tape3At.lowerBound,
+                "VoiceTape 3 must follow drain with no recover"
+            )
+            XCTAssertLessThan(
+                tape3At.lowerBound,
+                created3At.lowerBound,
+                "talk-again response.created after VoiceTape 3"
+            )
+        } else {
+            XCTFail("composed loop must talk, barge-in, drain the interrupt answer, stay armed with no recover, then talk again")
         }
         let deadSocket = speakSlice(
             live,

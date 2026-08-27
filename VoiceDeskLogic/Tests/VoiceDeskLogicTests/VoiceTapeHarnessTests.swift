@@ -22,6 +22,11 @@ final class VoiceTapeHarnessTests: XCTestCase {
             XCTAssertEqual(decision.intent, "inbox-overview", item.say)
             XCTAssertFalse(decision.dropped, item.say)
         }
+        XCTAssertEqual(VoiceTape.composedLoopTriple.0, VoiceTape.catalog[0].id)
+        XCTAssertEqual(VoiceTape.composedLoopTriple.1, VoiceTape.catalog[1].id)
+        XCTAssertEqual(VoiceTape.composedLoopTriple.2, VoiceTape.catalog[2].id)
+        XCTAssertEqual(VoiceTape.composedLoopTriple.0, VoiceTape.secondAskPair.0)
+        XCTAssertEqual(VoiceTape.composedLoopTriple.1, VoiceTape.secondAskPair.1)
     }
 
     func testEchoBargeInSpeakingEmptyLastSpokenAcceptsEveryTape() {
