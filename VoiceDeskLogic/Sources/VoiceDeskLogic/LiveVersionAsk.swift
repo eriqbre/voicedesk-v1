@@ -3,7 +3,9 @@ import Foundation
 /// Production first-ask version path. AppModel.handleLiveUser and
 /// AppModel.speakDeskReply call these same functions. Eve PCM is
 /// `LiveVADPlayerKeep.shouldPlayBargeAudio` — the body
-/// GrokVoiceService.shouldPlayBargeAudio wraps. Not flash-ready.
+/// GrokVoiceService.shouldPlayBargeAudio wraps. Mute during the
+/// identity write only; `afterDeskTTSDrain` unmutes later Eve.
+/// Not flash-ready.
 public struct LiveVersionAsk: Equatable, Sendable {
     public var identity: BuildIdentity
     public var liveVADTurn: Bool
@@ -91,5 +93,13 @@ public struct LiveVersionAsk: Equatable, Sendable {
         clientTTSInFlight = true
         identityPCM = spoken
         return true
+    }
+
+    /// `GrokVoiceService.returnToListenAfterDeskTTS` after write→player
+    /// drain. Identity mute is this turn only. 8927c2d leftover left
+    /// `dropAssistantOutput` stuck — later Eve deltas were silent.
+    public mutating func afterDeskTTSDrain() {
+        clientTTSInFlight = false
+        dropAssistantOutput = false
     }
 }

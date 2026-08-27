@@ -124,8 +124,9 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
     /// a2727b1: claimLocal set `dropAssistantTranscript` only.
     /// Eve `output_audio.delta` still hit the player while
     /// `speak()` wrote identity. Two mouths. Suppress and the
-    /// identity write must both mute Eve PCM. Later turns
-    /// unmute and `clientTTSInFlight` is false — Eve plays.
+    /// identity write must both mute Eve PCM during the write.
+    /// After drain, `afterDeskTTSDrain` clears both flags —
+    /// 8927c2d leftover left them stuck and later Eve was silent.
     public static func shouldPlayEveAudio(
         dropAssistantOutput: Bool,
         clientTTSInFlight: Bool

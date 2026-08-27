@@ -43,20 +43,44 @@ final class LiveVersionAskTests: XCTestCase {
                 wrotePlayerPCM: session.wroteIdentityPCM
             )
         )
+    }
+
+    /// 8927c2d leftover: dropAssistantOutput / clientTTSInFlight
+    /// stayed true after the identity write. Following live Eve
+    /// deltas hit shouldPlayEveAudio and died. Same class as
+    /// c1cd758 voice-cut. After production afterDeskTTSDrain the
+    /// next Eve delta must play.
+    func testFollowingEveDeltaPlaysAfterIdentityWriteDrain() {
+        var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: true)
+        XCTAssertTrue(session.handleLiveUser(ask))
+        XCTAssertTrue(session.speakDeskReply(session.spokenIdentityLine))
+        XCTAssertTrue(session.wroteIdentityPCM)
+        XCTAssertFalse(
+            playerAllowsEve(session),
+            "Eve dropped during identity write only"
+        )
+
+        session.afterDeskTTSDrain()
+        XCTAssertFalse(session.dropAssistantOutput)
+        XCTAssertFalse(session.clientTTSInFlight)
         XCTAssertTrue(
-            LiveVADPlayerKeep.shouldPlayBargeAudio(
-                dropAssistantOutput: false,
-                clientTTSInFlight: false,
-                bargeConsumed: false,
-                deltaResponseID: "eve",
-                cancelledResponseID: nil,
-                createdAwaitingAudioID: nil,
-                lastCreatedResponseID: nil,
-                playingResponseID: nil,
-                lastScheduledResponseID: nil,
-                hasPendingPlayback: true
-            ),
-            "later Eve turns still play"
+            playerAllowsEve(session),
+            "8927c2d leftover mute-stuck: following Eve delta was false / silent"
+        )
+    }
+
+    private func playerAllowsEve(_ session: LiveVersionAsk) -> Bool {
+        LiveVADPlayerKeep.shouldPlayBargeAudio(
+            dropAssistantOutput: session.dropAssistantOutput,
+            clientTTSInFlight: session.clientTTSInFlight,
+            bargeConsumed: false,
+            deltaResponseID: "eve",
+            cancelledResponseID: nil,
+            createdAwaitingAudioID: nil,
+            lastCreatedResponseID: nil,
+            playingResponseID: nil,
+            lastScheduledResponseID: nil,
+            hasPendingPlayback: true
         )
     }
 }
