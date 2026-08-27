@@ -88,6 +88,7 @@ final class GrokVoiceService: VoiceServicing {
     /// Same frames the live tap sends to Grok. Tests only — not a second loop.
     /// The HAL tap is Sendable; this box is captured like `socket`, not read
     /// off `self` inside that closure.
+    private var spokenLoopLoggedFirstAudio = false
     private let micFrames = ListenLoopMicFrames()
     var onMicFrame: (@Sendable (Data) -> Void)? {
         didSet { micFrames.set(onMicFrame) }
@@ -195,6 +196,14 @@ final class GrokVoiceService: VoiceServicing {
         logListenResume(
             note: "after desk tts drain listenArmed=\(result.listenArmed) stayLive=\(result.stayLive) \(result.close1000) startAgain=\(result.startAgain) state=\(session.state.rawValue)"
         )
+        logSpokenLoop(
+            SpokenLoopLog.deskTTSDrain(
+                sessionID: SpokenLoopLog.currentSessionID,
+                listenArmed: result.listenArmed,
+                stayLive: result.stayLive,
+                state: session.state.rawValue
+            )
+        )
     }
 
     private func waitUntilPlaybackDrained() async {
@@ -292,6 +301,9 @@ final class GrokVoiceService: VoiceServicing {
             createdCountNow: responseCreatedCountForTests
         )
         bargeConsumed = true
+        if !spokenLoopLoggedFirstAudio {
+            logSpokenLoopFirstAudio(.absent)
+        }
         lastBargeCancelSentID = decision.cancelResponseID
         cancelledPlaybackResponseID = GrokRealtime.nonemptyID(lastScheduledResponseID)
             ?? knownCancelled
@@ -408,6 +420,8 @@ final class GrokVoiceService: VoiceServicing {
         if audio.isRunning {
             liveSessionArmed = true
         }
+        SpokenLoopLog.beginSession()
+        spokenLoopLoggedFirstAudio = false
         logListenResume(
             note: "audio.start \(logs.joined(separator: "; ")) running=\(audio.isRunning)",
             errors: audio.isRunning ? [] : logs
@@ -460,6 +474,25 @@ final class GrokVoiceService: VoiceServicing {
         VoiceCloudDogfoodClient.shared.enqueue(entry)
     }
 
+    private func logSpokenLoop(_ entry: VoiceInteractionEntry) {
+        guard VoiceDogfoodGate.allowsLogging else { return }
+        #if DEBUG
+        DebugVoiceLogFile.append(entry)
+        #endif
+        VoiceCloudDogfoodClient.shared.enqueue(entry)
+    }
+
+    private func logSpokenLoopFirstAudio(_ status: SpokenLoopLog.FirstAudio) {
+        guard !spokenLoopLoggedFirstAudio else { return }
+        spokenLoopLoggedFirstAudio = true
+        logSpokenLoop(
+            SpokenLoopLog.firstAudio(
+                sessionID: SpokenLoopLog.currentSessionID,
+                status: status
+            )
+        )
+    }
+
     private func shouldPlayBargeAudio(deltaResponseID: String?) -> Bool {
         let allow = LiveVADPlayerKeep.shouldPlayBargeAudio(
             bargeConsumed: bargeConsumed,
@@ -473,6 +506,7 @@ final class GrokVoiceService: VoiceServicing {
         )
         if !allow, GrokRealtime.nonemptyID(deltaResponseID) != nil {
             rejectedCancelledDeltaCount += 1
+            logSpokenLoopFirstAudio(.absent)
         }
         return allow
     }
@@ -510,6 +544,7 @@ final class GrokVoiceService: VoiceServicing {
             playbackEpoch: audio.playbackEpoch
         )
         noteScheduledResponse(id)
+        logSpokenLoopFirstAudio(.present)
     }
 
     private func interruptAssistant(sendCancel: Bool, responseID: String? = nil) {
@@ -628,6 +663,14 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         logListenResume(
             note: "session close code=\(code) reason=\(reason ?? "") state=\(session.state.rawValue) stayLive=\(stayLive) \(decision)"
         )
+        logSpokenLoop(
+            SpokenLoopLog.sessionClose(
+                sessionID: SpokenLoopLog.currentSessionID,
+                code: code,
+                stayLive: stayLive,
+                stayIdle: decision == .stayIdle
+            )
+        )
         guard !isTearingDown, !isRecovering else { return }
         let detail = "Grok disconnected"
         if decision == .reconnect,
@@ -723,6 +766,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             guard !trimmed.isEmpty else { break }
             clientTTSInFlight = false
+            spokenLoopLoggedFirstAudio = false
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
             responseCreatedCountForTests += 1

@@ -378,7 +378,17 @@ final class AppModel {
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
         liveVersionAsk.liveVADTurn = isLiveVADTurn
         liveVersionAsk.identity = buildIdentity
+        liveVersionAsk.sessionID = SpokenLoopLog.currentSessionID
         _ = liveVersionAsk.handleLiveUser(text)
+        let loopIntent = ConversationPresence.wantsVersionAsk(text)
+            ? "version"
+            : (ConversationPresence.looksLikeMailAsk(text)
+                || ConversationPresence.wantsInboxOverview(text) ? "mail" : "live")
+        if isLiveVADTurn {
+            for event in liveVersionAsk.spokenLoopTurnEvents(intent: loopIntent) {
+                enqueueSpokenLoop(event)
+            }
+        }
         if LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
             alreadyBarged: voice.listenLoopBargeConsumed,
             hasPendingPlayback: voice.hasPendingPlayback
@@ -1229,6 +1239,15 @@ final class AppModel {
             voicePath: voicePath,
             errors: errors
         )
+        VoiceInteractionLog.record(entry)
+        #if DEBUG
+        DebugVoiceLogFile.append(entry)
+        #endif
+        VoiceCloudDogfoodClient.shared.enqueue(entry)
+    }
+
+    private func enqueueSpokenLoop(_ entry: VoiceInteractionEntry) {
+        guard VoiceDogfoodGate.allowsLogging else { return }
         VoiceInteractionLog.record(entry)
         #if DEBUG
         DebugVoiceLogFile.append(entry)

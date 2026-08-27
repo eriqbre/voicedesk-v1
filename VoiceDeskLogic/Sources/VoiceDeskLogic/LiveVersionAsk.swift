@@ -17,6 +17,7 @@ public struct LiveVersionAsk: Equatable, Sendable {
     public var assistantReply: String
     public var voicePath: String
     public var routingNotes: [String]
+    public var sessionID: String
 
     public init(
         identity: BuildIdentity,
@@ -26,7 +27,8 @@ public struct LiveVersionAsk: Equatable, Sendable {
         identityPCM: String? = nil,
         assistantReply: String = "",
         voicePath: String = "Eve realtime",
-        routingNotes: [String] = []
+        routingNotes: [String] = [],
+        sessionID: String = SpokenLoopLog.currentSessionID
     ) {
         self.identity = identity
         self.liveVADTurn = liveVADTurn
@@ -36,6 +38,7 @@ public struct LiveVersionAsk: Equatable, Sendable {
         self.assistantReply = assistantReply
         self.voicePath = voicePath
         self.routingNotes = routingNotes
+        self.sessionID = sessionID
     }
 
     public var spokenIdentityLine: String {
@@ -84,5 +87,41 @@ public struct LiveVersionAsk: Equatable, Sendable {
         lastSpokenDeskReply = spoken
         identityPCM = spoken
         return true
+    }
+
+    public var spokenLoopMouth: SpokenLoopLog.Mouth {
+        if wroteIdentityPCM { return .desk }
+        return liveVADTurn ? .eve : .desk
+    }
+
+    /// Events AppModel emits after handleLiveUser + speakDeskReply.
+    /// Intent only — no transcript.
+    public func spokenLoopTurnEvents(intent: String = "version") -> [VoiceInteractionEntry] {
+        let evePlays = LiveVADPlayerKeep.shouldPlayBargeAudio(
+            bargeConsumed: false,
+            deltaResponseID: "eve",
+            cancelledResponseID: nil,
+            createdAwaitingAudioID: nil,
+            lastCreatedResponseID: nil,
+            playingResponseID: nil,
+            lastScheduledResponseID: nil,
+            hasPendingPlayback: true
+        )
+        let interrupted = LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
+            alreadyBarged: false,
+            hasPendingPlayback: true
+        )
+        return [
+            SpokenLoopLog.turnStart(sessionID: sessionID, intent: intent),
+            SpokenLoopLog.mouth(sessionID: sessionID, mouth: spokenLoopMouth),
+            SpokenLoopLog.firstAudio(
+                sessionID: sessionID,
+                status: SpokenLoopLog.firstAudioAfterSpokenReply(
+                    wroteDeskPCM: wroteIdentityPCM,
+                    evePlays: evePlays,
+                    interruptedWhilePending: interrupted
+                )
+            )
+        ]
     }
 }
