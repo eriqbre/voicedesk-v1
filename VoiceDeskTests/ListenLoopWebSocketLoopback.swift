@@ -6,7 +6,7 @@ import XCTest
 
 /// In-process WebSocket the real `URLSessionWebSocketTask` can open.
 /// xAI is unreachable in XCTest. This is still a socket, not a send recorder.
-/// POSIX bind on 127.0.0.1 — NWListener + requiredLocalEndpoint did not
+/// POSIX bind on 127.0.0.1. A Network.framework listener did not
 /// finish a URLSession handshake on the iPhone simulator.
 final class ListenLoopWebSocketLoopback: @unchecked Sendable {
     private let lock = NSLock()

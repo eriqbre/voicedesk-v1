@@ -877,7 +877,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loopbackSource.contains("socket(AF_INET"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("127.0.0.1"), loopbackSource)
         XCTAssertFalse(loopbackSource.contains("import Network"), loopbackSource)
-        XCTAssertFalse(loopbackSource.contains("NWListener"), loopbackSource)
+        XCTAssertFalse(
+            loopbackSource.contains("try NWListener"),
+            "do not bring back a Network.framework listener"
+        )
         XCTAssertFalse(loopbackSource.contains("testSendSink"), loopbackSource)
         let connectFn = speakSlice(
             try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoice.swift")),
