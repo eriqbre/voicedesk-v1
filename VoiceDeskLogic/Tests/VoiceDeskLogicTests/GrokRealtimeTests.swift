@@ -497,6 +497,24 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(
             GrokRealtime.shouldScheduleAfterBarge(
                 bargeConsumed: true,
+                deltaResponseID: nil,
+                cancelledResponseID: "resp_1",
+                interruptAnswerID: nil
+            ),
+            "after barge, wire no-id must schedule even when lastCreated is still the first answer — callers must not invent an id to reject"
+        )
+        XCTAssertEqual(
+            GrokRealtime.scheduledResponseID(
+                deltaResponseID: nil,
+                createdAwaitingAudioID: nil,
+                lastCreatedResponseID: "resp_1"
+            ),
+            "resp_1",
+            "filling lastCreated into the barge gate stamps leftover first-answer and eats R2"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: true,
                 deltaResponseID: "resp_2",
                 cancelledResponseID: nil,
                 interruptAnswerID: nil

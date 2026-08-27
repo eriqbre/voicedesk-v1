@@ -395,6 +395,25 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("latchWhenFirstAnswerPlaying"), service)
         XCTAssertTrue(service.contains("playbackEpochLatch"), service)
         XCTAssertTrue(service.contains("func connectListenLoopProductionForTests"), service)
+        let binary = speakSlice(
+            service,
+            from: "func grokWebSocketDidReceiveBinary",
+            to: "func grokWebSocketDidReceive(json"
+        )
+        XCTAssertTrue(
+            binary.contains("shouldPlayBargeAudio(deltaResponseID: nil)"),
+            "wire binary has no response_id — do not stamp lastCreated into the barge gate"
+        )
+        if let gateAt = binary.range(of: "shouldPlayBargeAudio(deltaResponseID: nil)"),
+           let fillAt = binary.range(of: "scheduledResponseID") {
+            XCTAssertLessThan(
+                gateAt.lowerBound,
+                fillAt.lowerBound,
+                "tag after allow — filling lastCreated before the gate eats no-id R2"
+            )
+        } else {
+            XCTFail("binary path must gate on nil, then tag")
+        }
         let outputAudio = speakSlice(service, from: "case .outputAudioDelta", to: "case .outputAudioDone")
         XCTAssertTrue(outputAudio.contains("playAudioDelta"), outputAudio)
         XCTAssertTrue(outputAudio.contains("shouldPlayBargeAudio"), outputAudio)

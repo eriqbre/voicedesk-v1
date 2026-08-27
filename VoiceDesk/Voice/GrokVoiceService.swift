@@ -619,15 +619,21 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
-        let deltaID = GrokRealtime.scheduledResponseID(
-            deltaResponseID: nil,
-            createdAwaitingAudioID: createdAwaitingAudioID,
-            lastCreatedResponseID: lastCreatedResponseID
-        )
-        guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { return }
+        // Wire binary has no response_id. Do not fill lastCreated —
+        // after barge that is still the first answer, and the gate
+        // would reject R2. Only JSON leftover inject carries the
+        // cancelled id.
+        guard shouldPlayBargeAudio(deltaResponseID: nil) else { return }
         if playingResponseID == nil {
-            playingResponseID = deltaID
-            noteScheduledResponse(playingResponseID)
+            let tagged = GrokRealtime.scheduledResponseID(
+                deltaResponseID: nil,
+                createdAwaitingAudioID: createdAwaitingAudioID,
+                lastCreatedResponseID: lastCreatedResponseID
+            )
+            if tagged != cancelledPlaybackResponseID {
+                playingResponseID = tagged
+                noteScheduledResponse(tagged)
+            }
         }
         audio.playPCM16(data)
         noteFirstAnswerPlaying()
