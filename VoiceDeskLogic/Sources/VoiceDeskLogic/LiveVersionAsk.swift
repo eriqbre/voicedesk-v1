@@ -4,9 +4,10 @@ import Foundation
 /// AppModel.speakDeskReply call these same functions. Eve PCM is
 /// `LiveVADPlayerKeep.shouldPlayBargeAudio` — the body
 /// GrokVoiceService.shouldPlayBargeAudio wraps. Mute during the
-/// identity write only. Drain is
-/// `LiveVADPlayerKeep.returnToListenAfterDeskTTS` — the flag-clear
-/// `GrokVoiceService.returnToListenAfterDeskTTS` calls.
+/// identity write only. Drain is `returnToListenAfterDeskTTS()` —
+/// AppModel calls that one method; it forwards to
+/// `LiveVADPlayerKeep.returnToListenAfterDeskTTS` (same body
+/// `GrokVoiceService.returnToListenAfterDeskTTS` calls).
 /// Not flash-ready.
 public struct LiveVersionAsk: Equatable, Sendable {
     public var identity: BuildIdentity
@@ -95,5 +96,16 @@ public struct LiveVersionAsk: Equatable, Sendable {
         clientTTSInFlight = true
         identityPCM = spoken
         return true
+    }
+
+    /// AppModel.speakDeskReply after `voice.speak`. Mutates this
+    /// session's flags — do not pass two `&liveVersionAsk` inouts
+    /// (Observation writeback aliases). 8927c2d leftover of the
+    /// inner call cleared clientTTS only; drop stayed stuck.
+    public mutating func returnToListenAfterDeskTTS() {
+        LiveVADPlayerKeep.returnToListenAfterDeskTTS(
+            dropAssistantOutput: &dropAssistantOutput,
+            clientTTSInFlight: &clientTTSInFlight
+        )
     }
 }

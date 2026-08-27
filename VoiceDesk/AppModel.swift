@@ -1171,10 +1171,7 @@ final class AppModel {
         lastSpokenDeskReply = liveVersionAsk.lastSpokenDeskReply
         guard let spoken = liveVersionAsk.lastSpokenDeskReply, !spoken.isEmpty else { return }
         await voice.speak(spoken)
-        LiveVADPlayerKeep.returnToListenAfterDeskTTS(
-            dropAssistantOutput: &liveVersionAsk.dropAssistantOutput,
-            clientTTSInFlight: &liveVersionAsk.clientTTSInFlight
-        )
+        liveVersionAsk.returnToListenAfterDeskTTS()
         unmuteGrokAssistant()
     }
 

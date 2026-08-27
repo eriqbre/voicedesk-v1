@@ -51,7 +51,7 @@ final class LiveVersionAskTests: XCTestCase {
     /// clientTTSInFlight only. drop stayed true — following Eve
     /// delta is shouldPlayBargeAudio false. Same function
     /// GrokVoiceService.returnToListenAfterDeskTTS calls.
-    func testFollowingEveDeltaPlaysAfterIdentityWriteDrain() {
+    func testFollowingEveDeltaPlaysAfterIdentityWriteDrain() throws {
         var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: true)
         XCTAssertTrue(session.handleLiveUser(ask))
         XCTAssertTrue(session.speakDeskReply(session.spokenIdentityLine))
@@ -61,13 +61,22 @@ final class LiveVersionAskTests: XCTestCase {
             "Eve dropped during identity write only"
         )
 
-        LiveVADPlayerKeep.returnToListenAfterDeskTTS(
-            dropAssistantOutput: &session.dropAssistantOutput,
-            clientTTSInFlight: &session.clientTTSInFlight
-        )
+        session.returnToListenAfterDeskTTS()
         XCTAssertTrue(
             playerAllowsEve(session),
             "8927c2d leftover cleared clientTTS only; drop stayed true and Eve stayed false"
+        )
+
+        let desk = speakSlice(
+            try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift")),
+            from: "private func speakDeskReply(_ text: String) async {",
+            to: "private func rememberUserTurn"
+        )
+        XCTAssertTrue(desk.contains("liveVersionAsk.returnToListenAfterDeskTTS()"), desk)
+        XCTAssertTrue(desk.contains("unmuteGrokAssistant()"), desk)
+        XCTAssertFalse(
+            desk.contains("&liveVersionAsk."),
+            "8fdc481: two inouts of Observation liveVersionAsk alias — device compile 65"
         )
     }
 
@@ -84,5 +93,24 @@ final class LiveVersionAskTests: XCTestCase {
             lastScheduledResponseID: nil,
             hasPendingPlayback: true
         )
+    }
+
+    private func speakSlice(_ source: String, from: String, to: String) -> String {
+        guard let start = source.range(of: from),
+              let end = source.range(of: to, range: start.upperBound..<source.endIndex)
+        else { return "" }
+        return String(source[start.lowerBound..<end.lowerBound])
+    }
+
+    private func repoFile(_ relative: String) -> String? {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let candidate = url.appendingPathComponent(relative)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try? String(contentsOf: candidate, encoding: .utf8)
+            }
+        }
+        return nil
     }
 }
