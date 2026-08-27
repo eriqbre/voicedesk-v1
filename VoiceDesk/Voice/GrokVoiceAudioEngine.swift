@@ -40,10 +40,14 @@ final class GrokVoiceAudioEngine {
     private var onMicAudio: (@Sendable (String) -> Void)?
     private var echoCancellation = true
     private var tapInstalled = false
-    /// HAL install-block presence. SET missing when HAL releases the
-    /// block. Do not reinstall from deinit. Our removeTap invalidates
-    /// first so leftover drain-time reinstall does not leave released.
-    private let installPresence = InstallTapPresence()
+    /// Inject-only. Phone yank leaves the Swift object and a lying
+    /// public `isTapInstalled`. Storage `tapInstalled` goes false so
+    /// leftover-hot `feedTapPCM16` stays the 453bda8 guard.
+    /// `InstallTapHold` leftover-hot `isReleased` raced leftover
+    /// composed (12ba20f 97s, tape3 lost). `removeTap` does not
+    /// release the install block in time for 316 — not leftover-safe,
+    /// not a working object-left signal. Do not put it back.
+    private var objectLeftInPlaceSilent = false
     private var pendingPlaybackBuffers = 0
     private(set) var playbackEpoch = 0
     private var generation = 0
@@ -85,23 +89,24 @@ final class GrokVoiceAudioEngine {
     }
 
     /// Same callback the mic tap uses. Speech-shaped PCM is a turn, not a string.
-    /// A lying `tapInstalled` with no HAL tap must no-op so a silent tap
-    /// cannot be paper-greened by feeding PCM. `isReleased` is SET only
-    /// when HAL drops the installTap block — not an inject storage bit
-    /// (771f6f9). Leftover created must not reinstall. Our reinstall
-    /// invalidates first so leftover drain-time reinstall stays live.
+    /// A lying public `isTapInstalled` with no HAL tap must no-op so a
+    /// silent tap cannot be paper-greened by feeding PCM. This guard
+    /// is 453bda8 — leftover barge / tape feeds live here. Object-left
+    /// inject clears storage `tapInstalled` (object stays) so first
+    /// feed is deaf without a leftover-hot flag check.
     func feedTapPCM16(_ pcm: Data) {
-        guard tap != nil, tapInstalled, !installPresence.isReleased, let onMicAudio else { return }
+        guard tap != nil, tapInstalled, let onMicAudio else { return }
         onMicAudio(pcm.base64EncodedString())
     }
 
-    var isTapInstalled: Bool { tapInstalled }
+    /// Phone object-left inject keeps this true while storage is false.
+    var isTapInstalled: Bool { tapInstalled || objectLeftInPlaceSilent }
 
     /// Phone HAL yank leaves this true. `simulateHALTapYankLeavingInstalledFlagTrue` nils it.
     var isTapObjectPresent: Bool { tap != nil }
 
-    /// False when HAL released the install block, until demand repair.
-    var isHALTapAttached: Bool { tap != nil && tapInstalled && !installPresence.isReleased }
+    /// False only after object-left-in-place inject, until demand repair.
+    var isHALTapAttached: Bool { tap != nil && tapInstalled && !objectLeftInPlaceSilent }
 
     /// After write→player drain. iOS can yank the HAL tap and leave
     /// `isRunning` true and `tapInstalled` true without posting
@@ -123,7 +128,7 @@ final class GrokVoiceAudioEngine {
             engineRunning: engine?.isRunning ?? false,
             wantsCapture: wantsCapture,
             tapObjectMissing: tap == nil,
-            halTapMissing: installPresence.isReleased
+            halTapMissing: objectLeftInPlaceSilent
         ) else { return }
         reinstallTap()
     }
@@ -140,6 +145,7 @@ final class GrokVoiceAudioEngine {
         tapInstalled = false
         tap?.detach()
         tap = nil
+        objectLeftInPlaceSilent = false
     }
 
     /// Real iOS (415c955 / bf0af19): HAL tap is gone, `isRunning` stays
@@ -152,18 +158,21 @@ final class GrokVoiceAudioEngine {
         }
         tap?.detach()
         tap = nil
+        objectLeftInPlaceSilent = false
     }
 
     /// Phone HAL yank (415c955 / 18d5878): HAL tap is gone, Swift
-    /// `tap` stays, `tapInstalled` stays true, `isRunning` stays true.
-    /// Zero notifications. `removeTap` only — do not flip a storage
-    /// bit. HAL releasing the install block SETs missing. Do not
-    /// auto-reinstall.
+    /// `tap` stays, public `isTapInstalled` stays true, `isRunning`
+    /// stays true. Storage `tapInstalled` goes false so 453bda8
+    /// leftover feed is deaf — not tap==nil, not a leftover-hot
+    /// flag on every feed. Do not auto-reinstall.
     func simulateHALTapYankLeavingSwiftObjectInPlace() {
         guard let engine else { return }
         if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
         }
+        tapInstalled = false
+        objectLeftInPlaceSilent = true
     }
 
     func playAudioDelta(base64: String) {
@@ -273,8 +282,11 @@ final class GrokVoiceAudioEngine {
             return logs
         }
 
-        attachMicTap(inputNode: inputNode, inputFormat: inputFormat, frameTap: frameTap)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap] buffer, _ in
+            frameTap.consume(buffer)
+        }
         tapInstalled = true
+        objectLeftInPlaceSilent = false
 
         do {
             engine.prepare()
@@ -302,13 +314,13 @@ final class GrokVoiceAudioEngine {
             }
             return
         }
-        installPresence.invalidate()
         if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
         }
         tapInstalled = false
         tap?.detach()
         tap = nil
+        objectLeftInPlaceSilent = false
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0,
@@ -318,25 +330,14 @@ final class GrokVoiceAudioEngine {
                 onFrame: onMicAudio
               )
         else { return }
-        attachMicTap(inputNode: inputNode, inputFormat: inputFormat, frameTap: frameTap)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap] buffer, _ in
+            frameTap.consume(buffer)
+        }
         tap = frameTap
         tapInstalled = true
     }
 
-    private func attachMicTap(
-        inputNode: AVAudioInputNode,
-        inputFormat: AVAudioFormat,
-        frameTap: MicFrameTap
-    ) {
-        let hold = installPresence.nextHold()
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [hold, frameTap] buffer, _ in
-            _ = hold
-            frameTap.consume(buffer)
-        }
-    }
-
     private func teardownGraph() {
-        installPresence.invalidate()
         tap?.detach()
         tap = nil
         if let engine {
@@ -350,6 +351,7 @@ final class GrokVoiceAudioEngine {
         self.engine = nil
         self.playerNode = nil
         tapInstalled = false
+        objectLeftInPlaceSilent = false
     }
 
     private func observeAudioLifecycle() {

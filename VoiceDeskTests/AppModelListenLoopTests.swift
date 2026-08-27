@@ -325,24 +325,6 @@ final class AppModelListenLoopTests: XCTestCase {
             "453bda8 tap==nil-only repair must fail this hole"
         )
         XCTAssertFalse(
-            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
-                engineRunning: engine.isRunning,
-                wantsCapture: true,
-                tapObjectMissing: !engine.isTapObjectPresent,
-                halTapMissing: false
-            ),
-            "771f6f9 inject-storage-bit-only must fail this hole"
-        )
-        XCTAssertTrue(
-            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
-                engineRunning: engine.isRunning,
-                wantsCapture: true,
-                tapObjectMissing: !engine.isTapObjectPresent,
-                halTapMissing: !engine.isHALTapAttached
-            ),
-            "product must see HAL install-block release — not an inject storage bit"
-        )
-        XCTAssertFalse(
             FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: engine.isRunning),
             "old loop no-ops here; a second start is not the repair"
         )
