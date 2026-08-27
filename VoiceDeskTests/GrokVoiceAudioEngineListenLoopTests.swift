@@ -487,14 +487,6 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         XCTAssertTrue(engine.isTapInstalled, "bf0af19: flag still says installed after HAL yank")
         XCTAssertTrue(engine.isRunning, "415c955-class yank leaves isRunning true")
         XCTAssertEqual(engine.startCount, 1, "yank must not audio.start")
-        XCTAssertFalse(
-            FirstHearTapLoop.bf0af19ShouldReinstallTapIfSilentWhileRunning(
-                tapInstalled: engine.isTapInstalled,
-                engineRunning: engine.isRunning,
-                wantsCapture: true
-            ),
-            "bf0af19 trusted the flag and would no-op here"
-        )
         XCTAssertTrue(
             FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
                 engineRunning: engine.isRunning,

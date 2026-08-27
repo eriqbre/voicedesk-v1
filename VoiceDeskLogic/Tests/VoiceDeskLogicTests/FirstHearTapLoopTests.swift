@@ -418,14 +418,6 @@ final class FirstHearTapLoopTests: XCTestCase {
                 wantsCapture: true
             )
         )
-        XCTAssertFalse(
-            FirstHearTapLoop.bf0af19ShouldReinstallTapIfSilentWhileRunning(
-                tapInstalled: true,
-                engineRunning: true,
-                wantsCapture: true
-            ),
-            "bf0af19 trusted tapInstalled and no-oped"
-        )
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)
         let third = FirstHearTapLoop.commandPCM(3)
@@ -445,14 +437,6 @@ final class FirstHearTapLoopTests: XCTestCase {
     }
 
     func testBf0af19415c955FlagLiesAfterTTSDrainDropsThird() {
-        XCTAssertFalse(
-            FirstHearTapLoop.bf0af19ShouldReinstallTapIfSilentWhileRunning(
-                tapInstalled: true,
-                engineRunning: true,
-                wantsCapture: true
-            ),
-            "bf0af19 / 415c955: flag still true after HAL yank"
-        )
         XCTAssertTrue(
             FirstHearTapLoop.shouldReinstallTapIfSilentWhileRunning(
                 engineRunning: true,

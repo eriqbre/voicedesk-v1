@@ -58,16 +58,6 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         wantsCapture && engineRunning && (tapObjectMissing || halTapMissing)
     }
 
-    /// bf0af19 / 415c955: trusted `tapInstalled`. HAL yank left the
-    /// flag true, so the repair no-oped and the third never landed.
-    public static func bf0af19ShouldReinstallTapIfSilentWhileRunning(
-        tapInstalled: Bool,
-        engineRunning: Bool,
-        wantsCapture: Bool
-    ) -> Bool {
-        wantsCapture && engineRunning && !tapInstalled
-    }
-
     /// Command-shaped PCM is a turn only if the listen path can still hear.
     /// A live tap callback with session idle / speaking is first-hear-then-deaf.
     public static func accept(
@@ -858,24 +848,16 @@ public struct FirstHearTapLoop: Equatable, Sendable {
                 startCount += 1
             }
             // HAL yank. Installed flag stays true. Actual tap is dead.
-            let flagInstalled = true
             tapLive = false
             if startAudioIfNeededWouldStart(engineRunning: true) {
                 startCount += 1
                 tapLive = true
             }
-            let oldRepair = bf0af19ShouldReinstallTapIfSilentWhileRunning(
-                tapInstalled: flagInstalled,
-                engineRunning: true,
-                wantsCapture: true
-            )
             let productRepair = shouldReinstallTapIfSilentWhileRunning(
                 engineRunning: true,
                 wantsCapture: true
             )
             if afterDrain == .flagLiesAfterTTSDrainThenReinstall, productRepair {
-                tapLive = true
-            } else if oldRepair {
                 tapLive = true
             }
         case .drainThenDelayedYankNoConfigChange, .drainThenDelayedYankThenConfigChange, .drainThenDelayedYankThenDelayedRepair, .drainThenObjectLeftInPlaceYankBitOnlyRepair, .drainThenObjectLeftInPlaceYankThenDemandRepair:
