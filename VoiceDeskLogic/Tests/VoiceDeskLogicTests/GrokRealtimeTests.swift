@@ -522,6 +522,59 @@ final class GrokRealtimeTests: XCTestCase {
             "a nil latch must not drop every delta (dropAssistantAudio in disguise)"
         )
         XCTAssertFalse(
+            GrokRealtime.shouldArmCommandBargeLatch(
+                alreadyBarged: false,
+                hasPendingPlayback: false,
+                cancelledResponseID: nil
+            ),
+            "first listen — no answer yet — is not a barge"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldArmCommandBargeLatch(
+                alreadyBarged: false,
+                hasPendingPlayback: false,
+                cancelledResponseID: "resp_1"
+            ),
+            "command barge after drain must still latch leftover — 1488 lastScheduled with cancelled nil"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldArmCommandBargeLatch(
+                alreadyBarged: false,
+                hasPendingPlayback: true,
+                cancelledResponseID: nil
+            ),
+            "first-answer PCM with no response_id must still drop"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldArmCommandBargeLatch(
+                alreadyBarged: true,
+                hasPendingPlayback: true,
+                cancelledResponseID: "resp_1"
+            ),
+            "second interruptResponse must not re-drop the interrupt answer"
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeInDecision(
+                hasPendingPlayback: false,
+                alreadyBarged: false,
+                playingResponseID: nil,
+                interruptTargetID: "resp_1",
+                currentResponseID: "resp_1",
+                createdCountAtLatch: 1,
+                createdCountNow: 1
+            ),
+            GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: false),
+            "pending 0 must latch leftover, not drop"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: true,
+                deltaResponseID: "resp_1",
+                cancelledResponseID: "resp_1"
+            ),
+            "leftover JSON with the latched first-answer id must not raise pending"
+        )
+        XCTAssertFalse(
             GrokRealtime.shouldResetBargeAfterResponseDone(
                 bargeConsumed: true,
                 interruptAnswerScheduled: false,

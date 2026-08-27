@@ -226,14 +226,26 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {
-        // Barge-in drops the playing answer locally. Do not send
-        // response.cancel — xAI server VAD already interrupted, and a
-        // client cancel races the next created (leftover created,
-        // pending 0). Keep buffers if that created already scheduled.
-        guard audio.hasPendingPlayback else { return }
+        // Latch leftover even when the first answer already drained.
+        // Drop buffers only if something is still on the player.
+        // Do not send response.cancel — xAI server VAD already
+        // interrupted, and a client cancel races the next created.
+        // First listen (no answer id, pending 0) is not a barge.
         guard !bargeConsumed else { return }
+        let knownCancelled = GrokRealtime.cancelledPlaybackResponseID(
+            interruptTargetID: interruptTargetID,
+            lastScheduledResponseID: lastScheduledResponseID,
+            playingResponseID: playingResponseID,
+            lastCreatedResponseID: lastCreatedResponseID
+        )
+        let hasPending = audio.hasPendingPlayback
+        guard GrokRealtime.shouldArmCommandBargeLatch(
+            alreadyBarged: false,
+            hasPendingPlayback: hasPending,
+            cancelledResponseID: knownCancelled
+        ) else { return }
         let decision = GrokRealtime.bargeInDecision(
-            hasPendingPlayback: true,
+            hasPendingPlayback: hasPending,
             alreadyBarged: false,
             playingResponseID: playingResponseID,
             interruptTargetID: interruptTargetID,
@@ -243,12 +255,8 @@ final class GrokVoiceService: VoiceServicing {
         )
         bargeConsumed = true
         lastBargeCancelSentID = decision.cancelResponseID
-        cancelledPlaybackResponseID = GrokRealtime.cancelledPlaybackResponseID(
-            interruptTargetID: interruptTargetID,
-            lastScheduledResponseID: lastScheduledResponseID,
-            playingResponseID: playingResponseID,
-            lastCreatedResponseID: lastCreatedResponseID
-        ) ?? GrokRealtime.playbackEpochLatch(audio.playbackEpoch)
+        cancelledPlaybackResponseID = knownCancelled
+            ?? GrokRealtime.playbackEpochLatch(audio.playbackEpoch)
         if decision.dropLocal {
             interruptAssistant(sendCancel: false)
         }

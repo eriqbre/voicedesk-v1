@@ -471,11 +471,20 @@ final class ListenLoopSourceContractTests: XCTestCase {
             from: "func interruptResponse() {",
             to: "func suppressAssistantOutput"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             interruptLive.contains("guard audio.hasPendingPlayback else { return }"),
-            "cancel after pending is 0 kills the interrupt answer (leftover created, pending 0)"
+            "pending 0 must still latch cancelled/bargeConsumed — leftover inject uses that id"
         )
+        XCTAssertTrue(interruptLive.contains("shouldArmCommandBargeLatch"), interruptLive)
         XCTAssertTrue(interruptLive.contains("bargeInDecision"), interruptLive)
+        XCTAssertTrue(
+            interruptLive.contains("hasPendingPlayback: hasPending"),
+            "drop uses the real pending flag — do not hardcode true after a pending-0 early return"
+        )
+        XCTAssertTrue(
+            interruptLive.contains("if decision.dropLocal"),
+            "drop buffers only when bargeInDecision says drop — pending 0 is latch-only"
+        )
         XCTAssertTrue(interruptLive.contains("bargeConsumed"), interruptLive)
         XCTAssertTrue(interruptLive.contains("createdCountAtBarge"), interruptLive)
         XCTAssertTrue(interruptLive.contains("interruptTargetID"), interruptLive)
@@ -535,6 +544,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func responseIDToCancelOnBarge"), realtime)
         XCTAssertTrue(realtime.contains("func shouldKeepInterruptAnswerOnPlayer"), realtime)
         XCTAssertTrue(realtime.contains("func shouldScheduleAfterBarge"), realtime)
+        XCTAssertTrue(realtime.contains("func shouldArmCommandBargeLatch"), realtime)
         XCTAssertTrue(realtime.contains("func shouldResetBargeAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)

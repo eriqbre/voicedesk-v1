@@ -318,6 +318,19 @@ public enum GrokRealtime {
             ?? playbackEpochLatch(playbackEpoch)
     }
 
+    /// Command barge must arm leftover reject even when the first
+    /// answer already drained (`pending == 0`). First listen — no
+    /// answer id and nothing on the player — is not a barge.
+    public static func shouldArmCommandBargeLatch(
+        alreadyBarged: Bool,
+        hasPendingPlayback: Bool,
+        cancelledResponseID: String?
+    ) -> Bool {
+        guard !alreadyBarged else { return false }
+        if hasPendingPlayback { return true }
+        return nonemptyID(cancelledResponseID) != nil
+    }
+
     /// First-answer id that barge dropped. Leftover deltas with this
     /// id must not raise pending after `interruptPlayback`.
     /// `lastCreated` is the first `response.created` when Grok PCM
