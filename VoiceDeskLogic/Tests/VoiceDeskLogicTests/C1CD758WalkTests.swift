@@ -134,9 +134,13 @@ final class C1CD758WalkTests: XCTestCase {
         XCTAssertFalse(version.contains("reply: \"\""), version)
 
         let desk = speakSlice(app, from: "private func speakDeskReply(_ text: String) async", to: "private func rememberUserTurn")
-        XCTAssertTrue(desk.contains("shouldWriteLiveDeskLineToPlayer"), desk)
-        XCTAssertTrue(desk.contains("spokenIdentityLine"), desk)
+        XCTAssertTrue(desk.contains("liveVersionAsk.speakDeskReply"), desk)
         XCTAssertFalse(desk.contains("Here they are"), desk)
+        let seam = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/LiveVersionAsk.swift"))
+        XCTAssertTrue(seam.contains("shouldWriteLiveDeskLineToPlayer"), seam)
+        XCTAssertTrue(seam.contains("spokenIdentityLine"), seam)
+        XCTAssertTrue(seam.contains("func handleLiveUser"), seam)
+        XCTAssertTrue(seam.contains("func speakDeskReply"), seam)
 
         let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
         let speakFn = speakSlice(

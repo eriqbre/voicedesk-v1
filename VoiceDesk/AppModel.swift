@@ -31,6 +31,7 @@ final class AppModel {
     let sync: any GoogleSyncing
     let emailSummarizer: any EmailSummarizing
     let buildIdentity: BuildIdentity
+    private var liveVersionAsk: LiveVersionAsk
 
     private var liveAssistantID: UUID?
     private var pendingDeskTopic: ConversationPresence.Topic?
@@ -104,6 +105,7 @@ final class AppModel {
         self.sync = sync ?? MockGoogleSync()
         self.emailSummarizer = emailSummarizer ?? HeuristicEmailSummarizer()
         self.buildIdentity = buildIdentity ?? BuildIdentity(infoDictionary: Bundle.main.infoDictionary)
+        self.liveVersionAsk = LiveVersionAsk(identity: self.buildIdentity, liveVADTurn: false)
         self.isOnline = isOnline
         self.hasCompletedPlaybook = self.playbook.hasCompleted
         // First paint: local cache only. Google restore + sync run after first frame.
@@ -427,6 +429,9 @@ final class AppModel {
                 }
                 if isLiveVADTurn, deskWritesIdentity {
                     // Desk identity is the mouth. Do not unmute Eve.
+                    liveVersionAsk.liveVADTurn = true
+                    liveVersionAsk.identity = buildIdentity
+                    liveVersionAsk.handleLiveUser(text)
                     claimLocalAssistantReply()
                     Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
                     return
@@ -452,6 +457,9 @@ final class AppModel {
                 parkOrAttachLiveDeskCards(evidence.cards)
             }
             if isLiveVADTurn, deskWritesIdentity {
+                liveVersionAsk.liveVADTurn = true
+                liveVersionAsk.identity = buildIdentity
+                liveVersionAsk.handleLiveUser(text)
                 claimLocalAssistantReply()
                 surfaceDeskEvidence(evidence)
                 return
@@ -1153,25 +1161,13 @@ final class AppModel {
     }
 
     private func speakDeskReply(_ text: String) async {
-        guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {
-            return
-        }
-        // Live VAD: no inbox stub. Identity line writes PCM
-        // (83a5c6a version bar). Do not send a list ack.
-        if isLiveVADTurn {
-            let identity = ConversationPresence.spokenIdentityLine(
-                for: lastUserUtterance,
-                identity: buildIdentity
-            )
-            if !LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
-                liveVADTurn: true,
-                spoken: spoken,
-                identityLine: identity
-            ) {
-                return
-            }
-        }
-        lastSpokenDeskReply = spoken
+        liveVersionAsk.liveVADTurn = isLiveVADTurn
+        liveVersionAsk.identity = buildIdentity
+        liveVersionAsk.lastUserUtterance = lastUserUtterance
+        liveVersionAsk.lastSpokenDeskReply = lastSpokenDeskReply
+        guard liveVersionAsk.speakDeskReply(text) else { return }
+        lastSpokenDeskReply = liveVersionAsk.lastSpokenDeskReply
+        guard let spoken = liveVersionAsk.lastSpokenDeskReply, !spoken.isEmpty else { return }
         await voice.speak(spoken)
     }
 
