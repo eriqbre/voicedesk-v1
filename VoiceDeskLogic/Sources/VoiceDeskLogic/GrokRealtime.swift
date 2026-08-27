@@ -630,11 +630,6 @@ public enum GrokRealtime {
         usesLiveLoop && isConnected && !userWantsVoiceOff
     }
 
-    /// Live VAD already created one response. A second create is two mouths.
-    public static func shouldSendVerbatimCreate(liveVADTurn: Bool) -> Bool {
-        !liveVADTurn
-    }
-
     /// 12:54 / 3:27 live-Grok leak. Eve paraphrased routing-narration.
     /// Detector only — not a mute, not a transcript scrub.
     public static func isLeftoverDeskRoutingReply(_ raw: String) -> Bool {

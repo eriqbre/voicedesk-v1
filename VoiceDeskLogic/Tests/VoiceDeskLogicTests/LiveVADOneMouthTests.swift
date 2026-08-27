@@ -105,10 +105,11 @@ final class LiveVADOneMouthTests: XCTestCase {
     func testLiveDeskAsksDoNotGetAClientStubAsFirstAudio() {
         let snapshot = hotSnapshot
         for ask in Self.liveDeskAsks {
-            XCTAssertFalse(
-                GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: true),
-                ask
-            )
+            let speak = LiveEveSpeak.plan(text: ask, socketConnected: true)
+            XCTAssertEqual(speak.mouth, .eve, ask)
+            XCTAssertEqual(speak.wireTypes, LiveEveSpeak.eveWireTypes, ask)
+            XCTAssertFalse(speak.wroteClientTTS, ask)
+            XCTAssertFalse(speak.swallowed, ask)
             if ConversationPresence.looksLikeMailAsk(ask)
                 || ConversationPresence.wantsInboxOverview(ask) {
                 let plan = InboxGlanceSpeakPlan.liveVAD(ask: ask, snapshot: snapshot, now: now)
