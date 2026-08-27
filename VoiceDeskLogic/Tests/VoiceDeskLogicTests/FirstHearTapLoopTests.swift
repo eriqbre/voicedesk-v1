@@ -307,6 +307,14 @@ final class FirstHearTapLoopTests: XCTestCase {
                 engineRunning: false
             )
         )
+        XCTAssertFalse(
+            FirstHearTapLoop.shouldScheduleDelayedSilentTapRepairAfterDrain(
+                wantsCapture: true,
+                engineRunning: true,
+                bargeConsumed: true
+            ),
+            "command barge must not keep a delayed tap rebuild in the leftover window"
+        )
         XCTAssertEqual(FirstHearTapLoop.delayedSilentTapRepairMilliseconds, 400)
         XCTAssertFalse(
             FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(

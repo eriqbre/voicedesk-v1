@@ -333,6 +333,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenDelayedRepairLandsThird"), loop)
         XCTAssertTrue(loop.contains("delayedSilentTapRepairMilliseconds"), loop)
         XCTAssertTrue(loop.contains("shouldScheduleDelayedSilentTapRepairAfterDrain"), loop)
+        XCTAssertTrue(
+            loop.contains("bargeConsumed: Bool = false"),
+            "delayed silent-tap schedule must refuse after command barge"
+        )
         XCTAssertTrue(loop.contains("shouldApplyDelayedSilentTapRepair"), loop)
         XCTAssertTrue(
             loopTests.contains("testDelayedYankAfterReturnToListenThenDelayedRepairLandsThird"),
@@ -373,6 +377,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(returnToListen.contains("reinstallTapIfSilentWhileRunning"), returnToListen)
         XCTAssertTrue(returnToListen.contains("scheduleDelayedSilentTapRepair"), returnToListen)
+        XCTAssertTrue(
+            returnToListen.contains("if !bargeConsumed"),
+            "speak() drain after command barge must not rebuild the tap — leftover created raced that"
+        )
         let delayedRepair = speakSlice(
             service,
             from: "private func scheduleDelayedSilentTapRepair",
@@ -382,6 +390,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(delayedRepair.contains("for _ in"), delayedRepair)
         XCTAssertTrue(delayedRepair.contains("Task.sleep"), delayedRepair)
         XCTAssertTrue(delayedRepair.contains("reinstallTapIfYankedWhileRunning"), delayedRepair)
+        XCTAssertTrue(
+            delayedRepair.contains("bargeConsumed: bargeConsumed"),
+            "delayed repair must not schedule after command barge"
+        )
+        XCTAssertTrue(
+            delayedRepair.contains("!self.bargeConsumed"),
+            "woken delayed check must no-op if barge landed during the 400ms sleep"
+        )
         XCTAssertFalse(
             delayedRepair.contains("reinstallTapIfSilentWhileRunning"),
             "delayed check must not tear down a live tap — drain-time reinstall is the always path"
@@ -564,6 +580,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "command barge must set cancelled = lastScheduled so leftover inject matches the reject gate"
         )
         XCTAssertTrue(interruptLive.contains("shouldArmCommandBargeLatch"), interruptLive)
+        XCTAssertTrue(
+            interruptLive.contains("delayedSilentTapRepair?.cancel()"),
+            "command barge must drop the delayed tap rebuild before leftover created"
+        )
         XCTAssertTrue(
             interruptLive.contains("lastScheduledResponseID: lastScheduledResponseID"),
             "pending 0 leftover latch needs lastScheduled — lastCreated alone is first-answer arriving"

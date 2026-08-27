@@ -49,9 +49,10 @@ public struct FirstHearTapLoop: Equatable, Sendable {
 
     public static func shouldScheduleDelayedSilentTapRepairAfterDrain(
         wantsCapture: Bool,
-        engineRunning: Bool
+        engineRunning: Bool,
+        bargeConsumed: Bool = false
     ) -> Bool {
-        wantsCapture && engineRunning
+        wantsCapture && engineRunning && !bargeConsumed
     }
 
     /// Delayed check after drain. Reinstall only if the HAL tap object

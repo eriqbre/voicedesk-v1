@@ -180,8 +180,12 @@ final class GrokVoiceService: VoiceServicing {
         )
         clientTTSInFlight = false
         eventHandler?(.state(session.state))
-        audio.reinstallTapIfSilentWhileRunning()
-        scheduleDelayedSilentTapRepair()
+        // Tape-1 desk speak() can drain after command barge. Reinstall
+        // then raced leftover created (ed0b5ef 53s, deltas=0).
+        if !bargeConsumed {
+            audio.reinstallTapIfSilentWhileRunning()
+            scheduleDelayedSilentTapRepair()
+        }
         // Desk TTS is write→player. The socket stays open. The next
         // tap-PCM command is a live append, not a queued recover.
         logListenResume(
@@ -192,14 +196,16 @@ final class GrokVoiceService: VoiceServicing {
     private func scheduleDelayedSilentTapRepair() {
         guard FirstHearTapLoop.shouldScheduleDelayedSilentTapRepairAfterDrain(
             wantsCapture: true,
-            engineRunning: audio.isRunning
+            engineRunning: audio.isRunning,
+            bargeConsumed: bargeConsumed
         ) else { return }
         delayedSilentTapRepair?.cancel()
         delayedSilentTapRepair = Task { @MainActor [weak self] in
             let delay = FirstHearTapLoop.delayedSilentTapRepairMilliseconds
             try? await Task.sleep(for: .milliseconds(delay))
             guard !Task.isCancelled else { return }
-            self?.audio.reinstallTapIfYankedWhileRunning()
+            guard let self, !self.bargeConsumed else { return }
+            self.audio.reinstallTapIfYankedWhileRunning()
         }
     }
 
@@ -276,6 +282,8 @@ final class GrokVoiceService: VoiceServicing {
             createdCountNow: responseCreatedCountForTests
         )
         bargeConsumed = true
+        delayedSilentTapRepair?.cancel()
+        delayedSilentTapRepair = nil
         lastBargeCancelSentID = decision.cancelResponseID
         cancelledPlaybackResponseID = GrokRealtime.nonemptyID(lastScheduledResponseID)
             ?? knownCancelled
