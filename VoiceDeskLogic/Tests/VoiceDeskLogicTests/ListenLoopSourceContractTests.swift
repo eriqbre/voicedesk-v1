@@ -856,15 +856,19 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("simulateHALTapYankLeavingSwiftObjectInPlace"), engine)
         XCTAssertTrue(engine.contains("isTapObjectPresent"), engine)
         XCTAssertTrue(engine.contains("isHALTapAttached"), engine)
-        XCTAssertTrue(engine.contains("halTapAttached"), engine)
+        XCTAssertTrue(engine.contains("objectLeftInPlaceSilent"), engine)
         XCTAssertFalse(
             engine.contains("HALTapLease"),
             "lease deinit reinstall raced leftover created (9b3d42b 53s)"
         )
         XCTAssertFalse(engine.contains("invalidateHALTapLease"), engine)
         XCTAssertTrue(
-            engine.contains("halTapAttached, let onMicAudio"),
-            "feed must require HAL attach — object+flag is the phone lie"
+            engine.contains("!objectLeftInPlaceSilent, let onMicAudio"),
+            "object-left inject is the only extra feed gate — not a global HAL-attach bit"
+        )
+        XCTAssertFalse(
+            engine.contains("guard tap != nil, tapInstalled, halTapAttached"),
+            "global HAL-attach on every feed raced leftover composed (34d66a7)"
         )
         XCTAssertTrue(engine.contains("AVAudioEngineConfigurationChange"), engine)
         XCTAssertTrue(engine.contains("guard tap != nil, tapInstalled"), engine)
