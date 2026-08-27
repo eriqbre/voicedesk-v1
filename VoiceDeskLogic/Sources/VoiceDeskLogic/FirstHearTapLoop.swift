@@ -294,6 +294,15 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         mixWithOthers
     }
 
+    /// voiceChat category/mode is not AEC. VP must be enabled while
+    /// the engine is stopped, before installTap / start.
+    public static func voiceChatWithoutVoiceProcessingIsNotAEC(
+        voiceChat: Bool,
+        voiceProcessingEnabledWhileStopped: Bool
+    ) -> Bool {
+        voiceChat && !voiceProcessingEnabledWhileStopped
+    }
+
     /// Command PCM after write→player is audible only while the
     /// session stays exclusive. `.mixWithOthers` leaves the tap up
     /// and feeds zeros.

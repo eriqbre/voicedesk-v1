@@ -185,10 +185,11 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
     ///
     /// This test forces the iOS-shaped detach, posts interruption *began*
     /// (lifecycle `.none`), and requires silent-tap-while-running. That is
-    /// the old loop, and it must fail there. Then interruption *ended*
-    /// reinstalls the same tap — no second `audio.start`, no speak-utterance path.
-    /// Category-change / override must not be the repair. Third command PCM
-    /// through the repaired tap is the next turn. `startCount` stays 1.
+    /// the old loop, and it must fail there. Interruption *ended* is not a
+    /// rebuild. Configuration change reinstalls the same tap — no second
+    /// `audio.start`, no speak-utterance path. Category-change / override
+    /// must not be the repair. Third command PCM through the repaired tap
+    /// is the next turn. `startCount` stays 1.
     func testIOSDetachAfterTTSDrainSilentTapWhileRunningThenSameEngineReinstall() async throws {
         var session = VoiceSession()
         session.apply(.tapTalk)
@@ -278,7 +279,12 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
 
         await postInterruption(.ended)
         XCTAssertTrue(engine.isRunning)
-        XCTAssertTrue(engine.isTapInstalled, "interruption ended must reinstall the same tap")
+        XCTAssertFalse(engine.isTapInstalled, "interruption ended is not a rebuild")
+        XCTAssertEqual(engine.startCount, 1, "interruption ended must not audio.start")
+
+        await postEngineConfigurationChange()
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertTrue(engine.isTapInstalled, "configuration change must reinstall the same tap")
         XCTAssertEqual(engine.startCount, 1, "reinstall must not audio.start")
         listen.tapLive = engine.isTapInstalled
         listen.startCount = engine.startCount

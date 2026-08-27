@@ -210,6 +210,23 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(sim.contains("postInterruption(.began)"), sim)
         XCTAssertTrue(sim.contains("postInterruption(.ended)"), sim)
         XCTAssertTrue(sim.contains("categoryChange"), sim)
+        let interruption = speakSlice(
+            sim,
+            from: "func testIOSDetachAfterTTSDrainSilentTapWhileRunningThenSameEngineReinstall",
+            to: "func testDetachAfterTTSDrainSilentTapWhileRunningReinstallsWithoutInterruption"
+        )
+        XCTAssertTrue(interruption.contains("interruption ended is not a rebuild"), interruption)
+        XCTAssertTrue(interruption.contains("postEngineConfigurationChange"), interruption)
+        if let endedAt = interruption.range(of: "postInterruption(.ended)"),
+           let configAt = interruption.range(of: "postEngineConfigurationChange") {
+            XCTAssertLessThan(
+                endedAt.lowerBound,
+                configAt.lowerBound,
+                "configuration change is the official rebuild — not interruption ended"
+            )
+        } else {
+            XCTFail("detach gate must prove interruption ended is not a rebuild")
+        }
         XCTAssertTrue(sim.contains("engine.startCount, 1"), sim)
         XCTAssertTrue(sim.contains("fe1ffc8"), sim)
         XCTAssertTrue(sim.contains("fa72e1c"), sim)
@@ -330,6 +347,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("close1000AfterTTSStayLiveThenThird"), loop)
         XCTAssertTrue(loop.contains("versionThenGlanceWritePlayerThenThird"), loop)
         XCTAssertTrue(loop.contains("sessionMixWithOthersDowngradesVPU"), loop)
+        XCTAssertTrue(loop.contains("voiceChatWithoutVoiceProcessingIsNotAEC"), loop)
+        XCTAssertTrue(
+            loopTests.contains("testVoiceChatWithoutVoiceProcessingIsNotAEC"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("voiceChat without setVoiceProcessingEnabled is NOT AEC"),
+            loopTests
+        )
         XCTAssertTrue(loop.contains("postTTSTapPCMIsAudible"), loop)
         XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955MixWithOthersAfterWritePlayerDropsThird"), loop)
         XCTAssertTrue(loop.contains("noMixWithOthersAfterWritePlayerLandsThird"), loop)
@@ -1063,7 +1089,29 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let tts = try XCTUnwrap(repoFile("VoiceDesk/Voice/ClientVoiceSpeech.swift"))
         XCTAssertFalse(tts.contains("setCategory"), tts)
         XCTAssertFalse(tts.contains("setActive"), tts)
+        let startGraph = engineSlice(engine, from: "private func startGraph() -> [String] {", to: "private func reinstallTap() {")
+        XCTAssertFalse(startGraph.contains(".mixWithOthers"), startGraph)
+        XCTAssertTrue(startGraph.contains("setVoiceProcessingEnabled(true)"), startGraph)
+        XCTAssertTrue(
+            startGraph.contains("voiceChat without this is NOT AEC"),
+            "voiceChat category/mode is not AEC"
+        )
+        XCTAssertTrue(startGraph.contains("Voice processing enabled while stopped"), startGraph)
+        if let created = startGraph.range(of: "AVAudioEngine()"),
+           let vp = startGraph.range(of: "setVoiceProcessingEnabled(true)"),
+           let tap = startGraph.range(of: "installTap(onBus:"),
+           let start = startGraph.range(of: "try engine.start()") {
+            XCTAssertLessThan(created.lowerBound, vp.lowerBound, "VP while the new engine is stopped")
+            XCTAssertLessThan(vp.lowerBound, tap.lowerBound, "VP must precede installTap")
+            XCTAssertLessThan(tap.lowerBound, start.lowerBound, "installTap must precede engine.start")
+        } else {
+            XCTFail("startGraph must enable VP while stopped, installTap, then start")
+        }
         let reinstall = engineSlice(engine, from: "private func reinstallTap() {", to: "private func teardownGraph()")
+        XCTAssertFalse(
+            reinstall.contains("startGraph()"),
+            "reinstall is same-engine tap put-back — extra start is not the loop"
+        )
         XCTAssertFalse(reinstall.contains("setCategory"), reinstall)
         XCTAssertFalse(reinstall.contains("setActive(false"), reinstall)
         XCTAssertFalse(
@@ -1144,6 +1192,32 @@ final class ListenLoopSourceContractTests: XCTestCase {
             earcon.contains(".mixWithOthers"),
             "415c955 VoiceEarcon setCategory with mixWithOthers — same VPU downgrade"
         )
+        let alreadyLive = speakSlice(
+            earcon,
+            from: "if session.category == .playAndRecord {",
+            to: "try session.setCategory"
+        )
+        XCTAssertFalse(
+            alreadyLive.contains("setActive"),
+            "extra setActive on a live playAndRecord session is not the loop"
+        )
+        let lifecycle = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/AudioTapLifecycle.swift"))
+        let interruptionEnded = speakSlice(
+            lifecycle,
+            from: "case .interruptionEnded:",
+            to: "case .engineConfigurationChanged:"
+        )
+        XCTAssertTrue(interruptionEnded.contains("return .none"), interruptionEnded)
+        XCTAssertFalse(interruptionEnded.contains("reinstallTap"), interruptionEnded)
+        let routeDevice = speakSlice(
+            lifecycle,
+            from: "case .routeDeviceChanged:",
+            to: "case .appBecameActive:"
+        )
+        XCTAssertTrue(routeDevice.contains("return .none"), routeDevice)
+        XCTAssertFalse(routeDevice.contains("reinstallTap"), routeDevice)
+        XCTAssertTrue(lifecycle.contains("case .engineConfigurationChanged:"), lifecycle)
+        XCTAssertTrue(lifecycle.contains("case .mediaServicesWereReset:"), lifecycle)
         XCTAssertFalse(engine.contains("MicLivenessMonitor"), engine)
         XCTAssertFalse(engine.contains("MicRepairBackoff"), engine)
         XCTAssertFalse(engine.contains("func rearmTap"), engine)

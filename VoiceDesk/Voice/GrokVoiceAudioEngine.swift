@@ -241,14 +241,20 @@ final class GrokVoiceAudioEngine {
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: Self.outputFormat)
 
+        // voiceChat without this is NOT AEC. Enable while the new engine
+        // is stopped, before installTap / start. WWDC 2019/2023.
         if echoCancellation {
-            do {
-                try engine.inputNode.setVoiceProcessingEnabled(true)
-                engine.inputNode.isVoiceProcessingAGCEnabled = true
-                engine.inputNode.isVoiceProcessingBypassed = false
-                logs.append("Voice processing enabled")
-            } catch {
-                logs.append("Voice processing failed: \(error.localizedDescription)")
+            if engine.isRunning {
+                logs.append("Voice processing skipped: engine already running")
+            } else {
+                do {
+                    try engine.inputNode.setVoiceProcessingEnabled(true)
+                    engine.inputNode.isVoiceProcessingAGCEnabled = true
+                    engine.inputNode.isVoiceProcessingBypassed = false
+                    logs.append("Voice processing enabled while stopped")
+                } catch {
+                    logs.append("Voice processing failed: \(error.localizedDescription)")
+                }
             }
         }
 
@@ -297,9 +303,6 @@ final class GrokVoiceAudioEngine {
 
     private func reinstallTap() {
         guard let engine, let onMicAudio, engine.isRunning else {
-            if wantsCapture, self.engine == nil || !(self.engine?.isRunning ?? false) {
-                _ = startGraph()
-            }
             return
         }
         if tap != nil {
@@ -378,8 +381,7 @@ final class GrokVoiceAudioEngine {
             }
         )
 
-        // Real iOS often posts this when the HAL tap dies after we
-        // already returned to listen. Same-engine reinstall. Not a watchdog.
+        // Official rebuild. TTS drain is not a rebuild.
         observers.append(
             center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil) { [weak self] _ in
                 Task { @MainActor in

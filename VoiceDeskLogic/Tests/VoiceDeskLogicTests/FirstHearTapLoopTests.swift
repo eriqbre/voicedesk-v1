@@ -28,6 +28,29 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertTrue(ListenInterrupt.isCommand("what's on my calendar"))
     }
 
+    func testVoiceChatWithoutVoiceProcessingIsNotAEC() {
+        XCTAssertTrue(
+            FirstHearTapLoop.voiceChatWithoutVoiceProcessingIsNotAEC(
+                voiceChat: true,
+                voiceProcessingEnabledWhileStopped: false
+            ),
+            "voiceChat without setVoiceProcessingEnabled is NOT AEC"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.voiceChatWithoutVoiceProcessingIsNotAEC(
+                voiceChat: true,
+                voiceProcessingEnabledWhileStopped: true
+            ),
+            "product enables VP while the engine is stopped"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.voiceChatWithoutVoiceProcessingIsNotAEC(
+                voiceChat: false,
+                voiceProcessingEnabledWhileStopped: false
+            )
+        )
+    }
+
     func testMixWithOthersAfterWritePlayerFails415c955AndProductLandsThird() {
         XCTAssertTrue(
             FirstHearTapLoop.sessionMixWithOthersDowngradesVPU(true),

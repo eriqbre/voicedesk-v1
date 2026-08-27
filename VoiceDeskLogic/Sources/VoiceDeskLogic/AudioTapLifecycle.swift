@@ -1,6 +1,7 @@
 import Foundation
 
-/// Rebuild the tap on real iOS audio events. Ignore our own session echo.
+/// Official rebuilds only: configuration change and media-services reset.
+/// TTS drain is not a rebuild. Ignore our own session echo.
 /// Not a watchdog and not a TTS rearm.
 public enum AudioTapLifecycle: Sendable {
     public enum Event: Equatable, Sendable {
@@ -33,7 +34,7 @@ public enum AudioTapLifecycle: Sendable {
             return .none
         case .interruptionEnded:
             isInterrupted = false
-            return .reinstallTap
+            return .none
         case .engineConfigurationChanged:
             return isInterrupted ? .none : .reinstallTap
         case .mediaServicesWereReset:
@@ -42,11 +43,10 @@ public enum AudioTapLifecycle: Sendable {
         case .routeCategoryOrOverride:
             return .none
         case .routeDeviceChanged:
-            return isInterrupted ? .none : .reinstallTap
+            return .none
         case .appBecameActive:
             if isInterrupted {
                 isInterrupted = false
-                return .reinstallTap
             }
             return .none
         }

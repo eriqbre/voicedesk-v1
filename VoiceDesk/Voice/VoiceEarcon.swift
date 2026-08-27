@@ -50,7 +50,6 @@ enum VoiceEarcon {
     private static func prepareSessionForClick() {
         let session = AVAudioSession.sharedInstance()
         if session.category == .playAndRecord {
-            try? session.setActive(true)
             return
         }
         do {
