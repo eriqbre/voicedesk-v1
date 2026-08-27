@@ -641,6 +641,19 @@ extension GrokVoiceService {
     /// Live send path. A zombie URLSession task that never opened is false.
     var listenLoopSocketHasSendTask: Bool { client.hasSendTask }
 
+    /// Phone sendRaw: `opened && task`, not the testSendSink paper.
+    var listenLoopHasProductionSendTask: Bool { client.hasProductionSendTask }
+
+    var listenLoopProductionWebSocketTask: URLSessionWebSocketTask? {
+        client.productionWebSocketTaskForTests
+    }
+
+    var listenLoopUsesTestSendSink: Bool { client.usesTestSendSinkForTests }
+
+    func setListenLoopRealtimeURLOverrideForTests(_ url: URL?) {
+        client.setRealtimeURLOverrideForTests(url)
+    }
+
     var listenLoopDeliveredSendCount: Int { client.deliveredSendCount }
 
     var listenLoopDeliveredAudioPCM: [Data] { client.deliveredAppendPCM }

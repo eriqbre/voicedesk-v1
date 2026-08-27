@@ -326,6 +326,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopDeliveredSendTypes"), service)
         XCTAssertTrue(service.contains("listenLoopDeliveredSends"), service)
         XCTAssertTrue(service.contains("func simulateListenLoopSocketDidOpenThenSessionReady()"), service)
+        XCTAssertTrue(service.contains("func setListenLoopRealtimeURLOverrideForTests"), service)
+        XCTAssertTrue(service.contains("listenLoopProductionWebSocketTask"), service)
+        XCTAssertTrue(service.contains("listenLoopUsesTestSendSink"), service)
+        XCTAssertTrue(service.contains("listenLoopHasProductionSendTask"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopQueuedTurnClosed()"), service)
         let waitUntil = speakSlice(
             service,
@@ -374,6 +378,12 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(client.contains("outboundQueue"), client)
         XCTAssertTrue(client.contains("func attachTestSendTask()"), client)
         XCTAssertTrue(client.contains("func attachTestSendRecorder()"), client)
+        XCTAssertTrue(client.contains("realtimeURLOverrideForTests"), client)
+        XCTAssertTrue(client.contains("func setRealtimeURLOverrideForTests"), client)
+        XCTAssertTrue(client.contains("hasProductionSendTask"), client)
+        let connectFn = speakSlice(client, from: "func connect(apiKey:", to: "func disconnect()")
+        XCTAssertTrue(connectFn.contains("realtimeURLOverrideForTests"), connectFn)
+        XCTAssertTrue(connectFn.contains("webSocketTask"), connectFn)
         XCTAssertTrue(client.contains("func markSessionReadyAndFlush()"), client)
         XCTAssertTrue(client.contains("func dropOutbound()"), client)
         let flush = speakSlice(client, from: "func markSessionReadyAndFlush()", to: "private func scheduleQuietCommit")
@@ -437,6 +447,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertFalse(didOpen.contains("task?.send"), didOpen)
         XCTAssertTrue(didOpen.contains("grokWebSocketDidOpen"), didOpen)
+        XCTAssertTrue(
+            didOpen.contains("task != nil"),
+            "paper DidOpen must not mark opened without a real URLSessionWebSocketTask"
+        )
+        XCTAssertFalse(
+            didOpen.contains("opened = true"),
+            "notifyOpen must not set opened unless a real task exists"
+        )
         let didClose = speakSlice(
             service,
             from: "func grokWebSocketDidClose",
@@ -821,21 +839,46 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(idleClose.contains("simulateListenLoopSocketClose1000"), idleClose)
         XCTAssertTrue(idleClose.contains("listenLoopRecoverCount"), idleClose)
         XCTAssertTrue(idleClose.contains("feedTapPCM16(command2)"), idleClose)
-        XCTAssertTrue(idleClose.contains("simulateListenLoopSocketDidOpenThenSessionReady"), idleClose)
+        XCTAssertTrue(idleClose.contains("ListenLoopWebSocketLoopback"), idleClose)
+        XCTAssertTrue(idleClose.contains("setListenLoopRealtimeURLOverrideForTests"), idleClose)
+        XCTAssertTrue(idleClose.contains("listenLoopProductionWebSocketTask"), idleClose)
+        XCTAssertTrue(idleClose.contains("URLSessionWebSocketTask"), idleClose)
+        XCTAssertTrue(idleClose.contains("listenLoopUsesTestSendSink"), idleClose)
+        XCTAssertTrue(idleClose.contains("listenLoopHasProductionSendTask"), idleClose)
         XCTAssertTrue(idleClose.contains("createResponse(inSessionUpdate"), idleClose)
-        XCTAssertTrue(idleClose.contains("listenLoopDeliveredAudioPCM"), idleClose)
+        XCTAssertTrue(idleClose.contains("receivedAppendPCM"), idleClose)
         XCTAssertTrue(idleClose.contains("415c955"), idleClose)
         XCTAssertTrue(idleClose.contains("interruptResponse"), idleClose)
         XCTAssertTrue(idleClose.contains("engine.startCount"), idleClose)
+        XCTAssertFalse(
+            idleClose.contains("simulateListenLoopSocketDidOpenThenSessionReady"),
+            "re-arming a recorder after recover paper-greens a dead sendRaw"
+        )
+        XCTAssertFalse(idleClose.contains("attachTestSendRecorder"), idleClose)
         XCTAssertFalse(idleClose.contains("attachListenLoopSendTaskForTests"), idleClose)
+        XCTAssertFalse(
+            idleClose.contains("listenLoopDeliveredAudioPCM"),
+            "delivered PCM is the testSendSink recorder — command 2 must hit the loopback"
+        )
         XCTAssertFalse(idleClose.contains("applyUserTurn"), idleClose)
         XCTAssertFalse(idleClose.contains("emitUser"), idleClose)
         XCTAssertFalse(idleClose.contains("FakeLiveVoiceService"), idleClose)
         XCTAssertFalse(idleClose.contains("quietCommitMaxPostponeMs"), idleClose)
-        if let idleAt = idleClose.range(of: "simulateListenLoopIdleAfterDeskTTSPhoneLog"),
+        let loopbackSource = try XCTUnwrap(repoFile("VoiceDeskTests/ListenLoopWebSocketLoopback.swift"))
+        XCTAssertTrue(loopbackSource.contains("101 Switching Protocols"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("Sec-WebSocket-Accept"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("session.updated"), loopbackSource)
+        XCTAssertFalse(loopbackSource.contains("testSendSink"), loopbackSource)
+        if let loopAt = idleClose.range(of: "ListenLoopWebSocketLoopback"),
+           let idleAt = idleClose.range(of: "simulateListenLoopIdleAfterDeskTTSPhoneLog"),
            let closeAt = idleClose.range(of: "simulateListenLoopSocketClose1000"),
-           let secondFeed = idleClose.range(of: "feedTapPCM16(command2)"),
-           let openAt = idleClose.range(of: "simulateListenLoopSocketDidOpenThenSessionReady") {
+           let taskAt = idleClose.range(of: "listenLoopProductionWebSocketTask"),
+           let secondFeed = idleClose.range(of: "feedTapPCM16(command2)") {
+            XCTAssertLessThan(
+                loopAt.lowerBound,
+                closeAt.lowerBound,
+                "loopback must listen before recover connect"
+            )
             XCTAssertLessThan(
                 idleAt.lowerBound,
                 closeAt.lowerBound,
@@ -843,16 +886,21 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
             XCTAssertLessThan(
                 closeAt.lowerBound,
+                taskAt.lowerBound,
+                "recover must prove a real URLSessionWebSocketTask before command 2"
+            )
+            XCTAssertLessThan(
+                taskAt.lowerBound,
+                secondFeed.lowerBound,
+                "if recover never creates a task, command 2 must not be fed as a paper send"
+            )
+            XCTAssertLessThan(
+                closeAt.lowerBound,
                 secondFeed.lowerBound,
                 "command PCM 2 must be after the stayLive=false close"
             )
-            XCTAssertLessThan(
-                secondFeed.lowerBound,
-                openAt.lowerBound,
-                "command 2 is queued in the dead-socket window, then DidOpen requests a response"
-            )
         } else {
-            XCTFail("stayLive=false close must idle, DidClose, feed PCM 2, then DidOpen")
+            XCTFail("stayLive=false close must idle, DidClose, prove a real task, then feed PCM 2")
         }
         let deadSocket = speakSlice(
             live,

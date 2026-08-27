@@ -480,8 +480,9 @@ final class AppModelListenLoopTests: XCTestCase {
     /// stayIdle` after version TTS. Current DidClose gates fire while
     /// stayLive is still true — they would not have failed that path.
     /// After write→player, idle the session (phone log). User did not
-    /// tap stop. DidClose 1000 must recover. Command 2 must send and
-    /// request a response. `startCount` stays 1.
+    /// tap stop. DidClose 1000 must recover a real
+    /// `URLSessionWebSocketTask`. Command 2 must go out on
+    /// `opened && task`, not `testSendSink`. `startCount` stays 1.
     func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSRecoversNextCommand() async throws {
         let voice = GrokVoiceService(apiKey: "test-listen-loop-close-1000-idle-phone-log")
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
@@ -492,6 +493,9 @@ final class AppModelListenLoopTests: XCTestCase {
             sync: MockGoogleSync(result: snapshot),
             buildIdentity: .fixture
         )
+        let loopback = try await ListenLoopWebSocketLoopback.start()
+        defer { loopback.stop() }
+        voice.setListenLoopRealtimeURLOverrideForTests(loopback.url)
 
         let command1 = Self.speechShapedPCM(hertz: 140)
         let command2 = Self.speechShapedPCM(hertz: 160)
@@ -548,6 +552,22 @@ final class AppModelListenLoopTests: XCTestCase {
             0,
             "415c955 stayLive=false stayIdle never recovered"
         )
+        XCTAssertNotNil(
+            voice.listenLoopProductionWebSocketTask,
+            "recover must create a real URLSessionWebSocketTask — if connect never opened, this fails"
+        )
+        XCTAssertTrue(
+            voice.listenLoopProductionWebSocketTask is URLSessionWebSocketTask,
+            "recover task must be URLSessionWebSocketTask, not a recorder"
+        )
+        XCTAssertFalse(
+            voice.listenLoopUsesTestSendSink,
+            "do not re-arm testSendSink after recover — that is 415c955 first-hear-then-deaf"
+        )
+        XCTAssertTrue(
+            voice.listenLoopHasProductionSendTask,
+            "phone sendRaw only sends when opened && task"
+        )
         sink.startCount = engine.startCount
         sink.stayLive = voice.listenLoopStayLive
 
@@ -555,15 +575,20 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(sink.turns, [command1, command2], "command PCM 2 after the phone-log close is the next turn")
         XCTAssertEqual(engine.startCount, 1)
 
-        voice.simulateListenLoopSocketDidOpenThenSessionReady()
+        let sawCommand2 = await loopback.waitUntilReceived { raw in
+            LiveGrokVoiceClient.pcmFromAppendJSON(raw) == command2
+        }
         XCTAssertTrue(
-            voice.listenLoopDeliveredAudioPCM.contains(command2),
-            "command 2 must send after recover — 415c955 sendRaw was a no-op"
+            sawCommand2,
+            "command 2 must go out on opened && task — recover must create a real URLSessionWebSocketTask"
         )
-        let types = voice.listenLoopDeliveredSendTypes
-        let sends = voice.listenLoopDeliveredSends
-        guard let firstUpdate = sends.first(where: { LiveGrokVoiceClient.typeOfSend($0) == "session.update" })
-        else {
+        let sawUpdate = await loopback.waitUntilReceived { raw in
+            LiveGrokVoiceClient.typeOfSend(raw) == "session.update"
+        }
+        XCTAssertTrue(sawUpdate, "recover DidOpen must send listen-resume session.update on the real task")
+        guard let firstUpdate = loopback.receivedTexts.first(where: {
+            LiveGrokVoiceClient.typeOfSend($0) == "session.update"
+        }) else {
             XCTFail("recover must send listen-resume session.update")
             voice.cancel()
             return
@@ -573,7 +598,9 @@ final class AppModelListenLoopTests: XCTestCase {
             true,
             "recover must request a response"
         )
-        XCTAssertTrue(types.contains("input_audio_buffer.append"))
+        XCTAssertTrue(loopback.receivedAppendPCM.contains(command2))
+        XCTAssertFalse(voice.listenLoopUsesTestSendSink)
+        XCTAssertTrue(voice.listenLoopHasProductionSendTask)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(engine.isRunning)
 

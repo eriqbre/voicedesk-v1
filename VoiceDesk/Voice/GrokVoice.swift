@@ -216,6 +216,8 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var quietCommitGeneration = 0
     private static let maxOutbound = 64
     private static let quietCommitMs = 80
+    /// Tests only. Recover still creates a real `URLSessionWebSocketTask`.
+    private var realtimeURLOverrideForTests: URL?
 
     var isConnected: Bool {
         lock.lock()
@@ -229,6 +231,31 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return opened || testSendSink
+    }
+
+    /// Phone sendRaw: `opened && task`, and not the testSendSink paper.
+    var hasProductionSendTask: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return opened && task != nil && !testSendSink
+    }
+
+    var productionWebSocketTaskForTests: URLSessionWebSocketTask? {
+        lock.lock()
+        defer { lock.unlock() }
+        return task
+    }
+
+    var usesTestSendSinkForTests: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return testSendSink
+    }
+
+    func setRealtimeURLOverrideForTests(_ url: URL?) {
+        lock.lock()
+        realtimeURLOverrideForTests = url
+        lock.unlock()
     }
 
     var deliveredSendCount: Int {
@@ -263,7 +290,9 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     func connect(apiKey: String, model: String = VoiceDeskSecrets.model) {
         disconnect()
 
-        let url = GrokVoiceAPI.realtimeURL(model: model)
+        lock.lock()
+        let url = realtimeURLOverrideForTests ?? GrokVoiceAPI.realtimeURL(model: model)
+        lock.unlock()
         let bridge = WebSocketBridge(client: self)
 
         lock.lock()
@@ -486,9 +515,11 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
 
     /// URLSession delivers these on a background queue. Hop Sendable values only.
     /// Socket is open. Do not flush appends — session is not ready yet.
+    /// Paper DidOpen without a real task must not mark the client opened —
+    /// phone sendRaw only sends when `opened && task`.
     nonisolated func notifyOpen() {
         lock.lock()
-        opened = true
+        opened = task != nil
         let timeout = timeoutTask
         timeoutTask = nil
         lock.unlock()
