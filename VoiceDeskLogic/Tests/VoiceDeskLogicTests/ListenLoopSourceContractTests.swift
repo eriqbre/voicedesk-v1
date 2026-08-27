@@ -156,6 +156,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(speakStartedPolicy.contains("return false"), speakStartedPolicy)
         let speech = speakSlice(speak, from: "case .speechStarted:", to: "case .speechStopped:")
         XCTAssertTrue(speech.contains("latchedInterruptTarget"), speech)
+        XCTAssertTrue(speech.contains("lastScheduledResponseID"), speech)
+        XCTAssertFalse(
+            speech.contains("playingResponseID"),
+            "speech_started must not latch playing — that may already be the next created"
+        )
         XCTAssertFalse(speech.contains("interruptAssistant"), speech)
         XCTAssertFalse(speech.contains("interruptPlayback"), speech)
         XCTAssertFalse(speech.contains("ClientVoiceSpeech.shared.stop"), speech)
@@ -392,9 +397,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
             interruptLive.contains("guard audio.hasPendingPlayback else { return }"),
             "cancel after pending is 0 kills the interrupt answer (leftover created, pending 0)"
         )
-        XCTAssertTrue(interruptLive.contains("bargeInPlayback"), interruptLive)
-        XCTAssertTrue(interruptLive.contains("keepNewAnswer"), interruptLive)
+        XCTAssertTrue(interruptLive.contains("bargeInDecision"), interruptLive)
+        XCTAssertTrue(interruptLive.contains("bargeConsumed"), interruptLive)
+        XCTAssertTrue(interruptLive.contains("createdCountAtBarge"), interruptLive)
         XCTAssertTrue(interruptLive.contains("interruptTargetID"), interruptLive)
+        XCTAssertFalse(
+            interruptLive.contains("keepNewAnswer"),
+            "retargeting keepNewAnswer to playing lets claimLocal cancel the interrupt answer"
+        )
         let suppressLive = speakSlice(service, from: "func suppressAssistantOutput", to: "func cancel()")
         XCTAssertTrue(suppressLive.contains("dropAssistantTranscript"), suppressLive)
         XCTAssertFalse(
@@ -426,9 +436,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func commitAudioBufferObject()"), realtime)
         XCTAssertTrue(realtime.contains("input_audio_buffer.commit"), realtime)
         XCTAssertTrue(realtime.contains("func createResponse(inSessionUpdate"), realtime)
-        XCTAssertTrue(realtime.contains("func bargeInPlayback"), realtime)
-        XCTAssertTrue(realtime.contains("keepNewAnswer"), realtime)
+        XCTAssertTrue(realtime.contains("func bargeInDecision"), realtime)
+        XCTAssertTrue(realtime.contains("func responseIDToCancelOnBarge"), realtime)
         XCTAssertTrue(realtime.contains("func latchedInterruptTarget"), realtime)
+        XCTAssertFalse(realtime.contains("keepNewAnswer"), realtime)
         let updated = speakSlice(service, from: "case .sessionUpdated:", to: "case .speechStarted:")
         XCTAssertTrue(updated.contains("markSessionReadyAndFlush"), updated)
         let didOpenService = speakSlice(service, from: "func grokWebSocketDidOpen()", to: "func grokWebSocketDidClose")

@@ -242,28 +242,98 @@ public enum GrokRealtime {
     /// What barge-in may do to the one-engine player.
     ///
     /// Server VAD often creates the interrupt answer before the user
-    /// transcript arrives. `playingResponseID` then becomes that new
-    /// created. Cancelling it is leftover created, pending 0.
+    /// transcript arrives. A second `interruptResponse` (claimLocal /
+    /// late transcript) after the latch was overwritten to that created
+    /// cancels it — leftover created, pending 0.
     public enum BargeInPlayback: Equatable, Sendable {
         case none
         case cancel(responseID: String)
         case dropLocalOnly
-        case keepNewAnswer
+    }
+
+    public struct BargeInDecision: Equatable, Sendable {
+        public var cancelResponseID: String?
+        public var dropLocal: Bool
+
+        public init(cancelResponseID: String?, dropLocal: Bool) {
+            self.cancelResponseID = cancelResponseID
+            self.dropLocal = dropLocal
+        }
+    }
+
+    public static func bargeInDecision(
+        hasPendingPlayback: Bool,
+        alreadyBarged: Bool,
+        playingResponseID: String?,
+        interruptTargetID: String?,
+        currentResponseID: String?,
+        createdCountAtLatch: Int,
+        createdCountNow: Int
+    ) -> BargeInDecision {
+        guard hasPendingPlayback, !alreadyBarged else {
+            return BargeInDecision(cancelResponseID: nil, dropLocal: false)
+        }
+        return BargeInDecision(
+            cancelResponseID: responseIDToCancelOnBarge(
+                interruptTargetID: interruptTargetID,
+                playingResponseID: playingResponseID,
+                currentResponseID: currentResponseID,
+                createdCountAtLatch: createdCountAtLatch,
+                createdCountNow: createdCountNow
+            ),
+            dropLocal: true
+        )
+    }
+
+    /// Cancel only the answer that was on the player when barge-in
+    /// started. If a newer `response.created` already exists, do not
+    /// cancel that id — even when the latch was overwritten to it.
+    public static func responseIDToCancelOnBarge(
+        interruptTargetID: String?,
+        playingResponseID: String?,
+        currentResponseID: String?,
+        createdCountAtLatch: Int,
+        createdCountNow: Int
+    ) -> String? {
+        let target = nonemptyID(interruptTargetID)
+        let playing = nonemptyID(playingResponseID)
+        let current = nonemptyID(currentResponseID)
+        let newerCreated = createdCountNow > createdCountAtLatch
+        if let target {
+            if newerCreated, let current, target == current {
+                return nil
+            }
+            return target
+        }
+        if newerCreated {
+            return nil
+        }
+        return playing
     }
 
     public static func bargeInPlayback(
         hasPendingPlayback: Bool,
         playingResponseID: String?,
-        interruptTargetID: String?
+        interruptTargetID: String?,
+        currentResponseID: String? = nil,
+        createdCountAtLatch: Int = 0,
+        createdCountNow: Int = 0,
+        alreadyBarged: Bool = false
     ) -> BargeInPlayback {
-        guard hasPendingPlayback else { return .none }
-        let playing = nonemptyID(playingResponseID)
-        let target = nonemptyID(interruptTargetID) ?? playing
-        if let playing, let target, playing != target {
-            return .keepNewAnswer
+        let decision = bargeInDecision(
+            hasPendingPlayback: hasPendingPlayback,
+            alreadyBarged: alreadyBarged,
+            playingResponseID: playingResponseID,
+            interruptTargetID: interruptTargetID,
+            currentResponseID: currentResponseID,
+            createdCountAtLatch: createdCountAtLatch,
+            createdCountNow: createdCountNow
+        )
+        if !hasPendingPlayback || alreadyBarged || !decision.dropLocal {
+            return .none
         }
-        if let target {
-            return .cancel(responseID: target)
+        if let id = decision.cancelResponseID {
+            return .cancel(responseID: id)
         }
         return .dropLocalOnly
     }

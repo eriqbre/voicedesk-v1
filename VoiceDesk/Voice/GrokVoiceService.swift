@@ -35,6 +35,16 @@ final class GrokVoiceService: VoiceServicing {
     private var createdAwaitingAudioID: String?
     /// Server VAD heard speech. Keep the latched target across done.
     private var speechStartedBarge = false
+    /// First barge-in already dropped local / cancelled the old answer.
+    /// claimLocal and a late second transcript must not fire again.
+    private var bargeConsumed = false
+    /// Interrupt-answer audio arrived after the barge. Reset consumed
+    /// only after this drains — R1 `response.done` must not unlock
+    /// a second cancel of the new created.
+    private var interruptAnswerScheduled = false
+    /// `response.created` count when the barge target was latched.
+    /// A later created is the interrupt answer — do not cancel it.
+    private var createdCountAtBarge = 0
     private var audioDeltaCount = 0
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
@@ -212,22 +222,21 @@ final class GrokVoiceService: VoiceServicing {
         // pending is already 0 kills the next response.created before
         // output_audio.delta can schedule — leftover created, pending 0.
         guard audio.hasPendingPlayback else { return }
-        switch GrokRealtime.bargeInPlayback(
+        guard !bargeConsumed else { return }
+        let decision = GrokRealtime.bargeInDecision(
             hasPendingPlayback: true,
+            alreadyBarged: false,
             playingResponseID: playingResponseID,
-            interruptTargetID: interruptTargetID
-        ) {
-        case .none:
-            return
-        case .keepNewAnswer:
-            // Player already has the interrupt answer. A late or
-            // duplicate transcript must not cancel it.
-            interruptTargetID = playingResponseID
-            speechStartedBarge = false
-        case .dropLocalOnly:
-            interruptAssistant(sendCancel: false)
-        case .cancel(let id):
+            interruptTargetID: interruptTargetID,
+            currentResponseID: currentResponseID,
+            createdCountAtLatch: createdCountAtBarge,
+            createdCountNow: responseCreatedCountForTests
+        )
+        bargeConsumed = true
+        if let id = decision.cancelResponseID {
             interruptAssistant(sendCancel: true, responseID: id)
+        } else if decision.dropLocal {
+            interruptAssistant(sendCancel: false)
         }
     }
 
@@ -393,6 +402,13 @@ final class GrokVoiceService: VoiceServicing {
     private func noteScheduledResponse(_ id: String?) {
         guard let id = GrokRealtime.nonemptyID(id) else { return }
         lastScheduledResponseID = id
+        if bargeConsumed {
+            interruptAnswerScheduled = true
+            return
+        }
+        if interruptTargetID == nil {
+            createdCountAtBarge = responseCreatedCountForTests
+        }
         interruptTargetID = GrokRealtime.latchedInterruptTarget(
             existing: interruptTargetID,
             scheduledResponseID: id
@@ -408,10 +424,7 @@ final class GrokVoiceService: VoiceServicing {
         audio.interruptPlayback()
         playingResponseID = nil
         currentResponseID = nil
-        interruptTargetID = nil
-        lastScheduledResponseID = nil
         createdAwaitingAudioID = nil
-        speechStartedBarge = false
         audioDeltaCount = 0
         if session.state == .speaking || session.state == .thinking {
             apply(.turnFinished)
@@ -437,6 +450,9 @@ final class GrokVoiceService: VoiceServicing {
         lastScheduledResponseID = nil
         createdAwaitingAudioID = nil
         speechStartedBarge = false
+        bargeConsumed = false
+        interruptAnswerScheduled = false
+        createdCountAtBarge = 0
         audioDeltaCount = 0
         apply(.cancel)
         isTearingDown = false
@@ -570,12 +586,17 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             client.markSessionReadyAndFlush()
         case .speechStarted:
             // Latch only. Energy must not cancel — radio / other-room
-            // stays ignored. The latched id is the answer barge-in may
-            // drop, not the next response.created.
-            interruptTargetID = GrokRealtime.latchedInterruptTarget(
-                existing: interruptTargetID,
-                scheduledResponseID: playingResponseID ?? lastScheduledResponseID
-            )
+            // stays ignored. Use lastScheduled, not playing — playing
+            // may already be the next created.
+            if !bargeConsumed {
+                if interruptTargetID == nil {
+                    createdCountAtBarge = responseCreatedCountForTests
+                }
+                interruptTargetID = GrokRealtime.latchedInterruptTarget(
+                    existing: interruptTargetID,
+                    scheduledResponseID: lastScheduledResponseID
+                )
+            }
             speechStartedBarge = true
         case .speechStopped:
             break
@@ -629,8 +650,22 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             currentResponseID = nil
             createdAwaitingAudioID = nil
             audioDeltaCount = 0
-            if !audio.hasPendingPlayback && !speechStartedBarge {
-                interruptTargetID = nil
+            if !audio.hasPendingPlayback {
+                if bargeConsumed {
+                    if interruptAnswerScheduled {
+                        bargeConsumed = false
+                        interruptAnswerScheduled = false
+                        interruptTargetID = nil
+                        lastScheduledResponseID = nil
+                        createdCountAtBarge = 0
+                        speechStartedBarge = false
+                    }
+                } else {
+                    interruptTargetID = nil
+                    lastScheduledResponseID = nil
+                    createdCountAtBarge = 0
+                    speechStartedBarge = false
+                }
             }
             assistantGate.reset()
             eventHandler?(.assistantTranscript("", isFinal: true))
