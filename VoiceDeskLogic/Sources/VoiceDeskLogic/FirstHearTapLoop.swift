@@ -44,9 +44,11 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     }
 
     /// Zero-notification HAL yank. Reinstall if the Swift tap object
-    /// is gone *or* the object is still there and HAL is gone.
+    /// is gone *or* HAL released the installTap block (object stays).
     /// `tapObjectMissing` only is 453bda8 — that misses the phone.
-    /// A healthy HAL tap must not be torn down. Not a timer.
+    /// `halTapMissing` is install-block released, not an inject
+    /// storage bit (771f6f9). A healthy HAL tap must not be torn
+    /// down. Not a timer.
     public static func shouldApplyDelayedSilentTapRepair(
         engineRunning: Bool,
         wantsCapture: Bool,
@@ -411,9 +413,27 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         )
     }
 
-    /// Phone HAL yank: object stays, HAL is gone, flag still true.
-    /// 453bda8 tap==nil repair no-ops. Demand-driven HAL-missing
-    /// repair lands the third. Not a 400ms Task.
+    /// Phone HAL yank: object stays, HAL released the install block.
+    /// 415c955 start no-ops. 453bda8 tap==nil repair no-ops.
+    /// 771f6f9 inject-bit-only no-ops. Third is not a turn.
+    public static func objectLeftInPlace415c955BitOnly771f6f9RepairDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .drainThenObjectLeftInPlaceYankBitOnlyRepair
+        )
+    }
+
+    /// Phone HAL yank: object stays, HAL released the install block.
+    /// 453bda8 tap==nil repair no-ops. 771f6f9 inject-bit-only no-ops.
+    /// Demand-driven install-block-released repair lands the third.
+    /// Not a 400ms Task.
     public static func objectLeftInPlaceSilentYankThenDemandRepairLandsThird(
         first: Data = commandPCM(1),
         second: Data = commandPCM(2),
@@ -463,6 +483,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case drainThenDelayedYankNoConfigChange
         case drainThenDelayedYankThenConfigChange
         case drainThenDelayedYankThenDelayedRepair
+        case drainThenObjectLeftInPlaceYankBitOnlyRepair
         case drainThenObjectLeftInPlaceYankThenDemandRepair
         case returnToListenAfterTTS
         case close1000AfterTTSStayIdle
@@ -600,7 +621,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             } else if oldRepair {
                 tapLive = true
             }
-        case .drainThenDelayedYankNoConfigChange, .drainThenDelayedYankThenConfigChange, .drainThenDelayedYankThenDelayedRepair, .drainThenObjectLeftInPlaceYankThenDemandRepair:
+        case .drainThenDelayedYankNoConfigChange, .drainThenDelayedYankThenConfigChange, .drainThenDelayedYankThenDelayedRepair, .drainThenObjectLeftInPlaceYankBitOnlyRepair, .drainThenObjectLeftInPlaceYankThenDemandRepair:
             // 573f654: returnToListen + reinstall while the tap is still live.
             let after = ListenResumePolicy.afterClientTTSFinished(
                 session: &session,
@@ -643,20 +664,28 @@ public struct FirstHearTapLoop: Equatable, Sendable {
                ) {
                 tapLive = true
             }
-            if afterDrain == .drainThenObjectLeftInPlaceYankThenDemandRepair {
+            if afterDrain == .drainThenObjectLeftInPlaceYankBitOnlyRepair
+                || afterDrain == .drainThenObjectLeftInPlaceYankThenDemandRepair {
                 let onlyNilObject = shouldApplyDelayedSilentTapRepair(
                     engineRunning: true,
                     wantsCapture: true,
                     tapObjectMissing: false
                 )
-                if onlyNilObject {
+                let bitOnly = shouldApplyDelayedSilentTapRepair(
+                    engineRunning: true,
+                    wantsCapture: true,
+                    tapObjectMissing: false,
+                    halTapMissing: false
+                )
+                if onlyNilObject || bitOnly {
                     tapLive = true
-                } else if shouldApplyDelayedSilentTapRepair(
+                } else if afterDrain == .drainThenObjectLeftInPlaceYankThenDemandRepair,
+                          shouldApplyDelayedSilentTapRepair(
                     engineRunning: true,
                     wantsCapture: true,
                     tapObjectMissing: false,
                     halTapMissing: true
-                ) {
+                          ) {
                     tapLive = true
                 }
             }

@@ -356,9 +356,34 @@ final class FirstHearTapLoopTests: XCTestCase {
             ),
             "453bda8 tap==nil-only repair must not green object-left-in-place silence"
         )
+        XCTAssertFalse(
+            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
+                engineRunning: true,
+                wantsCapture: true,
+                tapObjectMissing: false,
+                halTapMissing: false
+            ),
+            "771f6f9 inject-storage-bit-only must fail this hole"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: true),
+            "415c955 start no-ops — that is not the repair"
+        )
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)
         let third = FirstHearTapLoop.commandPCM(3)
+        let bitOnly = FirstHearTapLoop.objectLeftInPlace415c955BitOnly771f6f9RepairDropsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(
+            bitOnly.turns,
+            [first, second],
+            "415c955 / bit-only 771f6f9 repair must drop the third"
+        )
+        XCTAssertFalse(bitOnly.tapLive, "bit-only repair must leave the tap dead")
+        XCTAssertEqual(bitOnly.startCount, 1, "415c955 start no-ops must not audio.start")
         let walk = FirstHearTapLoop.objectLeftInPlaceSilentYankThenDemandRepairLandsThird(
             first: first,
             second: second,

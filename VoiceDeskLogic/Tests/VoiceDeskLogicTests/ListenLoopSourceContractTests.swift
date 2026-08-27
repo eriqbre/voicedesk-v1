@@ -336,6 +336,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenConfigChangeReinstallsSameTap"), loop)
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenDelayedRepairLandsThird"), loop)
         XCTAssertTrue(loop.contains("objectLeftInPlaceSilentYankThenDemandRepairLandsThird"), loop)
+        XCTAssertTrue(loop.contains("objectLeftInPlace415c955BitOnly771f6f9RepairDropsThird"), loop)
         XCTAssertFalse(
             loop.contains("delayedSilentTapRepairMilliseconds"),
             "400ms after drain raced leftover barge — demand-driven yank repair only"
@@ -349,6 +350,18 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             loopTests.contains("testObjectLeftInPlaceSilentYankThenDemandRepairLandsThird"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("771f6f9 inject-storage-bit-only must fail this hole"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("415c955 / bit-only 771f6f9 repair must drop the third"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("objectLeftInPlace415c955BitOnly771f6f9RepairDropsThird"),
             loopTests
         )
         XCTAssertTrue(
@@ -861,16 +874,25 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("simulateHALTapYankLeavingSwiftObjectInPlace"), engine)
         XCTAssertTrue(engine.contains("isTapObjectPresent"), engine)
         XCTAssertTrue(engine.contains("isHALTapAttached"), engine)
-        XCTAssertTrue(engine.contains("objectLeftInPlaceSilent"), engine)
-        XCTAssertTrue(
-            engine.contains("tapInstalled || objectLeftInPlaceSilent"),
-            "public isTapInstalled must keep lying after object-left inject — leftover feed uses storage"
+        XCTAssertTrue(engine.contains("HALInstallState"), engine)
+        XCTAssertTrue(engine.contains("HALInstallWitness"), engine)
+        XCTAssertTrue(engine.contains("halInstall.isReleased"), engine)
+        XCTAssertTrue(engine.contains("halInstall.noteReleased"), engine)
+        XCTAssertTrue(engine.contains("halInstall.invalidate()"), engine)
+        XCTAssertTrue(engine.contains("halInstall.beginInstall()"), engine)
+        XCTAssertFalse(
+            engine.contains("objectLeftInPlaceSilent"),
+            "inject storage bit is not the product check — 771f6f9"
         )
         XCTAssertFalse(
             engine.contains("HALTapLease"),
             "lease deinit reinstall raced leftover created (9b3d42b 53s)"
         )
         XCTAssertFalse(engine.contains("invalidateHALTapLease"), engine)
+        XCTAssertFalse(
+            engine.contains("InstallTapHold"),
+            "hold SET missing on leftover-hot feed raced leftover composed (12ba20f 97s)"
+        )
         XCTAssertFalse(
             engine.contains("InstallTapPresence"),
             "hold SET missing on leftover-hot feed raced leftover composed (12ba20f 97s)"
@@ -882,7 +904,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let feed = engineSlice(engine, from: "func feedTapPCM16(_ pcm: Data) {", to: "var isTapInstalled")
         XCTAssertFalse(
             feed.contains("objectLeftInPlaceSilent"),
-            "leftover-hot feed must stay 453bda8 — a flag check here still killed leftover on 2eb6cd6"
+            "inject storage bit must not ride leftover barge / tape feed"
         )
         XCTAssertFalse(
             feed.contains("halTapAttached"),
@@ -892,12 +914,20 @@ final class ListenLoopSourceContractTests: XCTestCase {
             feed.contains("isReleased"),
             "hold SET missing on leftover-hot feed raced leftover composed (12ba20f 97s)"
         )
+        XCTAssertFalse(
+            feed.contains("halInstall"),
+            "leftover-hot feed must stay 453bda8 — a presence check here still killed leftover on 12ba20f"
+        )
         XCTAssertTrue(
             feed.contains("guard tap != nil, tapInstalled, let onMicAudio"),
             feed
         )
         XCTAssertFalse(
             engine.contains("guard tap != nil, tapInstalled, !objectLeftInPlaceSilent"),
+            "object-left must not ride leftover barge / tape feed"
+        )
+        XCTAssertFalse(
+            engine.contains("guard tap != nil, tapInstalled, !halInstall.isReleased"),
             "object-left must not ride leftover barge / tape feed"
         )
         XCTAssertFalse(
@@ -922,13 +952,26 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let reinstall = engineSlice(engine, from: "private func reinstallTap() {", to: "private func teardownGraph()")
         XCTAssertFalse(reinstall.contains("setCategory"), reinstall)
         XCTAssertFalse(reinstall.contains("setActive(false"), reinstall)
+        XCTAssertTrue(
+            reinstall.contains("halInstall.invalidate()"),
+            "our removeTap must invalidate first — leftover drain-time reinstall"
+        )
         XCTAssertFalse(
             reinstall.contains("!objectLeftInPlaceSilent"),
             "skip-second-removeTap on drain-time reinstall is leftover-hot — 453bda8 always removeTap"
         )
+        XCTAssertFalse(
+            reinstall.contains("!halInstall.isReleased"),
+            "skip-second-removeTap on drain-time reinstall is leftover-hot — 453bda8 always removeTap"
+        )
         let teardown = engineSlice(engine, from: "private func teardownGraph() {", to: "private func observeAudioLifecycle()")
+        XCTAssertTrue(teardown.contains("halInstall.invalidate()"), teardown)
         XCTAssertFalse(
             teardown.contains("!objectLeftInPlaceSilent"),
+            "teardown skip-removeTap is leftover-hot — 453bda8 always removeTap when installed"
+        )
+        XCTAssertFalse(
+            teardown.contains("!halInstall.isReleased"),
             "teardown skip-removeTap is leftover-hot — 453bda8 always removeTap when installed"
         )
         let objectLeftInject = engineSlice(
@@ -936,11 +979,26 @@ final class ListenLoopSourceContractTests: XCTestCase {
             from: "func simulateHALTapYankLeavingSwiftObjectInPlace()",
             to: "func playAudioDelta"
         )
-        XCTAssertTrue(objectLeftInject.contains("tapInstalled = false"), objectLeftInject)
-        XCTAssertTrue(objectLeftInject.contains("objectLeftInPlaceSilent = true"), objectLeftInject)
+        XCTAssertTrue(objectLeftInject.contains("removeTap"), objectLeftInject)
+        XCTAssertTrue(
+            objectLeftInject.contains("noteReleased"),
+            "removeTap does not release the install block in time — SET missing the same way witness deinit will"
+        )
+        XCTAssertFalse(
+            objectLeftInject.contains("tapInstalled = false"),
+            "do not clear storage tapInstalled as a side channel — 771f6f9"
+        )
+        XCTAssertFalse(
+            objectLeftInject.contains("objectLeftInPlaceSilent"),
+            "do not set an inject bit as the product check — 771f6f9"
+        )
         XCTAssertFalse(
             objectLeftInject.contains("tap = nil"),
             "object-left inject must not paper this hole as tap==nil"
+        )
+        XCTAssertFalse(
+            objectLeftInject.contains("invalidate()"),
+            "inject must not invalidate — that bumps epoch instead of SET missing"
         )
         let detach = engineSlice(
             engine,
@@ -987,6 +1045,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testVersionThenGlanceLivePathObjectLeftInPlaceSilentYankThirdCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testVersionThenGlanceLivePathHonestObjectLeftYankFails415c955AndBitOnly771f6f9RepairThirdCommandIsATurn"),
             live
         )
         XCTAssertTrue(
@@ -1160,7 +1222,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let objectInPlace = speakSlice(
             live,
             from: "func testVersionThenGlanceLivePathObjectLeftInPlaceSilentYankThirdCommandIsATurn",
-            to: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"
+            to: "func testVersionThenGlanceLivePathHonestObjectLeftYankFails415c955AndBitOnly771f6f9RepairThirdCommandIsATurn"
         )
         XCTAssertFalse(objectInPlace.contains("postEngineConfigurationChange"), objectInPlace)
         XCTAssertFalse(objectInPlace.contains("postInterruption"), objectInPlace)
@@ -1189,6 +1251,42 @@ final class ListenLoopSourceContractTests: XCTestCase {
         } else {
             XCTFail("object-left-in-place gate must yank, keep the object, prove deaf, then repair")
         }
+        let honestObjectLeft = speakSlice(
+            live,
+            from: "func testVersionThenGlanceLivePathHonestObjectLeftYankFails415c955AndBitOnly771f6f9RepairThirdCommandIsATurn",
+            to: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"
+        )
+        XCTAssertFalse(honestObjectLeft.contains("postEngineConfigurationChange"), honestObjectLeft)
+        XCTAssertFalse(honestObjectLeft.contains("postInterruption"), honestObjectLeft)
+        XCTAssertFalse(honestObjectLeft.contains("AVAudioEngineConfigurationChange"), honestObjectLeft)
+        XCTAssertFalse(
+            honestObjectLeft.contains("simulateHALTapYankLeavingInstalledFlagTrue"),
+            "honest object-left must not paper this hole as tap==nil"
+        )
+        XCTAssertTrue(honestObjectLeft.contains("simulateHALTapYankLeavingSwiftObjectInPlace"), honestObjectLeft)
+        XCTAssertTrue(honestObjectLeft.contains("isTapObjectPresent"), honestObjectLeft)
+        XCTAssertTrue(honestObjectLeft.contains("isHALTapAttached"), honestObjectLeft)
+        XCTAssertTrue(
+            honestObjectLeft.contains("415c955 start no-ops must fail this hole"),
+            honestObjectLeft
+        )
+        XCTAssertTrue(
+            honestObjectLeft.contains("771f6f9 inject-storage-bit-only must fail this hole"),
+            honestObjectLeft
+        )
+        XCTAssertTrue(
+            honestObjectLeft.contains("product must see HAL install-block release"),
+            honestObjectLeft
+        )
+        XCTAssertTrue(honestObjectLeft.contains("waitUntilListenLoopDelayedSilentTapRepair"), honestObjectLeft)
+        XCTAssertTrue(honestObjectLeft.contains("listenLoopRecoverCount"), honestObjectLeft)
+        XCTAssertFalse(honestObjectLeft.contains("for _ in 0..<"), honestObjectLeft)
+        XCTAssertFalse(honestObjectLeft.contains("while "), honestObjectLeft)
+        XCTAssertFalse(honestObjectLeft.contains("Task.sleep"), honestObjectLeft)
+        XCTAssertFalse(
+            honestObjectLeft.contains("objectLeftInPlaceSilent"),
+            "new gate must not green the inject-only storage bit"
+        )
         let conversation = speakSlice(
             live,
             from: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat",
