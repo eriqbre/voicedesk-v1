@@ -426,6 +426,50 @@ final class GrokRealtimeTests: XCTestCase {
             "empty created id still latches leftover via playbackEpoch"
         )
         XCTAssertEqual(
+            GrokRealtime.latchWhenFirstAnswerPlaying(
+                existingScheduledID: "resp_1",
+                createdID: "resp_2",
+                playbackEpoch: 0
+            ),
+            "resp_1",
+            "drain-before-transcript interrupt created must not overwrite the first-answer latch"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldOverwriteScheduledLatch(
+                existingScheduledID: nil,
+                taggedID: "resp_1",
+                deltaResponseID: nil,
+                cancelledResponseID: nil
+            )
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldOverwriteScheduledLatch(
+                existingScheduledID: "resp_1",
+                taggedID: "resp_2",
+                deltaResponseID: nil,
+                cancelledResponseID: nil
+            ),
+            "leftover leftover no-id must not stamp lastCreated onto lastScheduled"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldOverwriteScheduledLatch(
+                existingScheduledID: "resp_1",
+                taggedID: "resp_2",
+                deltaResponseID: "resp_2",
+                cancelledResponseID: "resp_1"
+            ),
+            "interrupt JSON response_id may replace the first-answer latch"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldOverwriteScheduledLatch(
+                existingScheduledID: "resp_1",
+                taggedID: "resp_1",
+                deltaResponseID: "resp_1",
+                cancelledResponseID: "resp_1"
+            ),
+            "leftover first-answer id must not re-latch"
+        )
+        XCTAssertEqual(
             GrokRealtime.parse(
                 type: "response.created",
                 json: ["response_id": "resp_created_top"]

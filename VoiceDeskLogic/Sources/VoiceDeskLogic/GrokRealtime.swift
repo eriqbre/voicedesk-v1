@@ -308,14 +308,45 @@ public enum GrokRealtime {
     /// First answer is on the player. Copy `response.created` onto the
     /// schedule latch. If that id is also empty, use the playback epoch.
     /// Never return nil — leftover inject needs this id.
+    /// A real first-answer latch must stay. Interrupt `response.created`
+    /// after drain-before-transcript must not overwrite it or leftover
+    /// inject captures the interrupt id (aa62555 leftover paper).
     public static func latchWhenFirstAnswerPlaying(
         existingScheduledID: String?,
         createdID: String?,
         playbackEpoch: Int
     ) -> String {
-        nonemptyID(createdID)
+        if let existing = nonemptyID(existingScheduledID), !isPlaybackEpochLatch(existing) {
+            return existing
+        }
+        return nonemptyID(createdID)
             ?? nonemptyID(existingScheduledID)
             ?? playbackEpochLatch(playbackEpoch)
+    }
+
+    public static func isPlaybackEpochLatch(_ id: String?) -> Bool {
+        guard let id = nonemptyID(id) else { return false }
+        return id.hasPrefix("playback-epoch-")
+    }
+
+    /// No-id leftover leftover fills lastCreated. Do not overwrite a
+    /// real first-answer latch with that fill. JSON `response_id` may
+    /// replace it — that is the interrupt answer, not leftover leftover.
+    public static func shouldOverwriteScheduledLatch(
+        existingScheduledID: String?,
+        taggedID: String?,
+        deltaResponseID: String?,
+        cancelledResponseID: String?
+    ) -> Bool {
+        guard let tagged = nonemptyID(taggedID) else { return false }
+        if let cancelled = nonemptyID(cancelledResponseID), tagged == cancelled {
+            return false
+        }
+        let existing = nonemptyID(existingScheduledID)
+        if existing == nil { return true }
+        if nonemptyID(deltaResponseID) != nil { return true }
+        if existing == tagged { return true }
+        return isPlaybackEpochLatch(existing)
     }
 
     /// Leftover reject arms only after an answer actually scheduled

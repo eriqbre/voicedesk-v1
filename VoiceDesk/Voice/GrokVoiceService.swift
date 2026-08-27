@@ -648,7 +648,12 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                 createdAwaitingAudioID: createdAwaitingAudioID,
                 lastCreatedResponseID: lastCreatedResponseID
             )
-            if tagged != cancelledPlaybackResponseID {
+            if GrokRealtime.shouldOverwriteScheduledLatch(
+                existingScheduledID: lastScheduledResponseID,
+                taggedID: tagged,
+                deltaResponseID: nil,
+                cancelledResponseID: cancelledPlaybackResponseID
+            ) {
                 playingResponseID = tagged
                 noteScheduledResponse(tagged)
             }
@@ -721,7 +726,12 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                     createdAwaitingAudioID: createdAwaitingAudioID,
                     lastCreatedResponseID: lastCreatedResponseID
                 )
-                if tagged != cancelledPlaybackResponseID {
+                if GrokRealtime.shouldOverwriteScheduledLatch(
+                    existingScheduledID: lastScheduledResponseID,
+                    taggedID: tagged,
+                    deltaResponseID: deltaID,
+                    cancelledResponseID: cancelledPlaybackResponseID
+                ) {
                     playingResponseID = tagged
                     noteScheduledResponse(tagged)
                 }

@@ -508,12 +508,12 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "Grok PCM must hit the one-engine player"
         )
         XCTAssertTrue(
-            outputAudio.contains("tagged != cancelledPlaybackResponseID"),
-            "leftover no-id JSON must not stamp the cancelled first-answer as the interrupt schedule"
+            outputAudio.contains("shouldOverwriteScheduledLatch"),
+            "leftover leftover no-id must not stamp lastCreated onto lastScheduled"
         )
         XCTAssertTrue(
-            binary.contains("tagged != cancelledPlaybackResponseID"),
-            "leftover no-id binary must not mark interruptAnswerScheduled"
+            binary.contains("shouldOverwriteScheduledLatch"),
+            "leftover leftover no-id must not stamp lastCreated onto lastScheduled"
         )
         XCTAssertTrue(
             binary.contains("noteFirstAnswerPlaying"),
@@ -683,6 +683,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func latchWhenFirstAnswerPlaying"), realtime)
+        XCTAssertTrue(realtime.contains("func shouldOverwriteScheduledLatch"), realtime)
         XCTAssertTrue(realtime.contains("func playbackEpochLatch"), realtime)
         XCTAssertTrue(
             speakSlice(realtime, from: "case \"response.created\"", to: "case \"response.output_audio_transcript.delta\"").contains("responseID(in:"),
