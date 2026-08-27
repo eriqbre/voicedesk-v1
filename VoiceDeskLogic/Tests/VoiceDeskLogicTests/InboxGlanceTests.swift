@@ -60,8 +60,6 @@ final class InboxGlanceTests: XCTestCase {
             XCTAssertFalse(plan.spokenText.localizedCaseInsensitiveContains("here they are"), ask)
         }
         XCTAssertTrue(InboxGlance.spokenCalendar(ask: "show my calendar", events: events).isEmpty)
-        XCTAssertTrue(InboxGlance.spokenOverviewBeat(count: emails.count).isEmpty)
-        XCTAssertTrue(InboxGlance.spokenCalendarOverviewBeat(count: events.count).isEmpty)
         let leftoverFollowUp = ConversationPresence.notSeeingCardsReply(hasInbox: true)
         XCTAssertTrue(
             leftoverFollowUp.isEmpty,
@@ -248,7 +246,7 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(onScreen.contains("Murray Mitchell"), onScreen)
         XCTAssertFalse(onScreen.contains("—"), onScreen)
 
-        let spoken = InboxGlance.spokenOverviewBeat(count: emails.count)
+        let spoken = InboxGlance.spokenInbox(ask: "see my latest emails", emails: emails)
         XCTAssertTrue(spoken.isEmpty, spoken)
         XCTAssertNotEqual(spoken, "Here they are.")
         XCTAssertFalse(InboxGlance.isMultiline(spoken), spoken)

@@ -47,18 +47,6 @@ public enum InboxGlance: Sendable {
         return "\(first.title), \(first.whenLabel), and more."
     }
 
-    /// Spoken inbox-overview beat. Cards stay the list — never recite Name — topic.
-    public static func spokenOverviewBeat(count: Int) -> String {
-        _ = count
-        return ""
-    }
-
-    /// Spoken calendar-overview beat. Cards stay the list — never recite titles.
-    public static func spokenCalendarOverviewBeat(count: Int) -> String {
-        _ = count
-        return ""
-    }
-
     public static let systemPrompt = """
         You write a voice-assistant inbox glance. One short line per email, same order.
         Format exactly: Name — action or topic.
