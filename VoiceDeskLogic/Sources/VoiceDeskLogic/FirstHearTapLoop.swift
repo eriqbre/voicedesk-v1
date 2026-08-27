@@ -789,9 +789,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
 
         switch duringTTS {
         case .keepListening:
-            if ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true) {
-                session.apply(.speakStarted)
-            }
+            break
         case .applySpeakStarted:
             session.apply(.speakStarted)
         case .leftoverGrokSpeakAndDone:

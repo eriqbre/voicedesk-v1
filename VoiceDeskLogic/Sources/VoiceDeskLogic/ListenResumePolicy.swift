@@ -94,14 +94,6 @@ public enum ListenResumePolicy: Sendable {
         session.apply(sessionEventAfterDeskSpeak(state: session.state))
     }
 
-    /// Grok `response.created` must not flip the session to `.speaking`.
-    /// That leftover parked listen unarmed — 415c955 close 1000 stayIdle
-    /// after she talks. Grok audio plays through the one-engine player.
-    public static func shouldApplyGrokSpeakStarted(clientTTSSpeaking: Bool) -> Bool {
-        _ = clientTTSSpeaking
-        return false
-    }
-
     /// Leftover `response.done` during desk TTS must not leave listen.
     /// `turnFinished` from `.listening` stays listening; skip it while
     /// client TTS owns the turn so a prior `.speaking` is not required.
@@ -111,11 +103,9 @@ public enum ListenResumePolicy: Sendable {
 
     /// Leftover `response.created` / `response.done` during write→player.
     /// Must not park `.speaking`. Same step as GrokVoiceService + the
-    /// live fixtures. Not a skip flag — the leftover events are ignored.
+    /// live fixtures. Not a skip flag — leftover created is ignored;
+    /// leftover done is gated by `shouldApplyGrokTurnFinished`.
     public static func applyLeftoverGrokDuringClientTTS(_ session: inout VoiceSession) {
-        if shouldApplyGrokSpeakStarted(clientTTSSpeaking: true) {
-            session.apply(.speakStarted)
-        }
         if shouldApplyGrokTurnFinished(clientTTSSpeaking: true) {
             session.apply(.turnFinished)
         }

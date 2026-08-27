@@ -21,7 +21,6 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertTrue(walk.stayLive)
         XCTAssertNotEqual(walk.close1000, .stayIdle, "close 1000 stayIdle after version/glance is a fail")
         XCTAssertEqual(walk.startCount, 1)
-        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
         XCTAssertFalse(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true))
         XCTAssertFalse(ListenInterrupt.isCommand("Can you hear me?"))
         XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
@@ -405,7 +404,6 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertTrue(walk.tapLive)
         XCTAssertEqual(walk.turns, [first, second, third])
         XCTAssertEqual(walk.startCount, 1)
-        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
         XCTAssertFalse(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true))
     }
 

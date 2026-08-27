@@ -3,7 +3,6 @@ import XCTest
 
 final class ListenResumePolicyTests: XCTestCase {
     func testLeftoverGrokSpeakAndDoneDuringClientTTSDoNotParkSpeaking() {
-        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
         XCTAssertFalse(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true))
         XCTAssertTrue(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: false))
         XCTAssertTrue(
@@ -82,11 +81,6 @@ final class ListenResumePolicyTests: XCTestCase {
         var session = VoiceSession()
         session.apply(.tapTalk)
         session.apply(.speakStarted)
-        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
-        XCTAssertFalse(
-            ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: false),
-            "Grok created must not park .speaking — that disarms listen (415c955)"
-        )
         let after = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: false,
