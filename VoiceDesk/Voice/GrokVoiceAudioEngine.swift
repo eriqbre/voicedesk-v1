@@ -42,9 +42,8 @@ final class GrokVoiceAudioEngine {
     private var tapInstalled = false
     /// SET only when we `removeTap` keeping the Swift object. Cleared
     /// on leftover-safe install/reinstall/teardown. Not on leftover-hot
-    /// feed. Not a leftover-hot install-block witness — HALInstallWitness
-    /// in leftover-hot installTap raced leftover composed (6483513 55s,
-    /// created!=scheduled, deltas=0).
+    /// feed. A leftover-hot install-block token raced leftover composed
+    /// (6483513 55s, created!=scheduled, deltas=0).
     private var removedHALKeepingObject = false
     private var pendingPlaybackBuffers = 0
     private(set) var playbackEpoch = 0
