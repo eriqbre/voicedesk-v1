@@ -10,7 +10,12 @@ import XCTest
 /// finish a URLSession handshake on the iPhone simulator.
 final class ListenLoopWebSocketLoopback: @unchecked Sendable {
     private let lock = NSLock()
-    private let acceptQueue = DispatchQueue(label: "listen-loop-ws-loopback-accept")
+    /// Accept blocks. Serve must not share that serial queue — 9e25f64
+    /// queued serve behind accept, so URLSession never got a 101.
+    private let serveQueue = DispatchQueue(
+        label: "listen-loop-ws-loopback-serve",
+        attributes: .concurrent
+    )
     private var listenFD: Int32 = -1
     private var clientFDs: [Int32] = []
     private var received: [String] = []
@@ -107,7 +112,7 @@ final class ListenLoopWebSocketLoopback: @unchecked Sendable {
         listenFD = fd
         self.port = port
         lock.unlock()
-        acceptQueue.async { [weak self] in
+        Thread.detachNewThread { [weak self] in
             self?.acceptLoop(listenFD: fd)
         }
     }
@@ -138,7 +143,7 @@ final class ListenLoopWebSocketLoopback: @unchecked Sendable {
             }
             clientFDs.append(client)
             lock.unlock()
-            acceptQueue.async { [weak self] in
+            serveQueue.async { [weak self] in
                 self?.serve(client)
             }
         }

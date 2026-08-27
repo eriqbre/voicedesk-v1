@@ -876,6 +876,12 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loopbackSource.contains("session.updated"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("socket(AF_INET"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("127.0.0.1"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("serveQueue"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("Thread.detachNewThread"), loopbackSource)
+        XCTAssertFalse(
+            loopbackSource.contains("acceptQueue.async"),
+            "9e25f64 served the 101 on the same serial queue as blocking accept"
+        )
         XCTAssertFalse(loopbackSource.contains("import Network"), loopbackSource)
         XCTAssertFalse(
             loopbackSource.contains("try NWListener"),
