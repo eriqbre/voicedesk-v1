@@ -874,16 +874,22 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("simulateHALTapYankLeavingSwiftObjectInPlace"), engine)
         XCTAssertTrue(engine.contains("isTapObjectPresent"), engine)
         XCTAssertTrue(engine.contains("isHALTapAttached"), engine)
-        XCTAssertTrue(engine.contains("HALInstallState"), engine)
-        XCTAssertTrue(engine.contains("HALInstallWitness"), engine)
-        XCTAssertTrue(engine.contains("halInstall.isReleased"), engine)
-        XCTAssertTrue(engine.contains("halInstall.noteReleased"), engine)
-        XCTAssertTrue(engine.contains("halInstall.invalidate()"), engine)
-        XCTAssertTrue(engine.contains("halInstall.beginInstall()"), engine)
+        XCTAssertTrue(engine.contains("removedHALKeepingObject"), engine)
+        XCTAssertTrue(
+            engine.contains("[frameTap] buffer, _ in"),
+            "leftover-hot installTap must stay b1cee83 — witness in the block raced leftover 55s"
+        )
         XCTAssertFalse(
             engine.contains("objectLeftInPlaceSilent"),
             "inject storage bit is not the product check — 771f6f9"
         )
+        XCTAssertFalse(
+            engine.contains("HALInstallWitness"),
+            "leftover-hot install-block witness raced leftover composed (6483513 55s)"
+        )
+        XCTAssertFalse(engine.contains("HALInstallState"), engine)
+        XCTAssertFalse(engine.contains("attachMicTap"), engine)
+        XCTAssertFalse(engine.contains("[witness, frameTap]"), engine)
         XCTAssertFalse(
             engine.contains("HALTapLease"),
             "lease deinit reinstall raced leftover created (9b3d42b 53s)"
@@ -915,6 +921,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "hold SET missing on leftover-hot feed raced leftover composed (12ba20f 97s)"
         )
         XCTAssertFalse(
+            feed.contains("removedHALKeepingObject"),
+            "leftover-hot feed must stay 453bda8 — a presence check here still killed leftover on 12ba20f"
+        )
+        XCTAssertFalse(
             feed.contains("halInstall"),
             "leftover-hot feed must stay 453bda8 — a presence check here still killed leftover on 12ba20f"
         )
@@ -924,6 +934,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertFalse(
             engine.contains("guard tap != nil, tapInstalled, !objectLeftInPlaceSilent"),
+            "object-left must not ride leftover barge / tape feed"
+        )
+        XCTAssertFalse(
+            engine.contains("guard tap != nil, tapInstalled, !removedHALKeepingObject"),
             "object-left must not ride leftover barge / tape feed"
         )
         XCTAssertFalse(
@@ -952,9 +966,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let reinstall = engineSlice(engine, from: "private func reinstallTap() {", to: "private func teardownGraph()")
         XCTAssertFalse(reinstall.contains("setCategory"), reinstall)
         XCTAssertFalse(reinstall.contains("setActive(false"), reinstall)
+        XCTAssertFalse(
+            reinstall.contains("HALInstallWitness"),
+            "leftover-hot reinstall must stay b1cee83 — no install-block witness"
+        )
+        XCTAssertFalse(reinstall.contains("attachMicTap"), reinstall)
+        XCTAssertFalse(reinstall.contains("invalidate()"), reinstall)
         XCTAssertTrue(
-            reinstall.contains("halInstall.invalidate()"),
-            "our removeTap must invalidate first — leftover drain-time reinstall"
+            reinstall.contains("[frameTap] buffer, _ in"),
+            "leftover-hot reinstall installTap must stay b1cee83"
         )
         XCTAssertFalse(
             reinstall.contains("!objectLeftInPlaceSilent"),
@@ -965,7 +985,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "skip-second-removeTap on drain-time reinstall is leftover-hot — 453bda8 always removeTap"
         )
         let teardown = engineSlice(engine, from: "private func teardownGraph() {", to: "private func observeAudioLifecycle()")
-        XCTAssertTrue(teardown.contains("halInstall.invalidate()"), teardown)
+        XCTAssertFalse(teardown.contains("invalidate()"), teardown)
+        XCTAssertFalse(teardown.contains("HALInstallWitness"), teardown)
         XCTAssertFalse(
             teardown.contains("!objectLeftInPlaceSilent"),
             "teardown skip-removeTap is leftover-hot — 453bda8 always removeTap when installed"
@@ -981,8 +1002,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(objectLeftInject.contains("removeTap"), objectLeftInject)
         XCTAssertTrue(
-            objectLeftInject.contains("noteReleased"),
-            "removeTap does not release the install block in time — SET missing the same way witness deinit will"
+            objectLeftInject.contains("removedHALKeepingObject = true"),
+            "we just removed the HAL tap — demand repair can see it without a leftover-hot witness"
         )
         XCTAssertFalse(
             objectLeftInject.contains("tapInstalled = false"),
@@ -997,8 +1018,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "object-left inject must not paper this hole as tap==nil"
         )
         XCTAssertFalse(
-            objectLeftInject.contains("invalidate()"),
-            "inject must not invalidate — that bumps epoch instead of SET missing"
+            objectLeftInject.contains("HALInstallWitness"),
+            "inject must not put a leftover-hot witness on leftover installTap"
         )
         let detach = engineSlice(
             engine,

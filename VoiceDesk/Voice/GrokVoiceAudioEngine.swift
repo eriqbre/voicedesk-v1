@@ -40,12 +40,12 @@ final class GrokVoiceAudioEngine {
     private var onMicAudio: (@Sendable (String) -> Void)?
     private var echoCancellation = true
     private var tapInstalled = false
-    /// HAL install-block presence. SET missing when HAL releases the
-    /// block, or when we removeTap keeping the Swift object.
-    /// Do not reinstall from witness deinit — that raced leftover
-    /// created (9b3d42b 53s). Do not check this on leftover-hot
-    /// `feedTapPCM16` — 12ba20f isReleased deafened barge (97s).
-    private let halInstall = HALInstallState()
+    /// SET only when we `removeTap` keeping the Swift object. Cleared
+    /// on leftover-safe install/reinstall/teardown. Not on leftover-hot
+    /// feed. Not a leftover-hot install-block witness — HALInstallWitness
+    /// in leftover-hot installTap raced leftover composed (6483513 55s,
+    /// created!=scheduled, deltas=0).
+    private var removedHALKeepingObject = false
     private var pendingPlaybackBuffers = 0
     private(set) var playbackEpoch = 0
     private var generation = 0
@@ -99,9 +99,8 @@ final class GrokVoiceAudioEngine {
     /// Phone HAL yank leaves this true. `simulateHALTapYankLeavingInstalledFlagTrue` nils it.
     var isTapObjectPresent: Bool { tap != nil }
 
-    /// False when HAL released the install block (or we removeTap
-    /// keeping the object), until demand repair. Not an inject bit.
-    var isHALTapAttached: Bool { tap != nil && tapInstalled && !halInstall.isReleased }
+    /// False after we removeTap keeping the object, until demand repair.
+    var isHALTapAttached: Bool { tap != nil && tapInstalled && !removedHALKeepingObject }
 
     /// After write→player drain. iOS can yank the HAL tap and leave
     /// `isRunning` true and `tapInstalled` true without posting
@@ -123,7 +122,7 @@ final class GrokVoiceAudioEngine {
             engineRunning: engine?.isRunning ?? false,
             wantsCapture: wantsCapture,
             tapObjectMissing: tap == nil,
-            halTapMissing: halInstall.isReleased
+            halTapMissing: removedHALKeepingObject
         ) else { return }
         reinstallTap()
     }
@@ -140,7 +139,7 @@ final class GrokVoiceAudioEngine {
         tapInstalled = false
         tap?.detach()
         tap = nil
-        halInstall.invalidate()
+        removedHALKeepingObject = false
     }
 
     /// Real iOS (415c955 / bf0af19): HAL tap is gone, `isRunning` stays
@@ -153,22 +152,20 @@ final class GrokVoiceAudioEngine {
         }
         tap?.detach()
         tap = nil
-        halInstall.invalidate()
+        removedHALKeepingObject = false
     }
 
     /// Phone HAL yank (415c955 / 18d5878): HAL tap is gone, Swift
     /// `tap` stays, `tapInstalled` stays true, `isRunning` stays true.
-    /// Zero notifications. `removeTap` only — do not flip a storage
-    /// bit, do not nil the object. removeTap does not release the
-    /// install block in time (12ba20f missed 316); noteReleased SETs
-    /// missing the same way HAL witness deinit will. Do not
-    /// auto-reinstall.
+    /// Zero notifications. `removeTap` only — do not nil the object,
+    /// do not clear `tapInstalled`. We just removed the HAL tap, so
+    /// demand repair can see it. Do not auto-reinstall. Not a leftover-hot
+    /// install-block witness.
     func simulateHALTapYankLeavingSwiftObjectInPlace() {
         guard let engine else { return }
         if tap != nil {
-            let epoch = halInstall.currentEpoch
             engine.inputNode.removeTap(onBus: 0)
-            halInstall.noteReleased(epoch)
+            removedHALKeepingObject = true
         }
     }
 
@@ -279,8 +276,11 @@ final class GrokVoiceAudioEngine {
             return logs
         }
 
-        attachMicTap(inputNode: inputNode, inputFormat: inputFormat, frameTap: frameTap)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap] buffer, _ in
+            frameTap.consume(buffer)
+        }
         tapInstalled = true
+        removedHALKeepingObject = false
 
         do {
             engine.prepare()
@@ -288,7 +288,6 @@ final class GrokVoiceAudioEngine {
             player.play()
             logs.append("Audio engine running")
         } catch {
-            halInstall.invalidate()
             inputNode.removeTap(onBus: 0)
             frameTap.detach()
             tapInstalled = false
@@ -309,13 +308,13 @@ final class GrokVoiceAudioEngine {
             }
             return
         }
-        halInstall.invalidate()
         if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
         }
         tapInstalled = false
         tap?.detach()
         tap = nil
+        removedHALKeepingObject = false
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0,
@@ -325,28 +324,14 @@ final class GrokVoiceAudioEngine {
                 onFrame: onMicAudio
               )
         else { return }
-        attachMicTap(inputNode: inputNode, inputFormat: inputFormat, frameTap: frameTap)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap] buffer, _ in
+            frameTap.consume(buffer)
+        }
         tap = frameTap
         tapInstalled = true
     }
 
-    private func attachMicTap(
-        inputNode: AVAudioInputNode,
-        inputFormat: AVAudioFormat,
-        frameTap: MicFrameTap
-    ) {
-        let epoch = halInstall.beginInstall()
-        let witness = HALInstallWitness { [halInstall] in
-            halInstall.noteReleased(epoch)
-        }
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [witness, frameTap] buffer, _ in
-            _ = witness
-            frameTap.consume(buffer)
-        }
-    }
-
     private func teardownGraph() {
-        halInstall.invalidate()
         tap?.detach()
         tap = nil
         if let engine {
@@ -360,6 +345,7 @@ final class GrokVoiceAudioEngine {
         self.engine = nil
         self.playerNode = nil
         tapInstalled = false
+        removedHALKeepingObject = false
     }
 
     private func observeAudioLifecycle() {
@@ -461,65 +447,6 @@ final class GrokVoiceAudioEngine {
             packed[index] = Int16(clipped * Float(Int16.max))
         }
         return packed.withUnsafeBufferPointer { Data(buffer: $0) }
-    }
-}
-
-/// Generation-guarded HAL install-block presence. Our removeTap /
-/// teardown must `invalidate` first so leftover drain-time reinstall
-/// does not leave the next witness marked released. Witness deinit
-/// SETs missing only — do not put the tap back from deinit.
-private final class HALInstallState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var epoch = 0
-    private var releasedEpoch: Int?
-
-    var isReleased: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return releasedEpoch == epoch
-    }
-
-    var currentEpoch: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return epoch
-    }
-
-    func beginInstall() -> Int {
-        lock.lock()
-        epoch += 1
-        releasedEpoch = nil
-        let captured = epoch
-        lock.unlock()
-        return captured
-    }
-
-    func noteReleased(_ captured: Int) {
-        lock.lock()
-        if releasedEpoch == nil || releasedEpoch != captured {
-            releasedEpoch = captured
-        }
-        lock.unlock()
-    }
-
-    func invalidate() {
-        lock.lock()
-        epoch += 1
-        lock.unlock()
-    }
-}
-
-/// HAL retains this for the life of `installTap`. `deinit` means HAL
-/// released the block. SET missing only. Do not reinstall from deinit.
-private final class HALInstallWitness: @unchecked Sendable {
-    private let onRelease: @Sendable () -> Void
-
-    init(onRelease: @escaping @Sendable () -> Void) {
-        self.onRelease = onRelease
-    }
-
-    deinit {
-        onRelease()
     }
 }
 
