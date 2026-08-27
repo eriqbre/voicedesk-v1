@@ -531,32 +531,6 @@ public enum GrokRealtime {
         return playing == current && playing != target
     }
 
-    /// Cancel only the answer that was on the player when barge-in
-    /// started. If a newer `response.created` already exists, do not
-    /// cancel that id — even when the latch was overwritten to it.
-    public static func responseIDToCancelOnBarge(
-        interruptTargetID: String?,
-        playingResponseID: String?,
-        currentResponseID: String?,
-        createdCountAtLatch: Int,
-        createdCountNow: Int
-    ) -> String? {
-        let target = nonemptyID(interruptTargetID)
-        let playing = nonemptyID(playingResponseID)
-        let current = nonemptyID(currentResponseID)
-        let newerCreated = createdCountNow > createdCountAtLatch
-        if newerCreated {
-            return nil
-        }
-        if let target {
-            if let current, target == current {
-                return nil
-            }
-            return target
-        }
-        return playing
-    }
-
     /// First `speech_started` / first scheduled buffer latches the
     /// answer that barge-in may cancel. Do not overwrite with the next
     /// created.

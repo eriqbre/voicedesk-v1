@@ -385,17 +385,6 @@ final class GrokRealtimeTests: XCTestCase {
             "old answer still on the player — drop local, do not cancel the in-flight created"
         )
         XCTAssertEqual(
-            GrokRealtime.responseIDToCancelOnBarge(
-                interruptTargetID: "resp_2",
-                playingResponseID: "resp_2",
-                currentResponseID: "resp_2",
-                createdCountAtLatch: 1,
-                createdCountNow: 2
-            ),
-            nil,
-            "overwritten latch equal to the newer created must not cancel it"
-        )
-        XCTAssertEqual(
             GrokRealtime.bargeProofLine(
                 createdID: "resp_2",
                 scheduledID: "resp_1",
@@ -858,26 +847,6 @@ final class GrokRealtimeTests: XCTestCase {
                 createdCountNow: 0
             ),
             GrokRealtime.BargeInDecision(cancelResponseID: nil, dropLocal: true)
-        )
-        XCTAssertNil(
-            GrokRealtime.responseIDToCancelOnBarge(
-                interruptTargetID: nil,
-                playingResponseID: "resp_2",
-                currentResponseID: "resp_2",
-                createdCountAtLatch: 1,
-                createdCountNow: 2
-            ),
-            "no latch and a newer created — do not cancel playing"
-        )
-        XCTAssertNil(
-            GrokRealtime.responseIDToCancelOnBarge(
-                interruptTargetID: "resp_1",
-                playingResponseID: "resp_1",
-                currentResponseID: "resp_2",
-                createdCountAtLatch: 1,
-                createdCountNow: 2
-            ),
-            "a newer created is already in flight — do not send cancel"
         )
         XCTAssertFalse(
             GrokRealtime.shouldKeepInterruptAnswerOnPlayer(
