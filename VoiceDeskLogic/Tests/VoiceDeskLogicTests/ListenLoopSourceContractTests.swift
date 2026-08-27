@@ -879,6 +879,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(loopbackSource.contains("import Network"), loopbackSource)
         XCTAssertFalse(loopbackSource.contains("NWListener"), loopbackSource)
         XCTAssertFalse(loopbackSource.contains("testSendSink"), loopbackSource)
+        let connectFn = speakSlice(
+            try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoice.swift")),
+            from: "func connect(apiKey:",
+            to: "func disconnect()"
+        )
         XCTAssertTrue(connectFn.contains("override != nil"), connectFn)
         XCTAssertTrue(connectFn.contains("webSocketTask(with: url)"), connectFn)
         if let loopAt = idleClose.range(of: "ListenLoopWebSocketLoopback"),
