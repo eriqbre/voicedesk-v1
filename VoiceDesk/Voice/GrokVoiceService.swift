@@ -199,7 +199,9 @@ final class GrokVoiceService: VoiceServicing {
     /// Guard-return is a skip log + caller fallback — never swallow.
     @discardableResult
     private func speakLiveReplyViaEve(_ text: String) -> Bool {
-        guard client.isConnected else { return false }
+        // 83a5c6a chose Eve on opened && armed, then void-returned
+        // or send no-op'd and speak() returned with zero ClientTTS.
+        guard client.isConnected, client.hasProductionSendTask else { return false }
         interruptAssistant(sendCancel: true)
         client.sendJSON(GrokRealtime.clearBufferObject())
         client.sendJSON(GrokRealtime.verbatimSpeakSessionUpdateObject(voice: voiceID, text: text))
@@ -952,6 +954,8 @@ extension GrokVoiceService {
 
     var listenLoopArmed: Bool { ListenResumePolicy.isListenArmed(state: session.state) }
 
+    var listenLoopLiveSessionArmed: Bool { liveSessionArmed }
+
     var listenLoopClose1000: ListenResumeDecision {
         ListenResumePolicy.afterSocketClose(
             userWantsVoiceOff: userWantsVoiceOff,
@@ -1026,9 +1030,16 @@ extension GrokVoiceService {
 
     var listenLoopDeliveredSends: [String] { client.deliveredSends }
 
+    var listenLoopSocketOpened: Bool { client.isConnected }
+
     var listenLoopVerbatimSpeakResponseID: String? { verbatimSpeakResponseID }
 
     var listenLoopAwaitingVerbatimSpeakID: Bool { awaitingVerbatimSpeakID }
+
+    /// Opened stays true so Eve is still chosen. Send cannot go out.
+    func dropListenLoopSendTaskKeepingOpenedForTests() {
+        client.dropSendTaskKeepingOpenedForTests()
+    }
 
     var listenLoopClientTTSSpeakCount: Int { clientTTSSpeakCountForTests }
 

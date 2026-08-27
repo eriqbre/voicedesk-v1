@@ -2,11 +2,11 @@ import XCTest
 import VoiceDeskLogic
 @testable import VoiceDesk
 
-/// Production `GrokVoiceService.speak("1.2.3")`. UP uses the in-process
-/// loopback `URLSessionWebSocketTask` (`opened && task`). That is the
-/// send recorder — not `markOpenedForTests` / testSendSink.
-/// DOWN writes ClientVoiceSpeech. 83a5c6a guard-return silence fails
-/// at runtime if this count stays 0.
+/// Production `GrokVoiceService.speak("1.2.3")` on the loopback
+/// `URLSessionWebSocketTask` (`opened && task`).
+/// 83a5c6a swallow is UP: Eve chosen (opened && armed), send no-ops
+/// or void-returns, speak() returns with zero ClientTTS.
+/// Never-connected DOWN already wrote ClientTTS on 83a5c6a.
 /// Linux `VoiceDeskLogic` never runs this file.
 @MainActor
 final class GrokVoiceServiceSpeakTests: XCTestCase {
@@ -29,10 +29,7 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         let sawCreate = await loopback.waitUntilReceived {
             LiveGrokVoiceClient.typeOfSend($0) == "response.create"
         }
-        XCTAssertTrue(
-            sawCreate,
-            "UP speak must deliver response.create on the real task — swallow is 6m silence"
-        )
+        XCTAssertTrue(sawCreate, "UP speak must deliver response.create on the real task")
         let delivered = loopback.receivedTexts
             .dropFirst(before)
             .compactMap { LiveGrokVoiceClient.typeOfSend($0) }
@@ -49,6 +46,43 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         voice.cancel()
     }
 
+    /// 83a5c6a: `shouldSpeakViaRealtime(isConnected: opened && armed)`
+    /// then void `speakLiveReplyViaEve` + unconditional return.
+    /// Eve chosen, send cannot go out, zero ClientTTS = 6m silence.
+    func testSpeak123EveChosenSendNoOpWritesClientTTS() async throws {
+        let loopback = try await ListenLoopWebSocketLoopback.start()
+        defer { loopback.stop() }
+        let voice = try await openProductionSpeakSocket(
+            apiKey: "speak-123-swallow",
+            loopback: loopback
+        )
+        voice.startListenLoopAudioForTests()
+        voice.attachListenLoopClientTTSRecorderForTests()
+        voice.dropListenLoopSendTaskKeepingOpenedForTests()
+        XCTAssertTrue(voice.listenLoopSocketOpened, "Eve is still chosen")
+        XCTAssertTrue(voice.listenLoopLiveSessionArmed)
+        XCTAssertFalse(
+            voice.listenLoopHasProductionSendTask,
+            "send path no-ops — opened && task is gone"
+        )
+        let before = loopback.receivedTexts.count
+
+        await voice.speak("1.2.3")
+
+        XCTAssertEqual(
+            voice.listenLoopClientTTSSpeakCount,
+            1,
+            "83a5c6a returned after void Eve send with zero ClientTTS"
+        )
+        XCTAssertEqual(voice.listenLoopClientTTSRecordedTexts, ["1.2.3"])
+        let after = loopback.receivedTexts.dropFirst(before)
+        XCTAssertFalse(
+            after.contains { LiveGrokVoiceClient.typeOfSend($0) == "response.create" },
+            "no-op Eve send must not count as delivered wire"
+        )
+        voice.cancel()
+    }
+
     func testSpeak123SocketDownWritesClientVoiceSpeech() async {
         let voice = GrokVoiceService(apiKey: "speak-123-down")
         voice.attachListenLoopClientTTSRecorderForTests()
@@ -58,10 +92,9 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         XCTAssertEqual(
             voice.listenLoopClientTTSSpeakCount,
             1,
-            "83a5c6a speakLiveReplyViaEve guard-return wrote nothing — 6m silence"
+            "never-connected already wrote ClientTTS on 83a5c6a — not the swallow"
         )
         XCTAssertEqual(voice.listenLoopClientTTSRecordedTexts, ["1.2.3"])
-        XCTAssertFalse(voice.listenLoopDeliveredSendTypes.contains("response.create"))
         voice.cancel()
     }
 
@@ -81,17 +114,18 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         XCTAssertTrue(sawCreate)
         XCTAssertTrue(voice.listenLoopAwaitingVerbatimSpeakID)
 
-        voice.injectListenLoopJSON(
-            ["type": "response.created", "response_id": "verbatim-1"],
-            type: "response.created"
+        loopback.sendPeerJSON(
+            #"{"type":"response.created","response_id":"verbatim-1"}"#
         )
-        XCTAssertEqual(voice.listenLoopVerbatimSpeakResponseID, "verbatim-1")
+        let bound = await waitUntil(timeoutMs: 2000) {
+            voice.listenLoopVerbatimSpeakResponseID == "verbatim-1"
+        }
+        XCTAssertTrue(bound, "peer response.created must bind the speak id")
         XCTAssertFalse(voice.listenLoopAwaitingVerbatimSpeakID)
 
         let afterBind = loopback.receivedTexts.count
-        voice.injectListenLoopJSON(
-            ["type": "response.done", "response_id": "foreign"],
-            type: "response.done"
+        loopback.sendPeerJSON(
+            #"{"type":"response.done","response_id":"foreign"}"#
         )
         try? await Task.sleep(for: .milliseconds(80))
 
@@ -119,10 +153,7 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         voice.setListenLoopRealtimeURLOverrideForTests(loopback.url)
         try await voice.connectListenLoopProductionForTests()
         let opened = await voice.waitUntilListenLoopHasProductionSendTask()
-        XCTAssertTrue(
-            opened,
-            "UP speak needs opened && task — not markOpenedForTests"
-        )
+        XCTAssertTrue(opened, "UP speak needs opened && task")
         XCTAssertFalse(voice.listenLoopUsesTestSendSink)
         XCTAssertNotNil(voice.listenLoopProductionWebSocketTask)
         return voice
@@ -136,5 +167,14 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
             }
         }
         return index == required.count
+    }
+
+    private func waitUntil(timeoutMs: Int, _ predicate: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
+        while ContinuousClock.now < deadline {
+            if predicate() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return predicate()
     }
 }

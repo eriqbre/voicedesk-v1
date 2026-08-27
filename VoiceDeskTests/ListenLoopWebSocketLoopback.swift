@@ -38,6 +38,16 @@ final class ListenLoopWebSocketLoopback: @unchecked Sendable {
         return server
     }
 
+    /// Peer → client. Same path as session.created on accept.
+    func sendPeerJSON(_ raw: String) {
+        lock.lock()
+        let connections = self.connections
+        lock.unlock()
+        for connection in connections {
+            sendText(connection, raw)
+        }
+    }
+
     func stop() {
         lock.lock()
         let listener = self.listener

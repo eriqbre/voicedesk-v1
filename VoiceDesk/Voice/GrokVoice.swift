@@ -392,6 +392,14 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Eve still sees `opened` (chosen) but `sendRaw` cannot send —
+    /// `opened && task` is false. 83a5c6a void-returned here.
+    func dropSendTaskKeepingOpenedForTests() {
+        lock.lock()
+        task = nil
+        lock.unlock()
+    }
+
     func markSessionReadyAndFlush() {
         lock.lock()
         sessionReady = true

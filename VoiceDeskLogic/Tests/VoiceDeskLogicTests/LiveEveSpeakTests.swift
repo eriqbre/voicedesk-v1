@@ -1,11 +1,10 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// Leftover-phrase gate (Linux). A spoken leftover reply must fail.
+/// Linux string detector only — not `GrokVoiceService.speak`.
+/// Spoken leftover `" The app will take care of it."` must fail.
 /// Presence must not teach stay silent / let the app handle.
-/// `speak("1.2.3")` wire proof is iOS `GrokVoiceServiceSpeakTests`
-/// on the loopback `URLSessionWebSocketTask`. This package never
-/// runs VoiceDeskTests.
+/// This package never runs VoiceDeskTests.
 final class LiveEveSpeakTests: XCTestCase {
     func testLeftoverDeskRoutingReplyFailsAndPresenceDoesNotTeachIt() {
         XCTAssertTrue(GrokRealtime.isLeftoverDeskRoutingReply(" The app will take care of it."))
