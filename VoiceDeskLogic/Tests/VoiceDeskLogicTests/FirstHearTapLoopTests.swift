@@ -59,7 +59,7 @@ final class FirstHearTapLoopTests: XCTestCase {
                 sessionActive: false,
                 tapInstalled: true
             ),
-            "deferred setActive(false) after speak is a different hole"
+            "415c955 deferred setActive(false) after speak mutes a live session"
         )
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)
@@ -77,6 +77,58 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertTrue(dead.tapLive, "mixWithOthers is not a HAL yank — tap stays installed")
         XCTAssertEqual(dead.startCount, 1, "415c955 mixWithOthers must not audio.start")
         let walk = FirstHearTapLoop.noMixWithOthersAfterWritePlayerLandsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1, "same live tap — no second engine.start")
+    }
+
+    func testDeferredSetActiveFalseAfterWritePlayerFails415c955AndProductLandsThird() {
+        XCTAssertTrue(
+            FirstHearTapLoop.sessionDeferredDeactivateAfterSpeakSilencesLive(true),
+            "415c955 deferred setActive(false) after write→player must fail this hole"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.sessionDeferredDeactivateAfterSpeakSilencesLive(false),
+            "product must not deactivate after write→player"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: false,
+                tapInstalled: true
+            ),
+            "415c955 post-TTS tap PCM is zeros — tap stays, startCount stays 1"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: true,
+                tapInstalled: true
+            ),
+            "product live session keeps post-TTS tap PCM audible"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let dead = FirstHearTapLoop.fe1ffc8Fa72e1c18d5878415c955DeferredSetActiveFalseAfterWritePlayerDropsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(
+            dead.turns,
+            [first, second],
+            "415c955 deferred setActive(false) after write→player must drop the third"
+        )
+        XCTAssertTrue(dead.tapLive, "deferred deactivate is not a HAL yank — tap stays installed")
+        XCTAssertEqual(dead.startCount, 1, "415c955 deferred deactivate must not audio.start")
+        let walk = FirstHearTapLoop.noDeferredSetActiveFalseAfterWritePlayerLandsThird(
             first: first,
             second: second,
             third: third

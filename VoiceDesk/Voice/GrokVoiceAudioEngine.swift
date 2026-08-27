@@ -47,7 +47,6 @@ final class GrokVoiceAudioEngine {
     private var removedHALKeepingObject = false
     private var pendingPlaybackBuffers = 0
     private(set) var playbackEpoch = 0
-    private var generation = 0
     private var wantsCapture = false
     private var isInterrupted = false
     private var observers: [any NSObjectProtocol] = []
@@ -58,7 +57,6 @@ final class GrokVoiceAudioEngine {
         self.onMicAudio = onMicAudio
         wantsCapture = true
         startCount += 1
-        generation += 1
         observeAudioLifecycle()
         teardownGraph()
         return startGraph()
@@ -67,15 +65,12 @@ final class GrokVoiceAudioEngine {
     func stop() {
         wantsCapture = false
         onMicAudio = nil
-        generation += 1
-        let stopped = generation
         teardownGraph()
         removeObservers()
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(120))
-            guard let self, self.generation == stopped, !self.wantsCapture else { return }
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        }
+        // Do not defer session teardown. 415c955 delayed deactivate
+        // muted a live session after write→player (tap stayed,
+        // startCount stayed 1, third PCM was zeros). Best part is
+        // no part — no recover path.
     }
 
     func interruptPlayback() {

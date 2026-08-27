@@ -211,7 +211,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         first: Data = commandPCM(1),
         second: Data = commandPCM(2),
         third: Data = commandPCM(3),
-        mixWithOthersAfterWritePlayer: Bool = false
+        mixWithOthersAfterWritePlayer: Bool = false,
+        deferredSetActiveFalseAfterWritePlayer: Bool = false
     ) -> FirstHearTapLoop {
         var session = VoiceSession()
         session.apply(.tapTalk)
@@ -268,7 +269,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
 
         if postTTSTapPCMIsAudible(
             mixWithOthers: mixWithOthersAfterWritePlayer,
-            sessionActive: true,
+            sessionActive: !deferredSetActiveFalseAfterWritePlayer,
             tapInstalled: tapLive
         ) {
             take(third)
@@ -329,6 +330,48 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             second: second,
             third: third,
             mixWithOthersAfterWritePlayer: false
+        )
+    }
+
+    /// 415c955 `stop()` deferred `setActive(false)` 100ms later with
+    /// no wantsCapture guard. AVSpeech `usesApplicationAudioSession
+    /// = true` is the same teardown after write. Tap stays.
+    /// `startCount` stays 1. Session inactive — third PCM is zeros.
+    /// Not a HAL yank. Not mixWithOthers.
+    public static func sessionDeferredDeactivateAfterSpeakSilencesLive(
+        _ deactivated: Bool
+    ) -> Bool {
+        deactivated
+    }
+
+    /// 415c955: version + glance write→player, then deferred
+    /// setActive(false) (or AVSpeech equivalent) mutes the live
+    /// session. Tap stays. `startCount` stays 1. Third is zeros.
+    public static func fe1ffc8Fa72e1c18d5878415c955DeferredSetActiveFalseAfterWritePlayerDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        versionThenGlanceWritePlayerThenThird(
+            first: first,
+            second: second,
+            third: third,
+            deferredSetActiveFalseAfterWritePlayer: true
+        )
+    }
+
+    /// Product: same write→player walk without a deferred deactivate.
+    /// Third command PCM through the same live tap is the next turn.
+    public static func noDeferredSetActiveFalseAfterWritePlayerLandsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        versionThenGlanceWritePlayerThenThird(
+            first: first,
+            second: second,
+            third: third,
+            deferredSetActiveFalseAfterWritePlayer: false
         )
     }
 

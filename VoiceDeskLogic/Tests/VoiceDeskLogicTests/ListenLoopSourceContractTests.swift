@@ -365,6 +365,26 @@ final class ListenLoopSourceContractTests: XCTestCase {
             loopTests
         )
         XCTAssertTrue(
+            loopTests.contains("testDeferredSetActiveFalseAfterWritePlayerFails415c955AndProductLandsThird"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("415c955 deferred setActive(false) after write→player must drop the third"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loop.contains("fe1ffc8Fa72e1c18d5878415c955DeferredSetActiveFalseAfterWritePlayerDropsThird"),
+            loop
+        )
+        XCTAssertTrue(
+            loop.contains("noDeferredSetActiveFalseAfterWritePlayerLandsThird"),
+            loop
+        )
+        XCTAssertTrue(
+            loop.contains("sessionDeferredDeactivateAfterSpeakSilencesLive"),
+            loop
+        )
+        XCTAssertTrue(
             loopTests.contains("771f6f9 inject-storage-bit-only must fail this hole"),
             loopTests
         )
@@ -877,7 +897,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
     func testEngineDoesNotTreatIsRunningAsTapLiveness() throws {
         let engine = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceAudioEngine.swift"))
         XCTAssertTrue(engine.contains("AVAudioConverter"), engine)
-        XCTAssertTrue(engine.contains("generation == stopped"), engine)
+        XCTAssertFalse(
+            engine.contains("generation == stopped"),
+            "415c955 deferred setActive(false) used a generation tag — delete the deactivate"
+        )
         XCTAssertTrue(engine.contains("reinstallTap"), engine)
         XCTAssertTrue(engine.contains("reinstallTapIfSilentWhileRunning"), engine)
         XCTAssertTrue(engine.contains("reinstallTapIfYankedWhileRunning"), engine)
@@ -965,8 +988,16 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("interruptionNotification"), engine)
         XCTAssertTrue(engine.contains("mediaServicesWereResetNotification"), engine)
         let stop = engineSlice(engine, from: "func stop() {", to: "func interruptPlayback()")
-        XCTAssertTrue(stop.contains("setActive(false"), stop)
-        XCTAssertTrue(stop.contains("!self.wantsCapture"), stop)
+        XCTAssertFalse(
+            stop.contains("setActive(false"),
+            "415c955 deferred setActive(false) silenced a live session after write→player"
+        )
+        XCTAssertFalse(stop.contains("notifyOthersOnDeactivation"), stop)
+        XCTAssertFalse(
+            stop.contains("Task.sleep"),
+            "do not defer deactivate — 415c955 100ms asyncAfter muted the live tap"
+        )
+        XCTAssertFalse(stop.contains("asyncAfter"), stop)
         let speak = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
         let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "func sendTextTurn")
         XCTAssertFalse(speakFn.contains("setCategory"), speakFn)
@@ -1079,6 +1110,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testVersionThenGlanceWritePlayerMixWithOthersFails415c955AndSameTapThirdCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testVersionThenGlanceWritePlayerDeferredSetActiveFalseFails415c955AndSameTapThirdCommandIsATurn"),
             live
         )
         XCTAssertTrue(
@@ -1242,7 +1277,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let mixWithOthers = speakSlice(
             live,
             from: "func testVersionThenGlanceWritePlayerMixWithOthersFails415c955AndSameTapThirdCommandIsATurn",
-            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
+            to: "func testVersionThenGlanceWritePlayerDeferredSetActiveFalseFails415c955AndSameTapThirdCommandIsATurn"
         )
         XCTAssertFalse(mixWithOthers.contains("postEngineConfigurationChange"), mixWithOthers)
         XCTAssertFalse(mixWithOthers.contains("postInterruption"), mixWithOthers)
@@ -1271,6 +1306,39 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(mixWithOthers.contains("for _ in 0..<"), mixWithOthers)
         XCTAssertFalse(mixWithOthers.contains("while "), mixWithOthers)
         XCTAssertFalse(mixWithOthers.contains("Task.sleep"), mixWithOthers)
+        let deferredDeactivate = speakSlice(
+            live,
+            from: "func testVersionThenGlanceWritePlayerDeferredSetActiveFalseFails415c955AndSameTapThirdCommandIsATurn",
+            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
+        )
+        XCTAssertFalse(deferredDeactivate.contains("postEngineConfigurationChange"), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("postInterruption"), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("AVAudioEngineConfigurationChange"), deferredDeactivate)
+        XCTAssertFalse(
+            deferredDeactivate.contains("simulateHALTapYankLeavingInstalledFlagTrue"),
+            "deferred deactivate is not a HAL yank"
+        )
+        XCTAssertFalse(
+            deferredDeactivate.contains("simulateHALTapYankLeavingSwiftObjectInPlace"),
+            "do not start another leftover-hot object-left slice"
+        )
+        XCTAssertFalse(deferredDeactivate.contains("waitUntilListenLoopDelayedSilentTapRepair"), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("reinstallTapIfSilentWhileRunning"), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("audioSessionHasMixWithOthers"), deferredDeactivate)
+        XCTAssertTrue(
+            deferredDeactivate.contains("415c955 deferred setActive(false) after write→player must fail this hole"),
+            deferredDeactivate
+        )
+        XCTAssertTrue(
+            deferredDeactivate.contains("415c955 deferred setActive(false) after write→player must drop the third"),
+            deferredDeactivate
+        )
+        XCTAssertTrue(deferredDeactivate.contains("feedTapPCM16"), deferredDeactivate)
+        XCTAssertTrue(deferredDeactivate.contains("same live tap"), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("for _ in 0..<"), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("while "), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("Task.sleep"), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("watchdog"), deferredDeactivate)
         let zeroNote = speakSlice(
             live,
             from: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn",
