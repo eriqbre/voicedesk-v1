@@ -21,6 +21,9 @@ final class GrokVoiceService: VoiceServicing {
     private let model: String
 
     private var currentResponseID: String?
+    /// The response that actually scheduled player buffers. Barge-in
+    /// cancel must target this id, not the next `response.created`.
+    private var playingResponseID: String?
     private var audioDeltaCount = 0
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
@@ -368,11 +371,12 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     private func interruptAssistant(sendCancel: Bool) {
-        if sendCancel, currentResponseID != nil || session.state == .speaking {
-            client.sendJSON(GrokRealtime.responseCancelObject())
+        if sendCancel, let id = GrokRealtime.responseIDToCancel(playingResponseID: playingResponseID) {
+            client.sendJSON(GrokRealtime.responseCancelObject(responseID: id))
         }
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
+        playingResponseID = nil
         currentResponseID = nil
         audioDeltaCount = 0
         if session.state == .speaking || session.state == .thinking {
@@ -393,6 +397,7 @@ final class GrokVoiceService: VoiceServicing {
         audio.stop()
         client.disconnect()
         client.dropOutbound()
+        playingResponseID = nil
         currentResponseID = nil
         audioDeltaCount = 0
         apply(.cancel)
@@ -509,6 +514,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
+        if playingResponseID == nil {
+            playingResponseID = currentResponseID
+        }
         audio.playPCM16(data)
     }
 
@@ -549,6 +557,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             // Live Grok PCM on the one-engine player. A leftover
             // id-match / suppress skip left pending at 0 — drain
             // without a rise is paper (415c955 / second engine).
+            if playingResponseID == nil {
+                playingResponseID = GrokRealtime.responseID(in: json)
+            }
             audio.playAudioDelta(base64: delta)
             audioDeltaCount += 1
         case .outputAudioDone:
@@ -563,6 +574,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                 ListenResumePolicy.applySessionAfterDeskSpeak(&session)
                 eventHandler?(.state(session.state))
             }
+            playingResponseID = nil
             currentResponseID = nil
             audioDeltaCount = 0
             assistantGate.reset()

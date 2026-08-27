@@ -381,6 +381,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let suppressLive = speakSlice(service, from: "func suppressAssistantOutput", to: "func cancel()")
         XCTAssertTrue(suppressLive.contains("audio.hasPendingPlayback"), suppressLive)
         XCTAssertFalse(service.contains("dropAssistantAudio"), service)
+        let interruptFn = speakSlice(service, from: "private func interruptAssistant", to: "private func teardown")
+        XCTAssertTrue(interruptFn.contains("responseIDToCancel"), interruptFn)
+        XCTAssertTrue(interruptFn.contains("responseCancelObject(responseID:"), interruptFn)
+        XCTAssertFalse(
+            interruptFn.contains("responseCancelObject()"),
+            "unscoped cancel races the next response.created and leaves pending 0"
+        )
+        XCTAssertTrue(service.contains("playingResponseID"), service)
         let waitUntil = speakSlice(
             service,
             from: "func waitUntilListenLoopQueuedTurnClosed() async {",

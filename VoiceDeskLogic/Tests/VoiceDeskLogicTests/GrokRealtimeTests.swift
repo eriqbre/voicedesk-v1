@@ -269,6 +269,20 @@ final class GrokRealtimeTests: XCTestCase {
 
     func testCancelAndTextTurnPayloads() {
         XCTAssertEqual(GrokRealtime.responseCancelObject()["type"] as? String, "response.cancel")
+        XCTAssertNil(
+            GrokRealtime.responseCancelObject()["response_id"],
+            "unscoped cancel races the next response.created"
+        )
+        let scoped = GrokRealtime.responseCancelObject(responseID: "resp_playing")
+        XCTAssertEqual(scoped["type"] as? String, "response.cancel")
+        XCTAssertEqual(scoped["response_id"] as? String, "resp_playing")
+        XCTAssertEqual(GrokRealtime.responseIDToCancel(playingResponseID: "resp_playing"), "resp_playing")
+        XCTAssertNil(GrokRealtime.responseIDToCancel(playingResponseID: nil))
+        XCTAssertNil(GrokRealtime.responseIDToCancel(playingResponseID: ""))
+        XCTAssertNil(
+            GrokRealtime.responseIDToCancel(playingResponseID: "   "),
+            "do not cancel the next created — only the playing answer"
+        )
         XCTAssertEqual(GrokRealtime.clearBufferObject()["type"] as? String, "input_audio_buffer.clear")
         XCTAssertEqual(GrokRealtime.commitAudioBufferObject()["type"] as? String, "input_audio_buffer.commit")
 

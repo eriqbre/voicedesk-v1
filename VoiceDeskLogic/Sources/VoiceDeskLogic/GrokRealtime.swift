@@ -222,8 +222,24 @@ public enum GrokRealtime {
         #"{"type":"input_audio_buffer.append","audio":"\#(base64)"}"#
     }
 
-    public static func responseCancelObject() -> [String: Any] {
-        ["type": "response.cancel"]
+    /// Unscoped cancel races the next `response.created` and kills the
+    /// interrupt answer — leftover created, pending 0. Barge-in must
+    /// pass the playing response's id.
+    public static func responseCancelObject(responseID: String? = nil) -> [String: Any] {
+        var object: [String: Any] = ["type": "response.cancel"]
+        if let responseID, !responseID.isEmpty {
+            object["response_id"] = responseID
+        }
+        return object
+    }
+
+    /// Cancel the answer that is on the player. Do not fall back to
+    /// `currentResponseID` — that is already the next created.
+    public static func responseIDToCancel(playingResponseID: String?) -> String? {
+        guard let id = playingResponseID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !id.isEmpty
+        else { return nil }
+        return id
     }
 
     public static func clearBufferObject() -> [String: Any] {

@@ -160,11 +160,7 @@ final class GrokVoiceAudioEngine {
                 }
             }
         }
-        // interruptPlayback stop()+play() can leave the node idle until
-        // the next schedule. Always play so the interrupt answer lands.
-        if !playerNode.isPlaying {
-            playerNode.play()
-        }
+        playerNode.play()
     }
 
     private func applyLifecycle(_ event: AudioTapLifecycle.Event) {
