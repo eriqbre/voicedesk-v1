@@ -85,16 +85,17 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("pull-to-refresh"))
         XCTAssertTrue(text.contains("NEVER paste a full email body"))
         XCTAssertTrue(text.contains("not in the last sync"))
-        XCTAssertTrue(text.contains("NEVER say you are searching"))
-        XCTAssertTrue(text.contains("can search Gmail"))
+        XCTAssertFalse(text.contains("NEVER say you are searching"))
         XCTAssertFalse(text.contains("The iOS app can search"))
         XCTAssertFalse(text.contains("I can search Gmail"))
         XCTAssertFalse(text.contains("waiting on the Email card"))
         XCTAssertFalse(text.contains("only have the subject"))
         XCTAssertFalse(text.contains("Snippet only"))
         XCTAssertFalse(text.contains("Can we walk the punch list"))
-        XCTAssertTrue(text.contains("from / subject / when only"))
-        XCTAssertTrue(text.contains("stay silent"))
+        XCTAssertTrue(text.contains("from, subject, and when"))
+        XCTAssertFalse(text.contains("stay silent"))
+        XCTAssertTrue(text.contains("you speak the answer"))
+        XCTAssertTrue(text.contains("in your own words"))
         XCTAssertTrue(text.contains("let the app handle"))
         XCTAssertTrue(text.contains("NEVER narrate routing"))
     }
@@ -108,7 +109,8 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(facts.contains("Snippet only"))
         XCTAssertFalse(facts.contains("Can we walk the punch list"))
         XCTAssertFalse(facts.localizedCaseInsensitiveContains("preview"))
-        XCTAssertTrue(facts.contains("stay silent"))
+        XCTAssertFalse(facts.contains("stay silent"))
+        XCTAssertTrue(facts.contains("You speak the answer"))
     }
 
     func testAppendAudioJSONIsHotPathSafe() {

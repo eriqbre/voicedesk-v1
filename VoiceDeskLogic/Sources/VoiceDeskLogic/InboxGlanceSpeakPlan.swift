@@ -11,6 +11,7 @@ public struct InboxGlanceSpeakPlan: Equatable, Sendable {
     public static let gmailListStage = "gmailList"
     public static let xaiGlanceStage = "xaiGlance"
     public static let localHeuristicSource = "local-heuristic"
+    public static let eveSpokenSource = "eve"
 
     public var intent: String
     public var spokenSource: String
@@ -47,15 +48,59 @@ public struct InboxGlanceSpeakPlan: Equatable, Sendable {
     }
 
     /// Inbox-overview may still list-refresh when the glance window is empty.
+    /// Live VAD: Eve is first audio — do not skip Gmail so she has facts.
     public static func shouldRefreshGmailListBeforeFirstSpeak(
         ask: String,
         snapshot: DeskSnapshot,
         isConnected: Bool,
-        isOnline: Bool
+        isOnline: Bool,
+        liveVADTurn: Bool = false
     ) -> Bool {
         guard isConnected, isOnline else { return false }
+        if liveVADTurn {
+            return ConversationPresence.looksLikeMailAsk(ask)
+                || ConversationPresence.wantsInboxOverview(ask)
+        }
         guard ConversationPresence.wantsInboxOverview(ask) else { return false }
         return !hasHotLatestFive(snapshot)
+    }
+
+    /// 83a5c6a first-audio hole: skipped tools + list stub.
+    public static func isSkippedGlanceListStub(_ plan: InboxGlanceSpeakPlan) -> Bool {
+        plan.voiceLogNotes.contains("firstAudio skipped xaiGlance")
+            && plan.voiceLogNotes.contains("firstAudio skipped gmailList")
+            && InboxGlance.isShortSpokenAck(plan.spokenText)
+    }
+
+    /// Live VAD: cards from cache, tools run, Eve speaks. No client stub.
+    public static func liveVAD(
+        ask: String,
+        snapshot: DeskSnapshot,
+        now: Date = Date()
+    ) -> InboxGlanceSpeakPlan {
+        let replay = VoiceTurnReplay.play(
+            utterance: ask,
+            context: DeskContext(isConnected: true, snapshot: snapshot)
+        )
+        let emails = snapshot.glanceEmails
+        var plan = InboxGlanceSpeakPlan(
+            intent: replay.intent,
+            spokenSource: eveSpokenSource,
+            spokenText: "",
+            stagesBeforeFirstAudio: [gmailListStage, xaiGlanceStage],
+            waitsOnGmailList: true,
+            waitsOnModel: true,
+            cardCount: min(emails.count, InboxGlance.overviewLimit),
+            voiceLogNotes: [
+                "firstAudio: eve",
+                gmailListStage,
+                xaiGlanceStage
+            ]
+        )
+        if let age = GoogleSyncPolicy.cacheAgeNote(lastSyncedAt: snapshot.lastSyncedAt, now: now) {
+            plan.voiceLogNotes.append(age)
+        }
+        return plan
     }
 
     public static func firstAudioWaitsOnGmailList(_ stages: [String]) -> Bool {

@@ -17,8 +17,11 @@ public enum GrokRealtime {
     public static let presenceInstructions = presenceInstructions(for: .disconnected)
 
     /// Second-person VoiceDesk presence. Cards attach in the iOS app from desk evidence;
-    /// this prompt only shapes spoken Grok. No tools are registered this slice.
-    public static func presenceInstructions(for context: DeskContext) -> String {
+    /// Eve speaks the reply. The client owns cards, mic, and fetches.
+    public static func presenceInstructions(
+        for context: DeskContext,
+        identity: BuildIdentity = .unknown
+    ) -> String {
         let deskBlock: String
         if context.isConnected {
             deskBlock = connectedDeskFacts(context.snapshot)
@@ -31,11 +34,11 @@ public enum GrokRealtime {
         }
 
         let deskObjective = context.isConnected
-            ? "When the topic is their desk, stay silent. The iOS app owns every Gmail, calendar, and task ask, including full email, body, and summary. You will not handle those turns. The client interrupts you."
+            ? "When the topic is their desk, you speak the answer from the last-synced facts. The iOS app attaches cards and fetches mail. You own intent and the spoken reply."
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, do not answer. Stay silent. The client owns those turns. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER say you are searching, will search, can search Gmail, or are looking anything up. NEVER describe mail as snippet-only. NEVER narrate routing. NEVER say you’ll let the app handle that, you’ll look that up in the app, or that you’re handing the turn off."
+            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, answer from the facts you have. If a body is not in the facts yet, you may acknowledge that you heard them and that you are checking — in your own words. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. Do not mention any sample listing or sample inbox as if it were live mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER describe mail as snippet-only. NEVER narrate routing. NEVER say you’ll let the app handle that, you’ll look that up in the app, or that you’re handing the turn off."
             : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
         let googleConnectGuard: String
@@ -55,6 +58,7 @@ public enum GrokRealtime {
         You are VoiceDesk — a person who already knows this realtor’s world. You talk like a colleague sitting next to them, not a command menu. You answer anything they ask, desk or not.
 
         \(deskBlock)
+        \(identityFacts(identity))
 
         ## Objective
         Be someone they can talk to about anything. \(deskObjective)
@@ -76,28 +80,43 @@ public enum GrokRealtime {
         NEVER mention an Email card or that a full message is waiting on a card. The client attaches cards. NEVER say pull-to-refresh.
         NEVER paste a full email body or quoted thread into the conversation.
         NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, or that all you have is a snippet. The client fetches full bodies.
-        NEVER say you are searching, will search, can search Gmail, or are looking anything up. The client handles all Gmail reads.
-        NEVER narrate routing. NEVER say you’ll let the app handle that or that you’ll look that up in the app. Stay silent on desk turns.
-        If they ask for a full email, summary, or body, stay silent. Body pulls are client-owned.
+        NEVER narrate routing. NEVER say you’ll let the app handle that or that you’ll look that up in the app.
+        If they ask for a full email, summary, or body, answer from the facts. If the body is not there yet, acknowledge in your own words that you heard them and are checking. Do not invent the body.
         \(context.isConnected
             ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
             : "How to connect Google — say exactly: Tap Connect Google on the card below.")
         """
     }
 
+    public static func identityFacts(_ identity: BuildIdentity) -> String {
+        if identity.spokenLine == BuildIdentity.unknownSpokenLine, identity.shortSHA.isEmpty {
+            return "Build identity is unknown."
+        }
+        let sha = identity.shortSHA.isEmpty ? "unknown" : identity.shortSHA
+        return "Build identity: \(identity.spokenLine) SHA \(sha)."
+    }
+
     public static func connectedDeskFacts(_ snapshot: DeskSnapshot) -> String {
         var lines: [String] = [
-            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts: from, subject, and when only. The client handles all Gmail reads, including full body and summary. You do not search. You do not look anything up. Do not invent mail. Do not say a message is not synced or that you only have a snippet. If they ask for a full email, summary, or body, stay silent — the client interrupts you."
+            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts: from, subject, and when, plus a body when the client has fetched it. The client fetches mail. You speak the answer. Do not invent mail. Do not say a message is not synced or that you only have a snippet."
         ]
         if let synced = snapshot.lastSyncedAt {
             lines.append("Last synced: \(DeskSnapshot.timeLabel(synced)).")
         }
         if snapshot.emails.isEmpty {
-            lines.append("Inbox list is empty. If they ask about mail, stay silent; the client owns the turn.")
+            lines.append("Inbox list is empty.")
         } else {
-            lines.append("Inbox (from / subject / when only — no bodies, no snippets):")
+            lines.append("Inbox (from / subject / when; body when fetched):")
             for email in snapshot.emails.prefix(8) {
-                lines.append("- \(email.fromName): \(email.subject) (\(email.sentAtLabel)).")
+                var line = "- \(email.fromName): \(email.subject) (\(email.sentAtLabel))."
+                if email.hasFullBody {
+                    let body = (email.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !body.isEmpty {
+                        let clipped = body.count > 400 ? String(body.prefix(400)).trimmingCharacters(in: .whitespaces) + "…" : body
+                        line += " Body: \(clipped)"
+                    }
+                }
+                lines.append(line)
             }
         }
         if snapshot.events.isEmpty {
@@ -587,15 +606,20 @@ public enum GrokRealtime {
 
     public static let speakVerbatimMarker = "SPEAK_VERBATIM"
 
-    /// Live Talk (socket up): Eve is the only mouth. Version / inbox /
-    /// person go through session.update + text item + response.create.
-    /// ClientVoiceSpeech stays for a down socket (typed / offline).
+    /// Live Talk (socket up): Eve's VAD turn is the mouth.
+    /// Do not stack a verbatim `response.create`. ClientVoiceSpeech
+    /// stays for a down socket (typed / offline).
     public static func shouldSpeakViaRealtime(
         usesLiveLoop: Bool,
         isConnected: Bool,
         userWantsVoiceOff: Bool
     ) -> Bool {
         usesLiveLoop && isConnected && !userWantsVoiceOff
+    }
+
+    /// Live VAD already created one response. A second create is two mouths.
+    public static func shouldSendVerbatimCreate(liveVADTurn: Bool) -> Bool {
+        !liveVADTurn
     }
 
     public static func verbatimSpeakInstructions(text: String) -> String {

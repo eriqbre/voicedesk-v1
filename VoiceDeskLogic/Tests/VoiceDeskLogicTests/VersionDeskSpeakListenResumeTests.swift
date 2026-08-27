@@ -166,8 +166,11 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
         XCTAssertTrue(tts.contains("usesApplicationAudioSession = false"), tts)
         XCTAssertFalse(tts.contains("usesApplicationAudioSession = true"), tts)
         XCTAssertTrue(source.contains("shouldSpeakViaRealtime"), source)
-        XCTAssertTrue(source.contains("speakLiveReplyViaEve"), source)
-        XCTAssertTrue(source.contains("verbatimSpeakSessionUpdateObject"), source)
+        XCTAssertFalse(
+            source.contains("speakLiveReplyViaEve"),
+            "live VAD must not stack a second response.create"
+        )
+        XCTAssertFalse(source.contains("verbatimSpeakSessionUpdateObject"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"desk speak\")"), source)
         XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)

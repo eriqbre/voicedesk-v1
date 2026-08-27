@@ -59,40 +59,19 @@ final class LiveTalkMouthTests: XCTestCase {
             to: "private func returnToListenAfterDeskTTS"
         )
         XCTAssertTrue(speakFn.contains("shouldSpeakViaRealtime"), speakFn)
-        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
+        XCTAssertFalse(
+            speakFn.contains("speakLiveReplyViaEve"),
+            "live VAD must not stack a second response.create"
+        )
+        XCTAssertFalse(speakFn.contains("responseCreateObject"), speakFn)
+        XCTAssertFalse(speakFn.contains("verbatimSpeakSessionUpdateObject"), speakFn)
         XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
         XCTAssertFalse(speakFn.contains("synthesizer.speak("), speakFn)
         XCTAssertFalse(speakFn.contains("resumeCapture"), speakFn)
         XCTAssertFalse(speakFn.contains("rearmTap"), speakFn)
         XCTAssertFalse(speakFn.contains("keepListeningAfterClientTTS"), speakFn)
         XCTAssertFalse(speakFn.contains("speakVerbatimViaGrok"), speakFn)
-        if let eveAt = speakFn.range(of: "speakLiveReplyViaEve"),
-           let writeAt = speakFn.range(of: "ClientVoiceSpeech.shared.speak") {
-            XCTAssertLessThan(
-                eveAt.lowerBound,
-                writeAt.lowerBound,
-                "live Talk must return before ClientVoiceSpeech write"
-            )
-        } else {
-            XCTFail("live speak must route Eve first; offline write stays")
-        }
-        let live = speakSlice(
-            source,
-            from: "private func speakLiveReplyViaEve",
-            to: "private func returnToListenAfterDeskTTS"
-        )
-        XCTAssertTrue(live.contains("verbatimSpeakSessionUpdateObject"), live)
-        XCTAssertTrue(live.contains("textItemObject"), live)
-        XCTAssertTrue(live.contains("responseCreateObject"), live)
-        XCTAssertFalse(live.contains("ClientVoiceSpeech"), live)
-        XCTAssertFalse(live.contains("playPCM16"), live)
-        XCTAssertFalse(live.contains("returnToListenAfterDeskTTS"), live)
-        XCTAssertFalse(live.contains("after desk tts drain"), live)
-        XCTAssertFalse(live.contains("waitUntilPlaybackDrained"), live)
-        XCTAssertFalse(live.contains("clientTTSInFlight = true"), live)
-        XCTAssertFalse(live.contains("resumeCapture"), live)
-        XCTAssertFalse(live.contains("rearmTap"), live)
-        XCTAssertFalse(live.contains("keepListeningAfterClientTTS"), live)
+        XCTAssertFalse(source.contains("private func speakLiveReplyViaEve"), source)
 
         let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
         let desk = speakSlice(app, from: "private func speakDeskReply", to: "private func rememberUserTurn")

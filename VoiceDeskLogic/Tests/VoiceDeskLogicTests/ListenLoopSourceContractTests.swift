@@ -30,7 +30,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "private func returnToListenAfterDeskTTS")
         XCTAssertFalse(speakFn.contains("echoGate.beginSpeaking"), speakFn)
         XCTAssertTrue(speakFn.contains("shouldSpeakViaRealtime"), speakFn)
-        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
+        XCTAssertFalse(
+            speakFn.contains("speakLiveReplyViaEve"),
+            "live VAD must not stack a second response.create"
+        )
         XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
         XCTAssertTrue(
             speakFn.contains("noteFirstAnswerPlaying"),

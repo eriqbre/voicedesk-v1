@@ -2,29 +2,41 @@ import Foundation
 
 /// Live Talk has one mouth: Eve PCM on the one player.
 /// Desk write-TTS drain + Eve path on the same turn is two mouths.
-/// Skipped-glance stub first-audio while voicePath is Eve is the same lie.
+/// A live VAD response plus a verbatim `response.create` (client stub)
+/// is the same two-mouth lie. Skipped-glance stub first-audio is too.
 public struct LiveTalkMouth: Equatable, Sendable {
     public var afterDeskTTSDrain: Bool
     public var eveVoicePath: Bool
     public var skippedGlanceStubFirstAudio: Bool
     public var clientVoiceSpeechWrite: Bool
+    public var liveVADResponse: Bool
+    public var sentVerbatimCreate: Bool
 
     public init(
         afterDeskTTSDrain: Bool,
         eveVoicePath: Bool,
         skippedGlanceStubFirstAudio: Bool,
-        clientVoiceSpeechWrite: Bool
+        clientVoiceSpeechWrite: Bool,
+        liveVADResponse: Bool = false,
+        sentVerbatimCreate: Bool = false
     ) {
         self.afterDeskTTSDrain = afterDeskTTSDrain
         self.eveVoicePath = eveVoicePath
         self.skippedGlanceStubFirstAudio = skippedGlanceStubFirstAudio
         self.clientVoiceSpeechWrite = clientVoiceSpeechWrite
+        self.liveVADResponse = liveVADResponse
+        self.sentVerbatimCreate = sentVerbatimCreate
     }
 
-    /// Desk drain timestamp-aligned with an Eve-path local reply, or a
-    /// ClientVoiceSpeech write while voicePath stays Eve.
+    /// Desk drain + Eve path, or a second `response.create` on a live VAD turn.
+    public var stacksSecondCreate: Bool {
+        liveVADResponse && sentVerbatimCreate
+    }
+
     public var isDualMouth: Bool {
-        (afterDeskTTSDrain && eveVoicePath) || (clientVoiceSpeechWrite && eveVoicePath)
+        (afterDeskTTSDrain && eveVoicePath)
+            || (clientVoiceSpeechWrite && eveVoicePath)
+            || stacksSecondCreate
     }
 
     /// Device fact: version / inbox / person desk drains aligned with
@@ -39,12 +51,27 @@ public struct LiveTalkMouth: Equatable, Sendable {
         )
     }
 
+    /// 83a5c6a hole: server VAD already created A; client then sent
+    /// session.update + fake user text + `response.create` (B) with a stub.
+    public static func liveVADPlusVerbatimStub() -> LiveTalkMouth {
+        LiveTalkMouth(
+            afterDeskTTSDrain: false,
+            eveVoicePath: true,
+            skippedGlanceStubFirstAudio: true,
+            clientVoiceSpeechWrite: false,
+            liveVADResponse: true,
+            sentVerbatimCreate: true
+        )
+    }
+
     public static func liveTalkEveOnly() -> LiveTalkMouth {
         LiveTalkMouth(
             afterDeskTTSDrain: false,
             eveVoicePath: true,
             skippedGlanceStubFirstAudio: false,
-            clientVoiceSpeechWrite: false
+            clientVoiceSpeechWrite: false,
+            liveVADResponse: true,
+            sentVerbatimCreate: false
         )
     }
 

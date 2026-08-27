@@ -374,6 +374,9 @@ final class AppModel {
         let yieldGrokInterruptAnswer = !bargeConsumedBefore && voice.listenLoopBargeConsumed
         rememberUserTurn(text, source: "live voice")
         completePlaybook()
+        if google.isConnected {
+            Task { await prefetchNewestBodyForEve() }
+        }
 
         if matchesCancel(text) {
             voice.cancel()
@@ -409,7 +412,9 @@ final class AppModel {
                     unmuteGrokAssistant()
                     return
                 }
-                claimLocalAssistantReply()
+                // Live VAD already has Eve's mouth. Do not claimLocal —
+                // that drops her in-flight audio. Cards and tools still run.
+                unmuteGrokAssistant()
                 Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
                 return
             }
@@ -424,7 +429,7 @@ final class AppModel {
                 unmuteGrokAssistant()
                 return
             }
-            claimLocalAssistantReply()
+            unmuteGrokAssistant()
             surfaceDeskEvidence(evidence)
             return
         }
@@ -769,6 +774,9 @@ final class AppModel {
         if shouldRefreshDeskSnapshot(for: text) {
             await syncDesk()
         }
+        if isLiveVADTurn {
+            await prefetchNewestBodyForEve()
+        }
         if let evidence = ConversationPresence.deskEvidence(
             for: text,
             context: deskContext,
@@ -791,14 +799,20 @@ final class AppModel {
         }
     }
 
+    private var isLiveVADTurn: Bool {
+        lastUserSource == "live voice" && voice.usesLiveLoop
+    }
+
     private func shouldRefreshDeskSnapshot(for text: String) -> Bool {
         guard google.isConnected, isOnline else { return false }
-        if ConversationPresence.wantsInboxOverview(text) {
+        if ConversationPresence.wantsInboxOverview(text)
+            || (isLiveVADTurn && ConversationPresence.looksLikeMailAsk(text)) {
             return InboxGlanceSpeakPlan.shouldRefreshGmailListBeforeFirstSpeak(
                 ask: text,
                 snapshot: deskSnapshot,
                 isConnected: true,
-                isOnline: true
+                isOnline: true,
+                liveVADTurn: isLiveVADTurn
             )
         }
         return ConversationPresence.wantsCalendarAsk(text) && deskSnapshot.events.isEmpty
@@ -811,6 +825,17 @@ final class AppModel {
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
         rememberEvidence(evidence)
         if evidence.topic == .version {
+            if isLiveVADTurn {
+                refreshPresence()
+                logVoiceTurn(
+                    evidence: evidence,
+                    intentHint: "version",
+                    reply: "",
+                    cards: [],
+                    notes: ["eve speaks identity", buildIdentity.dogfoodLine]
+                )
+                return
+            }
             let line = ConversationPresence.spokenIdentityLine(
                 for: lastUserUtterance,
                 identity: buildIdentity
@@ -860,22 +885,27 @@ final class AppModel {
             if case .email(let item) = card { return item }
             return nil
         }
-        // Cache-hot glance: first audio is the snapshot heuristic. Do not await
-        // xAI’s five-line rewrite or a Gmail list refresh before speak.
-        let plan = InboxGlanceSpeakPlan.fromCachedEmails(
-            emails,
-            ask: lastUserUtterance,
-            fallbackText: evidence.text
-        )
-        let spoken = plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? evidence.text
-            : plan.spokenText
-        // Cards are the list. Speak one short beat; don’t recite Name — topic lines.
+        let plan = isLiveVADTurn
+            ? InboxGlanceSpeakPlan.liveVAD(ask: lastUserUtterance, snapshot: deskSnapshot)
+            : InboxGlanceSpeakPlan.fromCachedEmails(
+                emails,
+                ask: lastUserUtterance,
+                fallbackText: evidence.text
+            )
+        let spoken = isLiveVADTurn
+            ? ""
+            : (plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? evidence.text
+                : plan.spokenText)
+        // Cards are the list. Live VAD: Eve speaks; do not stub first audio.
         let onScreen = emails.isEmpty
             ? spoken
             : InboxGlance.onScreenText(compactCardCount: emails.count)
         appendAssistant(onScreen, cards: evidence.cards)
         await speakDeskReply(spoken)
+        if isLiveVADTurn {
+            _ = await emailSummarizer.glanceInbox(emails)
+        }
         logVoiceTurn(
             evidence: evidence,
             reply: spoken,
@@ -1039,6 +1069,10 @@ final class AppModel {
 
     private func speakDeskReply(_ text: String) async {
         guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {
+            return
+        }
+        // Live VAD: Eve's one turn is the mouth. Do not send a stub.
+        if isLiveVADTurn {
             return
         }
         lastSpokenDeskReply = spoken
@@ -1248,7 +1282,38 @@ final class AppModel {
     }
 
     private func refreshPresence() {
-        voice.updatePresenceInstructions(GrokRealtime.presenceInstructions(for: deskContext))
+        voice.updatePresenceInstructions(
+            GrokRealtime.presenceInstructions(for: deskContext, identity: buildIdentity)
+        )
+    }
+
+    /// Live VAD read path: fetch the newest body so Eve can speak it.
+    /// Do not speak a client line.
+    private func prefetchNewestBodyForEve() async {
+        guard google.isConnected, let token = google.accessToken else {
+            refreshPresence()
+            return
+        }
+        guard let newest = EmailRecency.newest(deskSnapshot.emails) ?? deskSnapshot.emails.first else {
+            refreshPresence()
+            return
+        }
+        if newest.hasFullBody {
+            refreshPresence()
+            return
+        }
+        guard let id = newest.providerID, !id.isEmpty else {
+            refreshPresence()
+            return
+        }
+        do {
+            let full = try await sync.fetchMessage(token: token, messageID: id, now: Date())
+            upsertSnapshotEmail(full)
+            cache.save(deskSnapshot)
+            refreshPresence()
+        } catch {
+            refreshPresence()
+        }
     }
 
     private func refreshGoogleCards() {

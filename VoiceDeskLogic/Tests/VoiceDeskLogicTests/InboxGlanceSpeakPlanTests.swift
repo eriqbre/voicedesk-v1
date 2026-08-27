@@ -201,6 +201,8 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
 
         let glance = functionBody(in: source, named: "applyInboxGlance")
         XCTAssertTrue(glance.contains("InboxGlanceSpeakPlan"), glance)
+        XCTAssertTrue(glance.contains("InboxGlanceSpeakPlan.liveVAD"), glance)
+        XCTAssertTrue(refresh.contains("liveVADTurn"), refresh)
         XCTAssertTrue(glance.contains("speakDeskReply"), glance)
         guard let speakRange = glance.range(of: "speakDeskReply") else {
             return
