@@ -361,6 +361,29 @@ public enum GrokRealtime {
         return nil
     }
 
+    /// First-answer `response.done` after barge sees pending 0
+    /// (`interruptPlayback` just zeroed the player). That done is not
+    /// the interrupt answer. Keep the cancelled latch until a
+    /// *different* id actually scheduled as the interrupt answer.
+    /// A done that still names the cancelled first answer must not
+    /// clear the leftover-inject id.
+    public static func shouldResetBargeAfterResponseDone(
+        bargeConsumed: Bool,
+        interruptAnswerScheduled: Bool,
+        lastScheduledResponseID: String?,
+        cancelledResponseID: String?,
+        doneResponseID: String? = nil
+    ) -> Bool {
+        guard bargeConsumed, interruptAnswerScheduled else { return false }
+        let scheduled = nonemptyID(lastScheduledResponseID)
+        let cancelled = nonemptyID(cancelledResponseID)
+        let done = nonemptyID(doneResponseID)
+        guard let scheduled else { return false }
+        if let cancelled, scheduled == cancelled { return false }
+        if let done, let cancelled, done == cancelled { return false }
+        return true
+    }
+
     /// After barge, reject only leftover that carries the cancelled
     /// first-answer id. A nil latch or a delta without `response_id`
     /// must still schedule — that is R2. Do not eat the interrupt answer.

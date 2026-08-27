@@ -427,6 +427,45 @@ final class ListenLoopSourceContractTests: XCTestCase {
             outputAudio.contains("dropAssistantAudio"),
             "Grok PCM must hit the one-engine player"
         )
+        XCTAssertTrue(
+            outputAudio.contains("tagged != cancelledPlaybackResponseID"),
+            "leftover no-id JSON must not stamp the cancelled first-answer as the interrupt schedule"
+        )
+        XCTAssertTrue(
+            binary.contains("tagged != cancelledPlaybackResponseID"),
+            "leftover no-id binary must not mark interruptAnswerScheduled"
+        )
+        XCTAssertTrue(
+            binary.contains("noteFirstAnswerPlaying"),
+            "first-answer binary must epoch-latch before barge when both tagged and cancelled are nil"
+        )
+        let noteScheduled = speakSlice(
+            service,
+            from: "private func noteScheduledResponse",
+            to: "private func noteFirstAnswerPlaying"
+        )
+        XCTAssertTrue(
+            noteScheduled.contains("id != cancelledPlaybackResponseID"),
+            "bargeConsumed leftover of the cancelled id must not set interruptAnswerScheduled"
+        )
+        let responseDone = speakSlice(service, from: "case .responseDone", to: "case .ping")
+        XCTAssertTrue(
+            responseDone.contains("shouldResetBargeAfterResponseDone"),
+            "first-answer done with pending 0 must not clear the leftover latch"
+        )
+        XCTAssertFalse(
+            responseDone.contains("cancelledPlaybackResponseID = nil"),
+            "do not nil the cancelled id on response.done — leftover inject needs it"
+        )
+        let bargeDoneReset = speakSlice(
+            service,
+            from: "if GrokRealtime.shouldResetBargeAfterResponseDone",
+            to: "} else {"
+        )
+        XCTAssertFalse(
+            bargeDoneReset.contains("lastScheduledResponseID = nil"),
+            "do not nil lastScheduled on the barge done reset — 1529 needs the interrupt id"
+        )
         let interruptLive = speakSlice(
             service,
             from: "func interruptResponse() {",
@@ -496,6 +535,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func responseIDToCancelOnBarge"), realtime)
         XCTAssertTrue(realtime.contains("func shouldKeepInterruptAnswerOnPlayer"), realtime)
         XCTAssertTrue(realtime.contains("func shouldScheduleAfterBarge"), realtime)
+        XCTAssertTrue(realtime.contains("func shouldResetBargeAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func latchWhenFirstAnswerPlaying"), realtime)

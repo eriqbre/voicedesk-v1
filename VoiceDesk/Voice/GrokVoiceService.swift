@@ -438,7 +438,9 @@ final class GrokVoiceService: VoiceServicing {
         guard let id = GrokRealtime.nonemptyID(id) else { return }
         lastScheduledResponseID = id
         if bargeConsumed {
-            interruptAnswerScheduled = true
+            if id != cancelledPlaybackResponseID {
+                interruptAnswerScheduled = true
+            }
             return
         }
         if interruptTargetID == nil {
@@ -698,19 +700,22 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             let deltaID = GrokRealtime.responseID(in: json)
             guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { break }
             if playingResponseID == nil {
-                playingResponseID = GrokRealtime.scheduledResponseID(
+                let tagged = GrokRealtime.scheduledResponseID(
                     deltaResponseID: deltaID,
                     createdAwaitingAudioID: createdAwaitingAudioID,
                     lastCreatedResponseID: lastCreatedResponseID
                 )
-                noteScheduledResponse(playingResponseID)
+                if tagged != cancelledPlaybackResponseID {
+                    playingResponseID = tagged
+                    noteScheduledResponse(tagged)
+                }
             }
             audio.playAudioDelta(base64: delta)
             audioDeltaCount += 1
             noteFirstAnswerPlaying()
         case .outputAudioDone:
             break
-        case .responseDone:
+        case .responseDone(let doneID):
             responseDoneCountForTests += 1
             if ListenResumePolicy.shouldApplyGrokTurnFinished(
                 clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight
@@ -726,14 +731,23 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             audioDeltaCount = 0
             if !audio.hasPendingPlayback {
                 if bargeConsumed {
-                    if interruptAnswerScheduled {
+                    if GrokRealtime.shouldResetBargeAfterResponseDone(
+                        bargeConsumed: true,
+                        interruptAnswerScheduled: interruptAnswerScheduled,
+                        lastScheduledResponseID: lastScheduledResponseID,
+                        cancelledResponseID: cancelledPlaybackResponseID,
+                        doneResponseID: doneID
+                    ) {
+                        // A different id scheduled as the interrupt
+                        // answer. Do not nil cancelledPlaybackResponseID
+                        // or lastScheduled — leftover inject and 1529
+                        // still need the first-answer latch. First-answer
+                        // done with pending 0 must not take this branch.
                         bargeConsumed = false
                         interruptAnswerScheduled = false
                         interruptTargetID = nil
-                        lastScheduledResponseID = nil
                         createdCountAtBarge = 0
                         speechStartedBarge = false
-                        cancelledPlaybackResponseID = nil
                     }
                 } else {
                     interruptTargetID = nil

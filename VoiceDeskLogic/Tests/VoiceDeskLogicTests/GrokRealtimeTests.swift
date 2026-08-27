@@ -521,6 +521,61 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             "a nil latch must not drop every delta (dropAssistantAudio in disguise)"
         )
+        XCTAssertFalse(
+            GrokRealtime.shouldResetBargeAfterResponseDone(
+                bargeConsumed: true,
+                interruptAnswerScheduled: false,
+                lastScheduledResponseID: "resp_1",
+                cancelledResponseID: "resp_1"
+            ),
+            "leftover first-answer done must keep the cancelled latch"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldResetBargeAfterResponseDone(
+                bargeConsumed: true,
+                interruptAnswerScheduled: true,
+                lastScheduledResponseID: "resp_1",
+                cancelledResponseID: "resp_1"
+            ),
+            "no-id leftover that re-stamped the first-answer id is not the interrupt answer"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldResetBargeAfterResponseDone(
+                bargeConsumed: true,
+                interruptAnswerScheduled: true,
+                lastScheduledResponseID: "resp_2",
+                cancelledResponseID: "resp_1",
+                doneResponseID: "resp_1"
+            ),
+            "first-answer done must not clear the latch even if R2 already scheduled"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldResetBargeAfterResponseDone(
+                bargeConsumed: true,
+                interruptAnswerScheduled: true,
+                lastScheduledResponseID: nil,
+                cancelledResponseID: "resp_1"
+            ),
+            "pending-0 first-answer done with a cleared schedule must keep the cancelled id"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldResetBargeAfterResponseDone(
+                bargeConsumed: true,
+                interruptAnswerScheduled: true,
+                lastScheduledResponseID: "resp_2",
+                cancelledResponseID: "resp_1",
+                doneResponseID: "resp_2"
+            ),
+            "only a different scheduled interrupt-answer id may reset bargeConsumed"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldResetBargeAfterResponseDone(
+                bargeConsumed: false,
+                interruptAnswerScheduled: true,
+                lastScheduledResponseID: "resp_2",
+                cancelledResponseID: "resp_1"
+            )
+        )
         XCTAssertEqual(
             GrokRealtime.bargeInDecision(
                 hasPendingPlayback: true,
