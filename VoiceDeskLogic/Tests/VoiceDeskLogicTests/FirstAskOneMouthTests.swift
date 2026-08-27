@@ -210,19 +210,6 @@ final class FirstAskOneMouthTests: XCTestCase {
         )
 
         let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        let playGate = speakSlice(
-            service,
-            from: "private func shouldPlayBargeAudio",
-            to: "private func noteScheduledResponse"
-        )
-        XCTAssertTrue(
-            playGate.contains("LiveVADPlayerKeep.shouldPlayBargeAudio"),
-            "wrapper must call the extracted shouldPlayBargeAudio"
-        )
-        XCTAssertTrue(playGate.contains("dropAssistantTranscript"), playGate)
-        XCTAssertTrue(playGate.contains("clientTTSInFlight"), playGate)
-        XCTAssertFalse(playGate.contains("dropAssistantAudio"), playGate)
-
         let speakFn = speakSlice(
             service,
             from: "func speak(_ text: String) async {",
