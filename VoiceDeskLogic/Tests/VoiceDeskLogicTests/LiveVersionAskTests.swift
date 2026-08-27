@@ -2,11 +2,9 @@ import XCTest
 @testable import VoiceDeskLogic
 
 /// After production handleLiveUser + speakDeskReply, Eve PCM is
-/// `LiveVADPlayerKeep.shouldPlayBargeAudio` — the same function
-/// GrokVoiceService.shouldPlayBargeAudio wraps. Drain is
-/// `LiveVADPlayerKeep.returnToListenAfterDeskTTS` — the flag-clear
-/// body `GrokVoiceService.returnToListenAfterDeskTTS` calls.
-/// Not flash-ready.
+/// `LiveVADPlayerKeep.shouldPlayBargeAudio`. Drain is
+/// `LiveVersionAsk.returnToListenAfterDeskTTS()` — AppModel calls
+/// that one method (no two-inout Observation alias). Not flash-ready.
 final class LiveVersionAskTests: XCTestCase {
     private let ask = "Good morning. What version are we on?"
 
