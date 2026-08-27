@@ -258,18 +258,9 @@ final class GrokVoiceService: VoiceServicing {
         )
         bargeConsumed = true
         lastBargeCancelSentID = decision.cancelResponseID
-        // First-answer barge target, not lastScheduled if leftover leftover
-        // already stamped lastCreated (07c1a72 leftover paper: leftover
-        // inject of interrupt created, created==scheduled, pending 0).
-        cancelledPlaybackResponseID = knownCancelled
-            ?? GrokRealtime.nonemptyID(lastScheduledResponseID)
+        cancelledPlaybackResponseID = GrokRealtime.nonemptyID(lastScheduledResponseID)
+            ?? knownCancelled
             ?? GrokRealtime.playbackEpochLatch(audio.playbackEpoch)
-        if GrokRealtime.isStalePlayingResponseAfterBarge(
-            playingResponseID: playingResponseID,
-            cancelledResponseID: cancelledPlaybackResponseID
-        ) {
-            playingResponseID = nil
-        }
         if decision.dropLocal {
             interruptAssistant(sendCancel: false)
         }

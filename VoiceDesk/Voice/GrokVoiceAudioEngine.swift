@@ -42,11 +42,9 @@ final class GrokVoiceAudioEngine {
     private var tapInstalled = false
     /// Inject-only. Phone yank leaves the Swift object and a lying
     /// public `isTapInstalled`. Storage `tapInstalled` goes false so
-    /// leftover-hot `feedTapPCM16` stays the 453bda8 guard.
-    /// `InstallTapHold` leftover-hot `isReleased` raced leftover
-    /// composed (12ba20f 97s, tape3 lost). `removeTap` does not
-    /// release the install block in time for 316 — not leftover-safe,
-    /// not a working object-left signal. Do not put it back.
+    /// leftover-hot `feedTapPCM16` stays the 453bda8 guard — a feed
+    /// `&& !objectLeftInPlaceSilent` still killed leftover composed
+    /// on 2eb6cd6 (created==scheduled leftover, 56s).
     private var objectLeftInPlaceSilent = false
     private var pendingPlaybackBuffers = 0
     private(set) var playbackEpoch = 0

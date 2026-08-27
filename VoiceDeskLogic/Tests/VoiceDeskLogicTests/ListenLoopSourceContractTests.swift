@@ -511,17 +511,9 @@ final class ListenLoopSourceContractTests: XCTestCase {
             outputAudio.contains("tagged != cancelledPlaybackResponseID"),
             "leftover no-id JSON must not stamp the cancelled first-answer as the interrupt schedule"
         )
-        XCTAssertFalse(
-            outputAudio.contains("isStalePlayingResponseAfterBarge"),
-            "stale playing on leftover leftover no-id stamps lastCreated — leftover paper"
-        )
         XCTAssertTrue(
             binary.contains("tagged != cancelledPlaybackResponseID"),
             "leftover no-id binary must not mark interruptAnswerScheduled"
-        )
-        XCTAssertFalse(
-            binary.contains("isStalePlayingResponseAfterBarge"),
-            "stale playing on leftover leftover no-id stamps lastCreated — leftover paper"
         )
         XCTAssertTrue(
             binary.contains("noteFirstAnswerPlaying"),
@@ -594,10 +586,6 @@ final class ListenLoopSourceContractTests: XCTestCase {
             interruptLive.contains("nonemptyID(lastScheduledResponseID)"),
             "command barge must set cancelled = lastScheduled so leftover inject matches the reject gate"
         )
-        XCTAssertTrue(
-            interruptLive.contains("knownCancelled"),
-            "cancelled is the first-answer target — not lastScheduled after leftover leftover stamped lastCreated"
-        )
         XCTAssertTrue(interruptLive.contains("shouldArmCommandBargeLatch"), interruptLive)
         XCTAssertFalse(
             interruptLive.contains("delayedSilentTapRepair"),
@@ -628,10 +616,6 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(
             interruptLive.contains("if decision.dropLocal"),
             "drop buffers only when bargeInDecision says drop — pending 0 is latch-only"
-        )
-        XCTAssertTrue(
-            interruptLive.contains("isStalePlayingResponseAfterBarge"),
-            "pending-0 latch-only barge must nil stale first-answer playing or leftover created!=scheduled"
         )
         XCTAssertTrue(interruptLive.contains("bargeConsumed"), interruptLive)
         XCTAssertTrue(interruptLive.contains("createdCountAtBarge"), interruptLive)
@@ -695,7 +679,6 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func shouldArmCommandBargeLatch"), realtime)
         XCTAssertTrue(realtime.contains("func keepScheduledLatchAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func shouldWriteScheduledLatchOnPlay"), realtime)
-        XCTAssertTrue(realtime.contains("func isStalePlayingResponseAfterBarge"), realtime)
         XCTAssertTrue(realtime.contains("func shouldResetBargeAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)

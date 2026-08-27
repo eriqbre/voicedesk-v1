@@ -348,20 +348,6 @@ public enum GrokRealtime {
         nonemptyID(existingScheduledID) == nil || !bargeConsumed
     }
 
-    /// First-answer PCM can drain before the transcript. Barge then
-    /// latch-only (`dropLocal` false) and leaves this id in playing.
-    /// Nil it there — do not stamp lastCreated onto lastScheduled
-    /// from leftover leftover no-id (07c1a72 leftover paper).
-    public static func isStalePlayingResponseAfterBarge(
-        playingResponseID: String?,
-        cancelledResponseID: String?
-    ) -> Bool {
-        let playing = nonemptyID(playingResponseID)
-        let cancelled = nonemptyID(cancelledResponseID)
-        guard let playing, let cancelled else { return false }
-        return playing == cancelled
-    }
-
     /// lastScheduled means an answer actually hit the player.
     /// First-answer `response.done` is the leftover window — keep
     /// the id so command barge after drain can arm leftover.

@@ -569,16 +569,6 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             "resp_1"
         )
-        XCTAssertEqual(
-            GrokRealtime.cancelledPlaybackResponseID(
-                interruptTargetID: "resp_1",
-                lastScheduledResponseID: "resp_2",
-                playingResponseID: "resp_2",
-                lastCreatedResponseID: "resp_2"
-            ),
-            "resp_1",
-            "leftover inject must stay first-answer — not lastScheduled after leftover leftover stamped lastCreated"
-        )
         XCTAssertFalse(
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: false,
@@ -632,33 +622,6 @@ final class GrokRealtimeTests: XCTestCase {
                 bargeConsumed: true
             ),
             "after barge do not overwrite the cancelled first-answer latch with lastCreated"
-        )
-        XCTAssertTrue(
-            GrokRealtime.isStalePlayingResponseAfterBarge(
-                playingResponseID: "resp_1",
-                cancelledResponseID: "resp_1"
-            ),
-            "drained first-answer still in playing must not block interrupt lastScheduled"
-        )
-        XCTAssertFalse(
-            GrokRealtime.isStalePlayingResponseAfterBarge(
-                playingResponseID: "resp_2",
-                cancelledResponseID: "resp_1"
-            ),
-            "interrupt id on the player is not stale"
-        )
-        XCTAssertFalse(
-            GrokRealtime.isStalePlayingResponseAfterBarge(
-                playingResponseID: "resp_1",
-                cancelledResponseID: nil
-            ),
-            "before barge, playing is the live first answer"
-        )
-        XCTAssertFalse(
-            GrokRealtime.isStalePlayingResponseAfterBarge(
-                playingResponseID: nil,
-                cancelledResponseID: "resp_1"
-            )
         )
         XCTAssertTrue(
             GrokRealtime.shouldArmCommandBargeLatch(
