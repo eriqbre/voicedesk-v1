@@ -431,8 +431,9 @@ final class AppModel {
                     // Desk identity is the mouth. Do not unmute Eve.
                     liveVersionAsk.liveVADTurn = true
                     liveVersionAsk.identity = buildIdentity
-                    liveVersionAsk.handleLiveUser(text)
-                    claimLocalAssistantReply()
+                    if liveVersionAsk.handleLiveUser(text) {
+                        claimLocalAssistantReply()
+                    }
                     Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
                     return
                 }
@@ -459,8 +460,9 @@ final class AppModel {
             if isLiveVADTurn, deskWritesIdentity {
                 liveVersionAsk.liveVADTurn = true
                 liveVersionAsk.identity = buildIdentity
-                liveVersionAsk.handleLiveUser(text)
-                claimLocalAssistantReply()
+                if liveVersionAsk.handleLiveUser(text) {
+                    claimLocalAssistantReply()
+                }
                 surfaceDeskEvidence(evidence)
                 return
             }
