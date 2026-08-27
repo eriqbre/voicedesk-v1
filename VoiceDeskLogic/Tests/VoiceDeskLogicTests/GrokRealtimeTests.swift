@@ -297,7 +297,8 @@ final class GrokRealtimeTests: XCTestCase {
                 playingResponseID: "resp_1",
                 interruptTargetID: "resp_1"
             ),
-            .cancel(responseID: "resp_1")
+            .dropLocalOnly,
+            "barge drops local — do not send response.cancel"
         )
         XCTAssertEqual(
             GrokRealtime.bargeInPlayback(
@@ -305,7 +306,8 @@ final class GrokRealtimeTests: XCTestCase {
                 playingResponseID: "resp_1",
                 interruptTargetID: nil
             ),
-            .cancel(responseID: "resp_1")
+            .dropLocalOnly,
+            "barge drops local — do not send response.cancel"
         )
         XCTAssertEqual(
             GrokRealtime.bargeInPlayback(
@@ -316,8 +318,29 @@ final class GrokRealtimeTests: XCTestCase {
                 createdCountAtLatch: 1,
                 createdCountNow: 2
             ),
-            .cancel(responseID: "resp_1"),
-            "cancel the latched old answer, not the interrupt created"
+            .none,
+            "interrupt answer already on the player — do not drop or cancel it"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldKeepInterruptAnswerOnPlayer(
+                playingResponseID: "resp_2",
+                interruptTargetID: "resp_1",
+                currentResponseID: "resp_2",
+                createdCountAtLatch: 1,
+                createdCountNow: 2
+            )
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeInPlayback(
+                hasPendingPlayback: true,
+                playingResponseID: "resp_1",
+                interruptTargetID: "resp_1",
+                currentResponseID: "resp_2",
+                createdCountAtLatch: 1,
+                createdCountNow: 2
+            ),
+            .dropLocalOnly,
+            "old answer still on the player — drop local, do not cancel the in-flight created"
         )
         XCTAssertEqual(
             GrokRealtime.responseIDToCancelOnBarge(
@@ -329,6 +352,24 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             nil,
             "overwritten latch equal to the newer created must not cancel it"
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeProofLine(
+                createdID: "resp_2",
+                scheduledID: "resp_1",
+                cancelID: nil,
+                audioDeltaCount: 0
+            ),
+            "created=resp_2 scheduled=resp_1 cancel=- deltas=0"
+        )
+        XCTAssertEqual(
+            GrokRealtime.bargeProofLine(
+                createdID: "resp_2",
+                scheduledID: "resp_2",
+                cancelID: "resp_1",
+                audioDeltaCount: 3
+            ),
+            "created=resp_2 scheduled=resp_2 cancel=resp_1 deltas=3"
         )
         XCTAssertEqual(
             GrokRealtime.bargeInDecision(
@@ -349,7 +390,8 @@ final class GrokRealtimeTests: XCTestCase {
                 playingResponseID: nil,
                 interruptTargetID: "resp_1"
             ),
-            .cancel(responseID: "resp_1")
+            .dropLocalOnly,
+            "barge drops local — do not send response.cancel"
         )
         XCTAssertEqual(
             GrokRealtime.bargeInPlayback(
@@ -368,6 +410,26 @@ final class GrokRealtimeTests: XCTestCase {
                 createdCountNow: 2
             ),
             "no latch and a newer created — do not cancel playing"
+        )
+        XCTAssertNil(
+            GrokRealtime.responseIDToCancelOnBarge(
+                interruptTargetID: "resp_1",
+                playingResponseID: "resp_1",
+                currentResponseID: "resp_2",
+                createdCountAtLatch: 1,
+                createdCountNow: 2
+            ),
+            "a newer created is already in flight — do not send cancel"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldKeepInterruptAnswerOnPlayer(
+                playingResponseID: "resp_1",
+                interruptTargetID: "resp_1",
+                currentResponseID: "resp_2",
+                createdCountAtLatch: 1,
+                createdCountNow: 2
+            ),
+            "old answer still on the player must drop locally"
         )
         XCTAssertEqual(
             GrokRealtime.latchedInterruptTarget(existing: "resp_1", scheduledResponseID: "resp_2"),

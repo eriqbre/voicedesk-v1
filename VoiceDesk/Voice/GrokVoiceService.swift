@@ -46,6 +46,9 @@ final class GrokVoiceService: VoiceServicing {
     /// A later created is the interrupt answer — do not cancel it.
     private var createdCountAtBarge = 0
     private var audioDeltaCount = 0
+    /// Last live created / scheduled / barge-cancel ids. Proof only.
+    private var lastCreatedResponseID: String?
+    private var lastBargeCancelSentID: String?
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var isTearingDown = false
@@ -218,9 +221,10 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {
-        // Barge-in cancels the playing answer. A leftover cancel after
-        // pending is already 0 kills the next response.created before
-        // output_audio.delta can schedule — leftover created, pending 0.
+        // Barge-in drops the playing answer locally. Do not send
+        // response.cancel — xAI server VAD already interrupted, and a
+        // client cancel races the next created (leftover created,
+        // pending 0). Keep buffers if that created already scheduled.
         guard audio.hasPendingPlayback else { return }
         guard !bargeConsumed else { return }
         let decision = GrokRealtime.bargeInDecision(
@@ -233,9 +237,8 @@ final class GrokVoiceService: VoiceServicing {
             createdCountNow: responseCreatedCountForTests
         )
         bargeConsumed = true
-        if let id = decision.cancelResponseID {
-            interruptAssistant(sendCancel: true, responseID: id)
-        } else if decision.dropLocal {
+        lastBargeCancelSentID = decision.cancelResponseID
+        if decision.dropLocal {
             interruptAssistant(sendCancel: false)
         }
     }
@@ -418,6 +421,7 @@ final class GrokVoiceService: VoiceServicing {
     private func interruptAssistant(sendCancel: Bool, responseID: String? = nil) {
         let target = responseID ?? playingResponseID
         if sendCancel, let id = GrokRealtime.responseIDToCancel(playingResponseID: target) {
+            lastBargeCancelSentID = id
             client.sendJSON(GrokRealtime.responseCancelObject(responseID: id))
         }
         ClientVoiceSpeech.shared.stop()
@@ -611,6 +615,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .responseCreated(let id):
             responseCreatedCountForTests += 1
             currentResponseID = id
+            lastCreatedResponseID = GrokRealtime.nonemptyID(id)
             assistantGate.reset()
             if playingResponseID == nil && !audio.hasPendingPlayback {
                 createdAwaitingAudioID = id
@@ -802,6 +807,27 @@ extension GrokVoiceService {
 
     /// Live Grok (or a protocol-complete peer) created a response.
     var listenLoopResponseCreatedCount: Int { responseCreatedCountForTests }
+
+    /// First barge-in already dropped local. claimLocal must not own
+    /// that turn — Grok's interrupt answer schedules on the player.
+    var listenLoopBargeConsumed: Bool { bargeConsumed }
+
+    var listenLoopLastCreatedResponseID: String? { lastCreatedResponseID }
+
+    var listenLoopLastScheduledResponseID: String? { lastScheduledResponseID }
+
+    var listenLoopLastCancelResponseID: String? { lastBargeCancelSentID }
+
+    var listenLoopAudioDeltaCount: Int { audioDeltaCount }
+
+    var listenLoopBargeProof: String {
+        GrokRealtime.bargeProofLine(
+            createdID: lastCreatedResponseID,
+            scheduledID: lastScheduledResponseID,
+            cancelID: lastBargeCancelSentID,
+            audioDeltaCount: audioDeltaCount
+        )
+    }
 
     func waitUntilListenLoopHasProductionSendTask(timeoutSeconds: Double = 12) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(timeoutSeconds)

@@ -1367,6 +1367,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     var spoken: [String] = []
     var assistantOutputSuppressed = false
     var hasPendingPlayback = false
+    var listenLoopBargeConsumed = false
     var interruptCount = 0
     /// Mic tap. Client TTS must not tear this down (fe1ffc8 resumeCapture).
     var tapLive = true
@@ -1442,6 +1443,7 @@ final class FakeLiveVoiceService: VoiceServicing {
         guard hasPendingPlayback else { return }
         interruptCount += 1
         hasPendingPlayback = false
+        listenLoopBargeConsumed = true
     }
 
     func suppressAssistantOutput(_ suppress: Bool) {

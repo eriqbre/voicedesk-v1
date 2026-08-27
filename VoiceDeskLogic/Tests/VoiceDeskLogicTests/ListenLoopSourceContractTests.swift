@@ -97,7 +97,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(app.contains("voice.interruptResponse()"), app)
         XCTAssertTrue(app.contains("handleLiveUser(event.text, itemID: event.itemID)"), app)
         XCTAssertTrue(app.contains("userDedupe.accept"), app)
+        XCTAssertTrue(app.contains("yieldGrokInterruptAnswer"), app)
+        XCTAssertTrue(app.contains("listenLoopBargeConsumed"), app)
         let handleUser = speakSlice(app, from: "private func handleLiveUser", to: "private func upsertLiveAssistant")
+        XCTAssertTrue(handleUser.contains("yieldGrokInterruptAnswer"), handleUser)
+        XCTAssertTrue(handleUser.contains("listenLoopBargeConsumed"), handleUser)
         if let acceptAt = handleUser.range(of: "userDedupe.accept"),
            let interruptAt = handleUser.range(of: "voice.interruptResponse()") {
             XCTAssertLessThan(
@@ -377,6 +381,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("func waitUntilListenLoopResponseDone"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopPlaybackDrained"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopPendingPlayback"), service)
+        XCTAssertTrue(service.contains("var listenLoopBargeConsumed"), service)
+        XCTAssertTrue(service.contains("var listenLoopBargeProof"), service)
+        XCTAssertTrue(service.contains("listenLoopLastCreatedResponseID"), service)
+        XCTAssertTrue(service.contains("listenLoopLastScheduledResponseID"), service)
+        XCTAssertTrue(service.contains("listenLoopLastCancelResponseID"), service)
         XCTAssertTrue(service.contains("func connectListenLoopProductionForTests"), service)
         let outputAudio = speakSlice(service, from: "case .outputAudioDelta", to: "case .outputAudioDone")
         XCTAssertTrue(outputAudio.contains("playAudioDelta"), outputAudio)
@@ -401,6 +410,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(interruptLive.contains("bargeConsumed"), interruptLive)
         XCTAssertTrue(interruptLive.contains("createdCountAtBarge"), interruptLive)
         XCTAssertTrue(interruptLive.contains("interruptTargetID"), interruptLive)
+        XCTAssertTrue(
+            interruptLive.contains("interruptAssistant(sendCancel: false)"),
+            "barge must not send response.cancel — that races the interrupt created"
+        )
+        XCTAssertFalse(
+            interruptLive.contains("sendCancel: true"),
+            "client cancel on barge leaves leftover created, pending 0"
+        )
         XCTAssertFalse(
             interruptLive.contains("keepNewAnswer"),
             "retargeting keepNewAnswer to playing lets claimLocal cancel the interrupt answer"
@@ -438,6 +455,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func createResponse(inSessionUpdate"), realtime)
         XCTAssertTrue(realtime.contains("func bargeInDecision"), realtime)
         XCTAssertTrue(realtime.contains("func responseIDToCancelOnBarge"), realtime)
+        XCTAssertTrue(realtime.contains("func shouldKeepInterruptAnswerOnPlayer"), realtime)
+        XCTAssertTrue(realtime.contains("func bargeProofLine"), realtime)
         XCTAssertTrue(realtime.contains("func latchedInterruptTarget"), realtime)
         XCTAssertFalse(realtime.contains("keepNewAnswer"), realtime)
         let updated = speakSlice(service, from: "case .sessionUpdated:", to: "case .speechStarted:")
@@ -1701,6 +1720,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(
             composed.contains("pendingPlayback must rise again for the interrupt answer"),
             composed
+        )
+        XCTAssertTrue(
+            composed.contains("listenLoopBargeProof"),
+            "created vs scheduled vs cancel must be in the 1493 failure"
         )
         XCTAssertFalse(
             composed.contains("bargeInDeskReply"),

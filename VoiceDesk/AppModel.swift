@@ -368,8 +368,10 @@ final class AppModel {
         // Duplicate item.created + transcription.completed used to
         // interrupt before accept, then cancel the interrupt answer
         // (playingResponseID already the next created).
+        let bargeConsumedBefore = voice.listenLoopBargeConsumed
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
         voice.interruptResponse()
+        let yieldGrokInterruptAnswer = !bargeConsumedBefore && voice.listenLoopBargeConsumed
         rememberUserTurn(text, source: "live voice")
         completePlaybook()
 
@@ -403,6 +405,10 @@ final class AppModel {
                 hasFocusedEmail: lastFocusedEmail != nil,
                 pendingSenderRefine: pendingSenderRefine
             ) {
+                if yieldGrokInterruptAnswer {
+                    unmuteGrokAssistant()
+                    return
+                }
                 claimLocalAssistantReply()
                 Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
                 return
@@ -414,6 +420,10 @@ final class AppModel {
             focusedEmail: lastFocusedEmail,
             priorSearchAsk: lastSearchAsk
         ) {
+            if yieldGrokInterruptAnswer {
+                unmuteGrokAssistant()
+                return
+            }
             claimLocalAssistantReply()
             surfaceDeskEvidence(evidence)
             return

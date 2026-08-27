@@ -45,11 +45,15 @@ protocol VoiceServicing: AnyObject {
     func cancel()
     /// Open live Grok + audio session after first paint so the first tap can hear.
     func warmUp() async
+    /// First barge-in already dropped local. claimLocal must yield that
+    /// turn so the interrupt answer can schedule on the one-engine player.
+    var listenLoopBargeConsumed: Bool { get }
 }
 
 extension VoiceServicing {
     func warmUp() async {}
     var hasPendingPlayback: Bool { false }
+    var listenLoopBargeConsumed: Bool { false }
 }
 
 enum VoiceRuntime {
@@ -80,6 +84,7 @@ final class VoiceBox {
 
     var transcriptHandler: ((VoiceTranscript) -> Void)?
     var hasPendingPlayback: Bool { service.hasPendingPlayback }
+    var listenLoopBargeConsumed: Bool { service.listenLoopBargeConsumed }
 
     private let service: any VoiceServicing
 

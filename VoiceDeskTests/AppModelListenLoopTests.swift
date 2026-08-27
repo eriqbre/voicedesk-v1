@@ -1492,12 +1492,12 @@ final class AppModelListenLoopTests: XCTestCase {
         let grokPlayingAfterBarge = await voice.waitUntilListenLoopPendingPlayback()
         XCTAssertTrue(
             grokPlayingAfterBarge,
-            "interrupt answer must schedule on the one-engine player — leftover created cannot green this"
+            "interrupt answer must schedule on the one-engine player — leftover created cannot green this \(voice.listenLoopBargeProof)"
         )
         XCTAssertGreaterThan(
             engine.pendingPlaybackCount,
             0,
-            "pendingPlayback must rise again for the interrupt answer"
+            "pendingPlayback must rise again for the interrupt answer \(voice.listenLoopBargeProof)"
         )
         XCTAssertTrue(engine.isTapInstalled)
         XCTAssertEqual(engine.startCount, 1)
@@ -1550,12 +1550,12 @@ final class AppModelListenLoopTests: XCTestCase {
         let grokPlayingAfterTalkAgain = await voice.waitUntilListenLoopPendingPlayback()
         XCTAssertTrue(
             grokPlayingAfterTalkAgain,
-            "talk-again answer must schedule on the one-engine player — leftover created cannot green this"
+            "talk-again answer must schedule on the one-engine player — leftover created cannot green this \(voice.listenLoopBargeProof)"
         )
         XCTAssertGreaterThan(
             engine.pendingPlaybackCount,
             0,
-            "pendingPlayback must rise for the third answer — leftover created is not she talked"
+            "pendingPlayback must rise for the third answer — leftover created is not she talked \(voice.listenLoopBargeProof)"
         )
         XCTAssertTrue(engine.isTapInstalled, "talk-again answer must keep the one tap")
         XCTAssertTrue(engine.isPlayerPlaying, "same AVAudioPlayerNode must be playing")

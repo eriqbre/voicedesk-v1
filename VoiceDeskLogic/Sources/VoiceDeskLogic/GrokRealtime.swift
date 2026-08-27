@@ -242,9 +242,10 @@ public enum GrokRealtime {
     /// What barge-in may do to the one-engine player.
     ///
     /// Server VAD often creates the interrupt answer before the user
-    /// transcript arrives. A second `interruptResponse` (claimLocal /
-    /// late transcript) after the latch was overwritten to that created
-    /// cancels it — leftover created, pending 0.
+    /// transcript arrives. Sending `response.cancel` — even scoped to
+    /// the old id — can kill that in-flight created on xAI (leftover
+    /// created, pending 0). Local drop is the player. Do not drop if
+    /// the interrupt answer is already scheduled.
     public enum BargeInPlayback: Equatable, Sendable {
         case none
         case cancel(responseID: String)
@@ -261,6 +262,20 @@ public enum GrokRealtime {
         }
     }
 
+    /// `created` / `scheduled` / `cancel` ids plus post-barge deltas.
+    /// Leftover created with deltas=0 is a silent / cancelled answer.
+    public static func bargeProofLine(
+        createdID: String?,
+        scheduledID: String?,
+        cancelID: String?,
+        audioDeltaCount: Int
+    ) -> String {
+        let created = nonemptyID(createdID) ?? "-"
+        let scheduled = nonemptyID(scheduledID) ?? "-"
+        let cancel = nonemptyID(cancelID) ?? "-"
+        return "created=\(created) scheduled=\(scheduled) cancel=\(cancel) deltas=\(audioDeltaCount)"
+    }
+
     public static func bargeInDecision(
         hasPendingPlayback: Bool,
         alreadyBarged: Bool,
@@ -273,16 +288,34 @@ public enum GrokRealtime {
         guard hasPendingPlayback, !alreadyBarged else {
             return BargeInDecision(cancelResponseID: nil, dropLocal: false)
         }
-        return BargeInDecision(
-            cancelResponseID: responseIDToCancelOnBarge(
-                interruptTargetID: interruptTargetID,
-                playingResponseID: playingResponseID,
-                currentResponseID: currentResponseID,
-                createdCountAtLatch: createdCountAtLatch,
-                createdCountNow: createdCountNow
-            ),
-            dropLocal: true
-        )
+        if shouldKeepInterruptAnswerOnPlayer(
+            playingResponseID: playingResponseID,
+            interruptTargetID: interruptTargetID,
+            currentResponseID: currentResponseID,
+            createdCountAtLatch: createdCountAtLatch,
+            createdCountNow: createdCountNow
+        ) {
+            return BargeInDecision(cancelResponseID: nil, dropLocal: false)
+        }
+        return BargeInDecision(cancelResponseID: nil, dropLocal: true)
+    }
+
+    /// The interrupt created already scheduled. Dropping local wipes
+    /// it — leftover created, pending 0.
+    public static func shouldKeepInterruptAnswerOnPlayer(
+        playingResponseID: String?,
+        interruptTargetID: String?,
+        currentResponseID: String?,
+        createdCountAtLatch: Int,
+        createdCountNow: Int
+    ) -> Bool {
+        let playing = nonemptyID(playingResponseID)
+        let current = nonemptyID(currentResponseID)
+        let target = nonemptyID(interruptTargetID)
+        guard createdCountNow > createdCountAtLatch, let playing, let current else {
+            return false
+        }
+        return playing == current && playing != target
     }
 
     /// Cancel only the answer that was on the player when barge-in
@@ -299,14 +332,14 @@ public enum GrokRealtime {
         let playing = nonemptyID(playingResponseID)
         let current = nonemptyID(currentResponseID)
         let newerCreated = createdCountNow > createdCountAtLatch
+        if newerCreated {
+            return nil
+        }
         if let target {
-            if newerCreated, let current, target == current {
+            if let current, target == current {
                 return nil
             }
             return target
-        }
-        if newerCreated {
-            return nil
         }
         return playing
     }
