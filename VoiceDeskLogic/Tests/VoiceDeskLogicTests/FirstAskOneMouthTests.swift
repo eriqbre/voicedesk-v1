@@ -6,23 +6,33 @@ import XCTest
 /// claimLocal / eveAlsoSpoke paper is not the path. Later turns stay.
 final class FirstAskOneMouthTests: XCTestCase {
     func testA2727b1WalkVersionIsDeskIdentityPlusEveRealtime() throws {
-        let records = A2727B1Walk.window
+        let records = A2727B1Walk.bakedFirstAsk
         let start = try XCTUnwrap(A2727B1Walk.audioStart(in: records))
+        XCTAssertEqual(start.source, ListenResumeLog.source)
         XCTAssertEqual(start.intent, ListenResumeLog.intent)
-        XCTAssertTrue(start.routingNotes[0].contains("audio.start"), start.routingNotes[0])
+        XCTAssertEqual(start.routingNotes, [A2727B1Walk.audioStartNote])
+        XCTAssertEqual(start.assistantReply, "")
         XCTAssertEqual(start.voicePath, A2727B1Walk.eveRealtime)
 
         let drain = try XCTUnwrap(A2727B1Walk.drain(in: records))
-        XCTAssertTrue(drain.routingNotes[0].contains("after desk tts drain"), drain.routingNotes[0])
-        XCTAssertTrue(drain.routingNotes[0].contains("listenArmed=true"), drain.routingNotes[0])
-        XCTAssertTrue(drain.routingNotes[0].contains("stayLive=true"), drain.routingNotes[0])
+        XCTAssertEqual(drain.source, ListenResumeLog.source)
+        XCTAssertEqual(drain.intent, ListenResumeLog.intent)
+        XCTAssertEqual(drain.routingNotes, [A2727B1Walk.drainNote])
         XCTAssertEqual(drain.voicePath, A2727B1Walk.eveRealtime)
 
         let version = try XCTUnwrap(A2727B1Walk.versionTurn(in: records))
+        XCTAssertEqual(version.source, "live voice")
         XCTAssertEqual(version.userTranscript, A2727B1Walk.versionAsk)
         XCTAssertEqual(version.intent, "version")
-        XCTAssertTrue(version.routingNotes.contains(A2727B1Walk.versionIdentityNote), "\(version.routingNotes)")
-        XCTAssertTrue(version.routingNotes.contains(A2727B1Walk.versionDogfoodNote), "\(version.routingNotes)")
+        XCTAssertEqual(
+            version.routingNotes,
+            [
+                "sticky cleared",
+                "synced cache / list",
+                A2727B1Walk.versionIdentityNote,
+                A2727B1Walk.versionDogfoodNote
+            ]
+        )
         XCTAssertEqual(version.assistantReply, A2727B1Walk.spokenIdentity)
         XCTAssertEqual(version.cardsAttached, [])
         XCTAssertEqual(version.voicePath, A2727B1Walk.eveRealtime)
@@ -53,6 +63,10 @@ final class FirstAskOneMouthTests: XCTestCase {
             "drain is the sibling listen-resume, not a boolean eveAlsoSpoke"
         )
         XCTAssertTrue(ConversationPresence.wantsVersionAsk(A2727B1Walk.versionAsk))
+        XCTAssertTrue(
+            A2727B1Walk.firstAskIsDualMouth(),
+            "disk window or bake — same two-mouth first ask"
+        )
     }
 
     func testFirstAskDeskPlusEveIsTwoMouthsAndFixIsDeskOnly() {

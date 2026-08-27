@@ -12,7 +12,8 @@ public enum A2727B1Walk {
     public static let eveRealtime = "Eve realtime"
     public static let drainNote =
         "after desk tts drain listenArmed=true stayLive=true reconnect startAgain=false state=listening"
-    public static let audioStartNote = "audio.start; VP while stopped; 48k; running=true"
+    /// L400 walk line. Not the c1cd758 “audio.start; VP while stopped” paraphrase.
+    public static let audioStartNote = "audio.start VP-while-stopped 48k running=true"
 
     public static var window: [VoiceInteractionEntry] {
         if let fromDisk = loadWindow(from: jsonlPath), fromDisk.count >= 3 {
