@@ -54,6 +54,19 @@ final class ListenLoopSourceContractTests: XCTestCase {
             afterDrain.contains("clientTTSInFlight = false"),
             "stayLive after drain is armed+running, not a stuck TTS flag"
         )
+        XCTAssertFalse(
+            afterDrain.contains("disconnect"),
+            "desk TTS is write→player — drain must not kill the live socket"
+        )
+        XCTAssertFalse(
+            afterDrain.contains("dropOutbound"),
+            "drain must not empty the live send path"
+        )
+        XCTAssertFalse(
+            afterDrain.contains("sessionReady"),
+            "clearing sessionReady queues the next command forever"
+        )
+        XCTAssertFalse(afterDrain.contains("quietCommitMaxPostponeMs"), afterDrain)
     }
 
     func testInterruptPlaybackDoesNotRemoveTap() throws {
@@ -529,6 +542,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live
         )
         XCTAssertTrue(
+            live.contains("testLiveConversationLoopAfterDeskTTSWithoutSocketCloseNextCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn"),
             live
         )
@@ -645,7 +662,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let conversation = speakSlice(
             live,
             from: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat",
-            to: "func testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn"
+            to: "func testLiveConversationLoopAfterDeskTTSWithoutSocketCloseNextCommandIsATurn"
         )
         XCTAssertTrue(conversation.contains("GrokVoiceService("), conversation)
         XCTAssertTrue(conversation.contains("AppModel("), conversation)
@@ -671,6 +688,54 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("conversation loop must answer then take PCM 2")
+        }
+        let openSocket = speakSlice(
+            live,
+            from: "func testLiveConversationLoopAfterDeskTTSWithoutSocketCloseNextCommandIsATurn",
+            to: "func testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn"
+        )
+        XCTAssertTrue(openSocket.contains("GrokVoiceService("), openSocket)
+        XCTAssertTrue(openSocket.contains("AppModel("), openSocket)
+        XCTAssertTrue(openSocket.contains("startListenLoopAudioForTests"), openSocket)
+        XCTAssertTrue(openSocket.contains("attachListenLoopSendTaskForTests"), openSocket)
+        XCTAssertTrue(openSocket.contains("feedTapPCM16(command1)"), openSocket)
+        XCTAssertTrue(openSocket.contains("voice.speak"), openSocket)
+        XCTAssertTrue(openSocket.contains("feedTapPCM16(command2)"), openSocket)
+        XCTAssertTrue(openSocket.contains("listenLoopDeliveredAudioPCM"), openSocket)
+        XCTAssertTrue(openSocket.contains("input_audio_buffer.append"), openSocket)
+        XCTAssertTrue(openSocket.contains("listenLoopSocketHasSendTask"), openSocket)
+        XCTAssertTrue(openSocket.contains("listenLoopRecoverCount"), openSocket)
+        XCTAssertTrue(openSocket.contains("engine.startCount"), openSocket)
+        XCTAssertTrue(openSocket.contains("interruptResponse"), openSocket)
+        XCTAssertTrue(openSocket.contains("415c955"), openSocket)
+        XCTAssertFalse(openSocket.contains("simulateListenLoopSocketClose1000"), openSocket)
+        XCTAssertFalse(openSocket.contains("simulateListenLoopSocketDidOpenThenSessionReady"), openSocket)
+        XCTAssertFalse(openSocket.contains("waitUntilListenLoopQueuedTurnClosed"), openSocket)
+        XCTAssertFalse(openSocket.contains("applyUserTurn"), openSocket)
+        XCTAssertFalse(openSocket.contains("emitUser"), openSocket)
+        XCTAssertFalse(openSocket.contains("FakeLiveVoiceService"), openSocket)
+        XCTAssertFalse(openSocket.contains("quietCommitMaxPostponeMs"), openSocket)
+        if let attachAt = openSocket.range(of: "attachListenLoopSendTaskForTests"),
+           let speakAt = openSocket.range(of: "voice.speak"),
+           let secondFeed = openSocket.range(of: "feedTapPCM16(command2)") {
+            XCTAssertLessThan(
+                attachAt.lowerBound,
+                speakAt.lowerBound,
+                "live send must exist before desk TTS — attach after drain paper-greens a queue flush"
+            )
+            XCTAssertLessThan(
+                speakAt.lowerBound,
+                secondFeed.lowerBound,
+                "command PCM 2 must be after write→player drain"
+            )
+            let afterSpeak = String(openSocket[speakAt.upperBound..<secondFeed.lowerBound])
+            XCTAssertFalse(
+                afterSpeak.contains("attachListenLoopSendTaskForTests"),
+                "do not re-attach after drain to flush a queue this gate must fail"
+            )
+            XCTAssertFalse(afterSpeak.contains("simulateListenLoopSocket"), afterSpeak)
+        } else {
+            XCTFail("open-socket gate must attach send, drain, then take PCM 2")
         }
         let close1000 = speakSlice(
             live,

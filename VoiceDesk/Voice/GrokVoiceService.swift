@@ -140,6 +140,8 @@ final class GrokVoiceService: VoiceServicing {
         clientTTSInFlight = false
         eventHandler?(.state(session.state))
         audio.reinstallTapIfSilentWhileRunning()
+        // Desk TTS is write→player. The socket stays open. The next
+        // tap-PCM command is a live append, not a queued recover.
         logListenResume(
             note: "after desk tts drain listenArmed=\(result.listenArmed) stayLive=\(result.stayLive) \(result.close1000) startAgain=\(result.startAgain) state=\(session.state.rawValue)"
         )
