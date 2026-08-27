@@ -805,7 +805,7 @@ final class AppModelListenLoopTests: XCTestCase {
         let liveUserTurns = model.turns.filter { $0.role == .user }
         XCTAssertFalse(
             liveUserTurns.contains(where: { $0.text == "what version are we on" || $0.text == "show me my emails" }),
-            "transcript injects do not count — applyUserTurn strings are not a hear; live Grok transcription of VoiceTape PCM is the real path"
+            "transcript injects do not count — those strings are not a hear; live Grok transcription of VoiceTape PCM is the real path"
         )
 
         voice.cancel()
