@@ -624,6 +624,33 @@ final class GrokRealtimeTests: XCTestCase {
             "after barge do not overwrite the cancelled first-answer latch with lastCreated"
         )
         XCTAssertTrue(
+            GrokRealtime.isStalePlayingResponseAfterBarge(
+                playingResponseID: "resp_1",
+                cancelledResponseID: "resp_1"
+            ),
+            "drained first-answer still in playing must not block interrupt lastScheduled"
+        )
+        XCTAssertFalse(
+            GrokRealtime.isStalePlayingResponseAfterBarge(
+                playingResponseID: "resp_2",
+                cancelledResponseID: "resp_1"
+            ),
+            "interrupt id on the player is not stale"
+        )
+        XCTAssertFalse(
+            GrokRealtime.isStalePlayingResponseAfterBarge(
+                playingResponseID: "resp_1",
+                cancelledResponseID: nil
+            ),
+            "before barge, playing is the live first answer"
+        )
+        XCTAssertFalse(
+            GrokRealtime.isStalePlayingResponseAfterBarge(
+                playingResponseID: nil,
+                cancelledResponseID: "resp_1"
+            )
+        )
+        XCTAssertTrue(
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: false,
                 hasPendingPlayback: false,

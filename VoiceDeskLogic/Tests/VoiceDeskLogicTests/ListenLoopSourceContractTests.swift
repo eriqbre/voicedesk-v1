@@ -512,8 +512,16 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "leftover no-id JSON must not stamp the cancelled first-answer as the interrupt schedule"
         )
         XCTAssertTrue(
+            outputAudio.contains("isStalePlayingResponseAfterBarge"),
+            "interrupt JSON must write lastScheduled when playing is still the cancelled first-answer"
+        )
+        XCTAssertTrue(
             binary.contains("tagged != cancelledPlaybackResponseID"),
             "leftover no-id binary must not mark interruptAnswerScheduled"
+        )
+        XCTAssertTrue(
+            binary.contains("isStalePlayingResponseAfterBarge"),
+            "interrupt binary must write lastScheduled when playing is still the cancelled first-answer"
         )
         XCTAssertTrue(
             binary.contains("noteFirstAnswerPlaying"),
@@ -617,6 +625,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             interruptLive.contains("if decision.dropLocal"),
             "drop buffers only when bargeInDecision says drop — pending 0 is latch-only"
         )
+        XCTAssertTrue(
+            interruptLive.contains("isStalePlayingResponseAfterBarge"),
+            "pending-0 latch-only barge must nil stale first-answer playing or leftover created!=scheduled"
+        )
         XCTAssertTrue(interruptLive.contains("bargeConsumed"), interruptLive)
         XCTAssertTrue(interruptLive.contains("createdCountAtBarge"), interruptLive)
         XCTAssertTrue(interruptLive.contains("interruptTargetID"), interruptLive)
@@ -679,6 +691,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func shouldArmCommandBargeLatch"), realtime)
         XCTAssertTrue(realtime.contains("func keepScheduledLatchAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func shouldWriteScheduledLatchOnPlay"), realtime)
+        XCTAssertTrue(realtime.contains("func isStalePlayingResponseAfterBarge"), realtime)
         XCTAssertTrue(realtime.contains("func shouldResetBargeAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)

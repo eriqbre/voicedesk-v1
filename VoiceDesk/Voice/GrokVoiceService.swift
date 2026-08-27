@@ -261,6 +261,12 @@ final class GrokVoiceService: VoiceServicing {
         cancelledPlaybackResponseID = GrokRealtime.nonemptyID(lastScheduledResponseID)
             ?? knownCancelled
             ?? GrokRealtime.playbackEpochLatch(audio.playbackEpoch)
+        if GrokRealtime.isStalePlayingResponseAfterBarge(
+            playingResponseID: playingResponseID,
+            cancelledResponseID: cancelledPlaybackResponseID
+        ) {
+            playingResponseID = nil
+        }
         if decision.dropLocal {
             interruptAssistant(sendCancel: false)
         }
@@ -642,7 +648,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         // would reject R2. Only JSON leftover inject carries the
         // cancelled id.
         guard shouldPlayBargeAudio(deltaResponseID: nil) else { return }
-        if playingResponseID == nil {
+        let playingIsStale = GrokRealtime.isStalePlayingResponseAfterBarge(
+            playingResponseID: playingResponseID,
+            cancelledResponseID: cancelledPlaybackResponseID
+        )
+        if playingResponseID == nil || playingIsStale {
             let tagged = GrokRealtime.scheduledResponseID(
                 deltaResponseID: nil,
                 createdAwaitingAudioID: createdAwaitingAudioID,
@@ -715,7 +725,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             // id. Deltas without response_id are R2 — do not eat them.
             let deltaID = GrokRealtime.responseID(in: json)
             guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { break }
-            if playingResponseID == nil {
+            let playingIsStale = GrokRealtime.isStalePlayingResponseAfterBarge(
+                playingResponseID: playingResponseID,
+                cancelledResponseID: cancelledPlaybackResponseID
+            )
+            if playingResponseID == nil || playingIsStale {
                 let tagged = GrokRealtime.scheduledResponseID(
                     deltaResponseID: deltaID,
                     createdAwaitingAudioID: createdAwaitingAudioID,
