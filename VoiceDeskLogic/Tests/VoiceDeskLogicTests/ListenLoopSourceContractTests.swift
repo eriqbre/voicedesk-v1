@@ -377,6 +377,26 @@ final class ListenLoopSourceContractTests: XCTestCase {
             loop
         )
         XCTAssertTrue(
+            loopTests.contains("testA2DPOnlyAfterWritePlayerFails415c955AndProductLandsThird"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("415c955 A2DP-only after write→player must drop the third"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loop.contains("fe1ffc8Fa72e1c18d5878415c955A2DPOnlyAfterWritePlayerDropsThird"),
+            loop
+        )
+        XCTAssertTrue(
+            loop.contains("noA2DPOnlyAfterWritePlayerLandsThird"),
+            loop
+        )
+        XCTAssertTrue(
+            loop.contains("sessionA2DPOnlySilencesInput"),
+            loop
+        )
+        XCTAssertTrue(
             loop.contains("noDeferredSetActiveFalseAfterWritePlayerLandsThird"),
             loop
         )
@@ -1074,6 +1094,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(detach.contains("startCount +="), detach)
         XCTAssertFalse(detach.contains("engine.stop"), detach)
         XCTAssertFalse(engine.contains(".mixWithOthers"), engine)
+        XCTAssertTrue(
+            engine.contains(".allowBluetooth"),
+            "415c955 startGraph A2DP-only — HFP is .allowBluetooth"
+        )
+        XCTAssertFalse(
+            engine.contains(".allowBluetoothA2DP"),
+            "415c955 startGraph A2DP is output-only — delete it, keep HFP"
+        )
         let earcon = try XCTUnwrap(repoFile("VoiceDesk/Voice/VoiceEarcon.swift"))
         XCTAssertFalse(
             earcon.contains(".mixWithOthers"),
@@ -1114,6 +1142,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testVersionThenGlanceWritePlayerDeferredSetActiveFalseFails415c955AndSameTapThirdCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testVersionThenGlanceWritePlayerA2DPOnlyFails415c955AndSameTapThirdCommandIsATurn"),
             live
         )
         XCTAssertTrue(
@@ -1309,7 +1341,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let deferredDeactivate = speakSlice(
             live,
             from: "func testVersionThenGlanceWritePlayerDeferredSetActiveFalseFails415c955AndSameTapThirdCommandIsATurn",
-            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
+            to: "func testVersionThenGlanceWritePlayerA2DPOnlyFails415c955AndSameTapThirdCommandIsATurn"
         )
         XCTAssertFalse(deferredDeactivate.contains("postEngineConfigurationChange"), deferredDeactivate)
         XCTAssertFalse(deferredDeactivate.contains("postInterruption"), deferredDeactivate)
@@ -1339,6 +1371,42 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(deferredDeactivate.contains("while "), deferredDeactivate)
         XCTAssertFalse(deferredDeactivate.contains("Task.sleep"), deferredDeactivate)
         XCTAssertFalse(deferredDeactivate.contains("watchdog"), deferredDeactivate)
+        XCTAssertFalse(deferredDeactivate.contains("audioSessionHasA2DPOnly"), deferredDeactivate)
+        let a2dpOnly = speakSlice(
+            live,
+            from: "func testVersionThenGlanceWritePlayerA2DPOnlyFails415c955AndSameTapThirdCommandIsATurn",
+            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
+        )
+        XCTAssertFalse(a2dpOnly.contains("postEngineConfigurationChange"), a2dpOnly)
+        XCTAssertFalse(a2dpOnly.contains("postInterruption"), a2dpOnly)
+        XCTAssertFalse(a2dpOnly.contains("AVAudioEngineConfigurationChange"), a2dpOnly)
+        XCTAssertFalse(
+            a2dpOnly.contains("simulateHALTapYankLeavingInstalledFlagTrue"),
+            "A2DP-only is not a HAL yank"
+        )
+        XCTAssertFalse(
+            a2dpOnly.contains("simulateHALTapYankLeavingSwiftObjectInPlace"),
+            "do not start another leftover-hot object-left slice"
+        )
+        XCTAssertFalse(a2dpOnly.contains("waitUntilListenLoopDelayedSilentTapRepair"), a2dpOnly)
+        XCTAssertFalse(a2dpOnly.contains("reinstallTapIfSilentWhileRunning"), a2dpOnly)
+        XCTAssertFalse(a2dpOnly.contains("audioSessionHasMixWithOthers"), a2dpOnly)
+        XCTAssertTrue(a2dpOnly.contains("audioSessionHasA2DPOnly"), a2dpOnly)
+        XCTAssertTrue(a2dpOnly.contains("audioSessionHasAllowBluetooth"), a2dpOnly)
+        XCTAssertTrue(
+            a2dpOnly.contains("415c955 startGraph A2DP-only must fail this hole"),
+            a2dpOnly
+        )
+        XCTAssertTrue(
+            a2dpOnly.contains("415c955 A2DP-only after write→player must drop the third"),
+            a2dpOnly
+        )
+        XCTAssertTrue(a2dpOnly.contains("feedTapPCM16"), a2dpOnly)
+        XCTAssertTrue(a2dpOnly.contains("same live tap"), a2dpOnly)
+        XCTAssertFalse(a2dpOnly.contains("for _ in 0..<"), a2dpOnly)
+        XCTAssertFalse(a2dpOnly.contains("while "), a2dpOnly)
+        XCTAssertFalse(a2dpOnly.contains("Task.sleep"), a2dpOnly)
+        XCTAssertFalse(a2dpOnly.contains("watchdog"), a2dpOnly)
         let zeroNote = speakSlice(
             live,
             from: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn",

@@ -225,7 +225,7 @@ final class GrokVoiceAudioEngine {
             try session.setCategory(
                 .playAndRecord,
                 mode: mode,
-                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+                options: [.defaultToSpeaker, .allowBluetooth]
             )
             try? session.setPreferredSampleRate(Self.sampleRate)
             try? session.setPreferredIOBufferDuration(0.02)

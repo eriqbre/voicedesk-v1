@@ -140,6 +140,66 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertEqual(walk.startCount, 1, "same live tap — no second engine.start")
     }
 
+    func testA2DPOnlyAfterWritePlayerFails415c955AndProductLandsThird() {
+        XCTAssertTrue(
+            FirstHearTapLoop.sessionA2DPOnlySilencesInput(
+                allowBluetoothA2DP: true,
+                allowBluetooth: false
+            ),
+            "415c955 startGraph A2DP-only must fail this hole"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.sessionA2DPOnlySilencesInput(
+                allowBluetoothA2DP: false,
+                allowBluetooth: true
+            ),
+            "product HFP without A2DP-only must keep post-TTS input"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: true,
+                tapInstalled: true,
+                a2dpOnly: true
+            ),
+            "415c955 post-TTS tap PCM is zeros — tap stays, startCount stays 1"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: true,
+                tapInstalled: true,
+                a2dpOnly: false
+            ),
+            "product HFP session keeps post-TTS tap PCM audible"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let dead = FirstHearTapLoop.fe1ffc8Fa72e1c18d5878415c955A2DPOnlyAfterWritePlayerDropsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(
+            dead.turns,
+            [first, second],
+            "415c955 A2DP-only after write→player must drop the third"
+        )
+        XCTAssertTrue(dead.tapLive, "A2DP-only is not a HAL yank — tap stays installed")
+        XCTAssertEqual(dead.startCount, 1, "415c955 A2DP-only must not audio.start")
+        let walk = FirstHearTapLoop.noA2DPOnlyAfterWritePlayerLandsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1, "same live tap — no second engine.start")
+    }
+
     func testProductThirdPCMAfterDrainIsATurnWithoutSecondStart() {
         // Product path: speakStarted slips during TTS, afterClientTTSFinished
         // returns to listen. Close 1000 stayIdle is a fail.

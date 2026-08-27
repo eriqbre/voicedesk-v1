@@ -212,7 +212,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         second: Data = commandPCM(2),
         third: Data = commandPCM(3),
         mixWithOthersAfterWritePlayer: Bool = false,
-        deferredSetActiveFalseAfterWritePlayer: Bool = false
+        deferredSetActiveFalseAfterWritePlayer: Bool = false,
+        a2dpOnlyAfterWritePlayer: Bool = false
     ) -> FirstHearTapLoop {
         var session = VoiceSession()
         session.apply(.tapTalk)
@@ -270,7 +271,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         if postTTSTapPCMIsAudible(
             mixWithOthers: mixWithOthersAfterWritePlayer,
             sessionActive: !deferredSetActiveFalseAfterWritePlayer,
-            tapInstalled: tapLive
+            tapInstalled: tapLive,
+            a2dpOnly: a2dpOnlyAfterWritePlayer
         ) {
             take(third)
         }
@@ -298,9 +300,21 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     public static func postTTSTapPCMIsAudible(
         mixWithOthers: Bool,
         sessionActive: Bool,
-        tapInstalled: Bool
+        tapInstalled: Bool,
+        a2dpOnly: Bool = false
     ) -> Bool {
-        tapInstalled && sessionActive && !mixWithOthers
+        tapInstalled && sessionActive && !mixWithOthers && !a2dpOnly
+    }
+
+    /// 415c955 `startGraph` used `.allowBluetoothA2DP` without
+    /// `.allowBluetooth`. A2DP is output-only. After write→player a
+    /// headset / VPU route can leave input silent — tap stays,
+    /// `startCount` stays 1, post-TTS tap PCM is zeros. Not a HAL yank.
+    public static func sessionA2DPOnlySilencesInput(
+        allowBluetoothA2DP: Bool,
+        allowBluetooth: Bool
+    ) -> Bool {
+        allowBluetoothA2DP && !allowBluetooth
     }
 
     /// 415c955: version + glance write→player, mixWithOthers still on
@@ -372,6 +386,37 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             second: second,
             third: third,
             deferredSetActiveFalseAfterWritePlayer: false
+        )
+    }
+
+    /// 415c955: version + glance write→player, A2DP-only (no HFP).
+    /// Tap stays. `startCount` stays 1. Third is zeros. Not mixWithOthers.
+    /// Not deferred deactivate. Not a HAL yank.
+    public static func fe1ffc8Fa72e1c18d5878415c955A2DPOnlyAfterWritePlayerDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        versionThenGlanceWritePlayerThenThird(
+            first: first,
+            second: second,
+            third: third,
+            a2dpOnlyAfterWritePlayer: true
+        )
+    }
+
+    /// Product: same write→player walk with HFP (`.allowBluetooth`), no
+    /// A2DP-only. Third command PCM through the same live tap is the next turn.
+    public static func noA2DPOnlyAfterWritePlayerLandsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        versionThenGlanceWritePlayerThenThird(
+            first: first,
+            second: second,
+            third: third,
+            a2dpOnlyAfterWritePlayer: false
         )
     }
 
