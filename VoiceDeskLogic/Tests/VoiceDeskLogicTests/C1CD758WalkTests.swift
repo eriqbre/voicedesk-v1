@@ -55,7 +55,7 @@ final class C1CD758WalkTests: XCTestCase {
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
                 liveVADTurn: true,
-                spoken: InboxGlance.spokenListAck(),
+                spoken: "Here they are.",
                 identityLine: identity
             ),
             "do not write the list stub"

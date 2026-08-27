@@ -100,7 +100,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
             if !replay.reply.isEmpty {
                 XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
             }
-            XCTAssertNotEqual(replay.reply, InboxGlance.spokenListAck(), ask)
+            XCTAssertNotEqual(replay.reply, "Here they are.", ask)
 
             let during = DeskSpeakListenResume.whileClientTTSSpeaking(
                 ask: ask,

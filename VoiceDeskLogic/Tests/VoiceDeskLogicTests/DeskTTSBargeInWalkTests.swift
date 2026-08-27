@@ -28,7 +28,7 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
     ]
 
     private var glanceLine: String {
-        InboxGlance.spokenListAck()
+        "Here they are."
     }
 
     func testFollowUpWhileGlanceBeatSpeakingIsAcceptedAndCancelsTTS() {

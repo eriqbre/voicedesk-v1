@@ -54,7 +54,7 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         XCTAssertFalse(ListenInterrupt.isCommand("Can you hear me?"))
         XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
 
-        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
+        await ClientVoiceSpeech.shared.speak("Here they are.") { pcm in
             engine.playPCM16(pcm)
         }
         await waitUntilDrained(engine)
@@ -143,7 +143,7 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         listen.plantSpeakStarted()
         XCTAssertFalse(listen.listenArmed, "speakStarted is the fa72e1c hole until drain returns to listen")
 
-        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
+        await ClientVoiceSpeech.shared.speak("Here they are.") { pcm in
             engine.playPCM16(pcm)
         }
         await waitUntilDrained(engine)
@@ -224,7 +224,7 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command2)
         XCTAssertEqual(listen.turns, [command1, command2])
 
-        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
+        await ClientVoiceSpeech.shared.speak("Here they are.") { pcm in
             engine.playPCM16(pcm)
         }
         await waitUntilDrained(engine)
@@ -359,7 +359,7 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command2)
         XCTAssertEqual(listen.turns, [command1, command2])
 
-        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
+        await ClientVoiceSpeech.shared.speak("Here they are.") { pcm in
             engine.playPCM16(pcm)
         }
         await waitUntilDrained(engine)
@@ -475,7 +475,7 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command2)
         XCTAssertEqual(listen.turns, [command1, command2])
 
-        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
+        await ClientVoiceSpeech.shared.speak("Here they are.") { pcm in
             engine.playPCM16(pcm)
         }
         await waitUntilDrained(engine)
@@ -590,7 +590,7 @@ final class GrokVoiceAudioEngineListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command2)
         XCTAssertEqual(listen.turns, [command1, command2])
 
-        await ClientVoiceSpeech.shared.speak(InboxGlance.spokenListAck()) { pcm in
+        await ClientVoiceSpeech.shared.speak("Here they are.") { pcm in
             engine.playPCM16(pcm)
         }
         await waitUntilDrained(engine)

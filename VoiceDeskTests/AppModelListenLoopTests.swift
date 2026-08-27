@@ -1044,7 +1044,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(sink.turns, [command1], "command PCM 1 through the live tap is a turn")
         XCTAssertEqual(engine.startCount, 1)
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before the next tap turn")
         XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
         XCTAssertTrue(voice.listenLoopStayLive, "415c955 first-hear-then-deaf left stayLive false after TTS")
@@ -1146,7 +1146,7 @@ final class AppModelListenLoopTests: XCTestCase {
         )
         XCTAssertEqual(engine.startCount, 1)
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before the next tap turn")
         XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -1251,7 +1251,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertFalse(voice.listenLoopSocketHasSendTask, "startListenLoopAudioForTests does not open Grok")
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before DidClose")
         XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
         XCTAssertTrue(voice.listenLoopStayLive, "stayLive after drain must be armed+running, not a stuck TTS flag")
@@ -1363,7 +1363,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(sink.turns, [command1], "command PCM 1 through the live tap is a turn")
         XCTAssertEqual(engine.startCount, 1)
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before the phone-log idle")
         XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -1543,7 +1543,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(sink.turns, [command1], "command PCM 1 through the live tap is a turn")
         XCTAssertEqual(engine.startCount, 1)
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before the next tap turn")
         XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -1936,7 +1936,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertTrue(voice.listenLoopStayLive)
         XCTAssertEqual(voice.listenLoopRecoverCount, 0)
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player desk answer must drain")
         XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
         XCTAssertTrue(voice.listenLoopArmed, "listen must stay armed after she talks — 415c955 went idle")
@@ -2498,7 +2498,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(sink.turns, [command1], "command PCM 1 through the live tap is a turn")
         XCTAssertEqual(engine.startCount, 1)
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before DidClose")
         XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -2612,7 +2612,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(sink.turns, [command1])
         XCTAssertEqual(engine.startCount, 1)
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -2735,7 +2735,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -2853,7 +2853,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -2981,7 +2981,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -3127,7 +3127,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -3273,7 +3273,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -3394,7 +3394,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -3523,7 +3523,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -3651,7 +3651,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -3782,7 +3782,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)
@@ -3936,7 +3936,7 @@ final class AppModelListenLoopTests: XCTestCase {
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1])
 
-        await voice.speak(InboxGlance.spokenListAck())
+        await voice.speak("Here they are.")
         XCTAssertEqual(engine.pendingPlaybackCount, 0)
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(voice.listenLoopStayLive)

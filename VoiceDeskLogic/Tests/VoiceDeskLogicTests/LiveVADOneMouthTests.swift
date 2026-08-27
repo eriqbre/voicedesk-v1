@@ -67,7 +67,7 @@ final class LiveVADOneMouthTests: XCTestCase {
             InboxGlanceSpeakPlan.isSkippedGlanceListStub(cacheWalk),
             "83a5c6a cache-hot first-audio was Here they are.: \(cacheWalk.spokenText) \(cacheWalk.voiceLogNotes)"
         )
-        XCTAssertNotEqual(cacheWalk.spokenText, InboxGlance.spokenListAck())
+        XCTAssertNotEqual(cacheWalk.spokenText, "Here they are.")
         for ask in Self.readLatestFamily {
             if ask.localizedCaseInsensitiveContains("email") {
                 XCTAssertTrue(
@@ -96,7 +96,7 @@ final class LiveVADOneMouthTests: XCTestCase {
             XCTAssertEqual(plan.spokenSource, InboxGlanceSpeakPlan.eveSpokenSource, ask)
             XCTAssertTrue(plan.spokenText.isEmpty, "\(ask) Eve speaks — no client first-audio")
             XCTAssertFalse(InboxGlance.isShortSpokenAck(plan.spokenText), ask)
-            XCTAssertNotEqual(plan.spokenText, InboxGlance.spokenListAck(), ask)
+            XCTAssertNotEqual(plan.spokenText, "Here they are.", ask)
             XCTAssertGreaterThan(plan.cardCount, 0, ask)
             XCTAssertTrue(plan.voiceLogNotes.contains("cacheAgeSec=52"), ask)
         }
@@ -112,7 +112,7 @@ final class LiveVADOneMouthTests: XCTestCase {
             if ConversationPresence.looksLikeMailAsk(ask)
                 || ConversationPresence.wantsInboxOverview(ask) {
                 let plan = InboxGlanceSpeakPlan.liveVAD(ask: ask, snapshot: snapshot, now: now)
-                XCTAssertNotEqual(plan.spokenText, InboxGlance.spokenListAck(), ask)
+                XCTAssertNotEqual(plan.spokenText, "Here they are.", ask)
                 XCTAssertFalse(InboxGlanceSpeakPlan.isSkippedGlanceListStub(plan), ask)
             }
         }

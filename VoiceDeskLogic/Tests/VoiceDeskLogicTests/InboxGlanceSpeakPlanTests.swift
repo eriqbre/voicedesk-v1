@@ -93,7 +93,7 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
             XCTAssertFalse(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.gmailListStage), ask)
             XCTAssertFalse(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.xaiGlanceStage), ask)
             XCTAssertEqual(plan.cardCount, InboxGlance.overviewLimit, ask)
-            XCTAssertNotEqual(plan.spokenText, InboxGlance.spokenListAck(), ask)
+            XCTAssertNotEqual(plan.spokenText, "Here they are.", ask)
             XCTAssertFalse(plan.spokenText.localizedCaseInsensitiveContains("here they are"), ask)
             XCTAssertTrue(
                 plan.spokenText.isEmpty

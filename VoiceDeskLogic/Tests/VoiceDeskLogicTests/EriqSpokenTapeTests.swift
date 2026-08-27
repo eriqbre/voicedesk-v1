@@ -5,8 +5,7 @@ import XCTest
 /// Not VoiceTape catalog, not VoiceTapeGate 168-accept, not emit-twice.
 final class EriqSpokenTapeTests: XCTestCase {
     func testEachWalkLineLandsOnceAfterClientTTS() {
-        let spoken = InboxGlance.spokenListAck()
-        XCTAssertEqual(spoken, "Here they are.")
+        let spoken = "Here they are."
         XCTAssertEqual(VoiceTape.catalog.count, 8, "do not expand VoiceTape.catalog")
         XCTAssertEqual(EriqSpokenTape.spoken.count, 16)
         XCTAssertEqual(EriqSpokenTape.intended.count, 8)

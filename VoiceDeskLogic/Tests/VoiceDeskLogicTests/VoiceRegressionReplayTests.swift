@@ -79,7 +79,7 @@ final class VoiceRegressionReplayTests: XCTestCase {
                             replay.reply.isEmpty,
                             "\(ask) list/show: \(replay.reply)"
                         )
-                        XCTAssertNotEqual(replay.reply, InboxGlance.spokenListAck(), ask)
+                        XCTAssertNotEqual(replay.reply, "Here they are.", ask)
                     }
                 } else {
                     XCTAssertEqual(replay.reply, fixture.assistantReply, ask)

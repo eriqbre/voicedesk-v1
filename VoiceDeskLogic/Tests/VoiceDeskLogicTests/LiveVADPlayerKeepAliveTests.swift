@@ -119,7 +119,7 @@ final class LiveVADPlayerKeepAliveTests: XCTestCase {
             XCTAssertFalse(surface.isCardlessBlob, ask)
             let plan = InboxGlanceSpeakPlan.liveVAD(ask: ask, snapshot: snapshot, now: now)
             XCTAssertTrue(plan.spokenText.isEmpty, ask)
-            XCTAssertNotEqual(plan.spokenText, InboxGlance.spokenListAck(), ask)
+            XCTAssertNotEqual(plan.spokenText, "Here they are.", ask)
             XCTAssertGreaterThan(plan.cardCount, 0, ask)
         }
     }

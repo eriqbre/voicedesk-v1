@@ -27,7 +27,7 @@ final class DeskReplySpeechTests: XCTestCase {
             VoiceRegressionDesk.steve
         ])
         XCTAssertTrue(digest.isEmpty, digest)
-        XCTAssertNotEqual(digest, InboxGlance.spokenListAck())
+        XCTAssertNotEqual(digest, "Here they are.")
         XCTAssertNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
         let madison = ConversationPresence.emailBodyReply(
             EmailItem(

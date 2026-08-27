@@ -2,7 +2,7 @@ import Foundation
 
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
 ///
-/// Cards are the on-screen list. List/show asks speak a short ack. Summary
+/// Cards are the on-screen list. List/show asks speak empty. Summary
 /// asks speak one short sentence. Never recite the cards.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
@@ -10,13 +10,6 @@ public enum InboxGlance: Sendable {
     public static let lineLimit = 90
     /// Allowed on-screen stand-in when cards already list the inbox. Empty is preferred.
     public static let onScreenLeadIn = "Here are the latest."
-
-    /// 83a5c6a leftover client list/show line. Production list/show
-    /// speaks empty — cards are the list. Keep the phrase so leftover
-    /// detectors and echo fixtures can fail that walk.
-    public static func spokenListAck() -> String {
-        "Here they are."
-    }
 
     public static func spokenInbox(ask: String, emails: [EmailItem]) -> String {
         let window = Array(emails.prefix(overviewLimit))

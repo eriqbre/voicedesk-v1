@@ -23,8 +23,7 @@ final class FirstHearListenLoopTests: XCTestCase {
     ]
 
     func testTwoTurnsThenOneInjectDuringClientTTSLands() {
-        let spoken = InboxGlance.spokenListAck()
-        XCTAssertEqual(spoken, "Here they are.")
+        let spoken = "Here they are."
         for first in Self.firstFamily {
             for second in Self.secondFamily {
                 for during in Self.duringFamily {
@@ -64,7 +63,7 @@ final class FirstHearListenLoopTests: XCTestCase {
         let live = FirstHearListenLoop.twoTurnsThenOneDuringClientTTS(
             first: "what version are we on",
             second: "show me my emails",
-            spokenAfterSecond: InboxGlance.spokenListAck(),
+            spokenAfterSecond: "Here they are.",
             duringTTS: "Tell me Murray's latest email."
         )
         XCTAssertEqual(live.landed.last, "Tell me Murray's latest email.")
