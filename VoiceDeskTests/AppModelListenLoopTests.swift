@@ -544,6 +544,132 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// Honesty: after first write→player desk TTS (version line),
+    /// `engine.isRunning` + listenArmed/stayLive is not enough.
+    /// 552ef0c left the tap silent (rate zero) while those flags
+    /// stayed true. ~21s later DidClose 1000 stayIdle. This gate
+    /// fails that lie. Do not restore resumeCapture / tap-rearm.
+    /// Next spoken command PCM through the SAME live tap is the
+    /// next turn. `startCount` stays 1. Transcript injects do not count.
+    func testVersionWritePlayerSilentTapWhileStayLiveFails552ef0cAndSameTapNextCommandIsATurn() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-silent-tap-version")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let commandNext = Self.speechShapedPCM(hertz: 160)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(session: session, command: commandNext)
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        await model.applyUserTurn("what version are we on")
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive, "version write→player must stayLive on the live service")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "close 1000 stayIdle after version is a fail")
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "live speak() must drain before returnToListen")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+        XCTAssertTrue(engine.isTapInstalled, "552ef0c silent tap is not a HAL yank — tap stays installed")
+        XCTAssertTrue(engine.isHALTapAttached, "same live tap after version write→player")
+        XCTAssertTrue(
+            FirstHearTapLoop.stayLiveFlagsLieWhenTapSilentAfterVersionTTS(
+                engineRunning: true,
+                listenArmed: true,
+                stayLive: true,
+                tapEmitting: false
+            ),
+            "552ef0c after version TTS: isRunning+listenArmed+stayLive with silent tap must fail"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.stayLiveFlagsLieWhenTapSilentAfterVersionTTS(
+                engineRunning: engine.isRunning,
+                listenArmed: voice.listenLoopArmed,
+                stayLive: voice.listenLoopStayLive,
+                tapEmitting: true
+            ),
+            "product: same tap still emitting after version write→player"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: true,
+                tapInstalled: true,
+                tapEmitting: false
+            ),
+            "552ef0c post-TTS tap rate zero — flags are not hear proof"
+        )
+        let firesAfterDrain = sink.tapFires
+        try await Task.sleep(for: .milliseconds(500))
+        let arrivedAfterDrain = sink.tapFires > firesAfterDrain
+        if FirstHearTapLoop.silentTapWhileEngineRunning(
+            tapEmitting: arrivedAfterDrain,
+            engineRunning: engine.isRunning
+        ) {
+            XCTFail("silent tap after version TTS while isRunning is the 552ef0c lie")
+        }
+        XCTAssertTrue(arrivedAfterDrain, "tap buffers must still arrive after version write→player")
+        let first = FirstHearTapLoop.commandPCM(1)
+        let next = FirstHearTapLoop.commandPCM(2)
+        let dead = FirstHearTapLoop.sha552ef0cSilentTapAfterVersionWritePlayerDropsNext(
+            first: first,
+            next: next
+        )
+        XCTAssertEqual(
+            dead.turns,
+            [first],
+            "552ef0c silent tap after version write→player must drop the next command"
+        )
+        XCTAssertTrue(dead.tapLive, "silent tap is not a HAL yank — tap stays installed")
+        XCTAssertEqual(dead.close1000, .stayIdle, "552ef0c ~21s later DidClose 1000 stayIdle")
+        XCTAssertEqual(dead.startCount, 1, "552ef0c silent tap must not audio.start")
+        let walk = FirstHearTapLoop.noSilentTapAfterVersionWritePlayerLandsNext(
+            first: first,
+            next: next
+        )
+        XCTAssertEqual(walk.turns, [first, next])
+        XCTAssertNotEqual(walk.close1000, .stayIdle)
+        XCTAssertEqual(walk.startCount, 1)
+
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+        XCTAssertTrue(sink.stayLive, "next PCM must not be accepted on a stayIdle sink")
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("live-path-silent-tap-version-next.pcm")
+        try commandNext.write(to: fileURL)
+        let nextFromFile = try Data(contentsOf: fileURL)
+        engine.feedTapPCM16(nextFromFile)
+        XCTAssertEqual(sink.frames.last, nextFromFile, "next command PCM must go through the same live tap")
+        XCTAssertEqual(sink.turns.last, nextFromFile, "after version write→player, that PCM is the next turn")
+        XCTAssertEqual(sink.turns.count, 1)
+        XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
+        XCTAssertTrue(engine.isTapInstalled, "same live tap — no reinstall ritual")
+        XCTAssertTrue(engine.isHALTapAttached)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "session must not DidClose 1000 stayIdle")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.map(\.text),
+            ["what version are we on"],
+            "transcript injects do not count as the next turn"
+        )
+
+        voice.cancel()
+    }
+
     /// Honesty: version + glance write→player on `GrokVoiceService`.
     /// Delayed HAL yank after `returnToListen` leaves the flag true,
     /// `isRunning` true, no interruption, no configuration change.
@@ -4068,6 +4194,7 @@ private final class LiveTapSink: @unchecked Sendable {
     var stayLive: Bool
     var startCount: Int
     var tapLive: Bool
+    private var _tapFires = 0
 
     convenience init(session: VoiceSession, command: Data) {
         self.init(session: session, commands: [command], noise: nil)
@@ -4100,9 +4227,16 @@ private final class LiveTapSink: @unchecked Sendable {
         return _ambient
     }
 
+    var tapFires: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _tapFires
+    }
+
     func onFrame(_ pcm: Data) {
         lock.lock()
         defer { lock.unlock() }
+        _tapFires += 1
         if let noise, pcm == noise {
             _ambient.append(pcm)
             return

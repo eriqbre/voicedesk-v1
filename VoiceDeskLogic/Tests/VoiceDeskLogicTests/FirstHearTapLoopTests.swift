@@ -200,6 +200,75 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertEqual(walk.startCount, 1, "same live tap — no second engine.start")
     }
 
+    func testSilentTapAfterVersionWritePlayerFails552ef0cAndProductLandsNext() {
+        XCTAssertTrue(
+            FirstHearTapLoop.stayLiveFlagsLieWhenTapSilentAfterVersionTTS(
+                engineRunning: true,
+                listenArmed: true,
+                stayLive: true,
+                tapEmitting: false
+            ),
+            "552ef0c after version TTS: isRunning+listenArmed+stayLive with silent tap must fail"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.stayLiveFlagsLieWhenTapSilentAfterVersionTTS(
+                engineRunning: true,
+                listenArmed: true,
+                stayLive: true,
+                tapEmitting: true
+            ),
+            "product: same tap still emitting after version write→player"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: false, engineRunning: true),
+            "silent tap while isRunning is the 552ef0c lie"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: true,
+                tapInstalled: true,
+                tapEmitting: false
+            ),
+            "552ef0c post-TTS tap rate zero — flags are not hear proof"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: true,
+                tapInstalled: true,
+                tapEmitting: true
+            ),
+            "product one tap keeps delivering PCM after version write→player"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let next = FirstHearTapLoop.commandPCM(2)
+        let dead = FirstHearTapLoop.sha552ef0cSilentTapAfterVersionWritePlayerDropsNext(
+            first: first,
+            next: next
+        )
+        XCTAssertEqual(
+            dead.turns,
+            [first],
+            "552ef0c silent tap after version write→player must drop the next command"
+        )
+        XCTAssertTrue(dead.tapLive, "silent tap is not a HAL yank — tap stays installed")
+        XCTAssertTrue(dead.listenArmed, "552ef0c after drain listenArmed was still true")
+        XCTAssertTrue(dead.stayLive, "552ef0c after drain stayLive was still true")
+        XCTAssertEqual(dead.close1000, .stayIdle, "552ef0c ~21s later DidClose 1000 stayIdle")
+        XCTAssertEqual(dead.startCount, 1, "552ef0c silent tap must not audio.start")
+        let walk = FirstHearTapLoop.noSilentTapAfterVersionWritePlayerLandsNext(
+            first: first,
+            next: next
+        )
+        XCTAssertEqual(walk.turns, [first, next], "next spoken command PCM through the same live tap is the next turn")
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertNotEqual(walk.close1000, .stayIdle, "session must not DidClose 1000 stayIdle")
+        XCTAssertEqual(walk.startCount, 1, "same live tap — no second engine.start")
+    }
+
     func testProductThirdPCMAfterDrainIsATurnWithoutSecondStart() {
         // Product path: speakStarted slips during TTS, afterClientTTSFinished
         // returns to listen. Close 1000 stayIdle is a fail.

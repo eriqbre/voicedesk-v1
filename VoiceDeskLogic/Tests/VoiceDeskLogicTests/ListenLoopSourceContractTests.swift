@@ -72,6 +72,12 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "clearing sessionReady queues the next command forever"
         )
         XCTAssertFalse(afterDrain.contains("quietCommitMaxPostponeMs"), afterDrain)
+        XCTAssertFalse(
+            afterDrain.contains("reinstallTapIfSilentWhileRunning"),
+            "552ef0c drain-time reinstall is tap-rearm — left the one tap silent after version TTS"
+        )
+        XCTAssertFalse(afterDrain.contains("resumeCapture"), afterDrain)
+        XCTAssertFalse(afterDrain.contains("audio.resume"), afterDrain)
     }
 
     func testInterruptPlaybackDoesNotRemoveTap() throws {
@@ -397,6 +403,30 @@ final class ListenLoopSourceContractTests: XCTestCase {
             loop
         )
         XCTAssertTrue(
+            loopTests.contains("testSilentTapAfterVersionWritePlayerFails552ef0cAndProductLandsNext"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("552ef0c silent tap after version write→player must drop the next command"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loop.contains("stayLiveFlagsLieWhenTapSilentAfterVersionTTS"),
+            loop
+        )
+        XCTAssertTrue(
+            loop.contains("sha552ef0cSilentTapAfterVersionWritePlayerDropsNext"),
+            loop
+        )
+        XCTAssertTrue(
+            loop.contains("noSilentTapAfterVersionWritePlayerLandsNext"),
+            loop
+        )
+        XCTAssertTrue(
+            loop.contains("versionWritePlayerThenNextCommand"),
+            loop
+        )
+        XCTAssertTrue(
             loop.contains("noDeferredSetActiveFalseAfterWritePlayerLandsThird"),
             loop
         )
@@ -440,7 +470,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(start.contains("self?.onMicFrame"), start)
         XCTAssertTrue(start.contains("frames.emit"), start)
         XCTAssertTrue(service.contains("returnToListenAfterDeskTTS"), service)
-        XCTAssertTrue(service.contains("reinstallTapIfSilentWhileRunning"), service)
+        XCTAssertFalse(
+            service.contains("reinstallTapIfSilentWhileRunning"),
+            "552ef0c drain-time reinstall is tap-rearm — delete it. Yank repair stays on the engine"
+        )
         XCTAssertFalse(
             service.contains("scheduleDelayedSilentTapRepair"),
             "400ms Task after drain raced leftover — delete it"
@@ -452,10 +485,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
             from: "private func returnToListenAfterDeskTTS",
             to: "private func waitUntilPlaybackDrained"
         )
-        XCTAssertTrue(returnToListen.contains("reinstallTapIfSilentWhileRunning"), returnToListen)
+        XCTAssertFalse(
+            returnToListen.contains("reinstallTapIfSilentWhileRunning"),
+            "552ef0c drain-time reinstall left the tap silent after version TTS"
+        )
+        XCTAssertFalse(returnToListen.contains("resumeCapture"), returnToListen)
         XCTAssertFalse(
             returnToListen.contains("if !bargeConsumed"),
-            "claimLocal sets bargeConsumed — that must not skip drain-time tap reinstall"
+            "claimLocal sets bargeConsumed — that must not own return-to-listen"
         )
         XCTAssertFalse(returnToListen.contains("scheduleDelayedSilentTapRepair"), returnToListen)
         let delayedRepair = speakSlice(
@@ -1149,6 +1186,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live
         )
         XCTAssertTrue(
+            live.contains("testVersionWritePlayerSilentTapWhileStayLiveFails552ef0cAndSameTapNextCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
             live.contains("testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"),
             live
         )
@@ -1375,7 +1416,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let a2dpOnly = speakSlice(
             live,
             from: "func testVersionThenGlanceWritePlayerA2DPOnlyFails415c955AndSameTapThirdCommandIsATurn",
-            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
+            to: "func testVersionWritePlayerSilentTapWhileStayLiveFails552ef0cAndSameTapNextCommandIsATurn"
         )
         XCTAssertFalse(a2dpOnly.contains("postEngineConfigurationChange"), a2dpOnly)
         XCTAssertFalse(a2dpOnly.contains("postInterruption"), a2dpOnly)
@@ -1407,6 +1448,49 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(a2dpOnly.contains("while "), a2dpOnly)
         XCTAssertFalse(a2dpOnly.contains("Task.sleep"), a2dpOnly)
         XCTAssertFalse(a2dpOnly.contains("watchdog"), a2dpOnly)
+        let silentTap = speakSlice(
+            live,
+            from: "func testVersionWritePlayerSilentTapWhileStayLiveFails552ef0cAndSameTapNextCommandIsATurn",
+            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
+        )
+        XCTAssertFalse(silentTap.contains("postEngineConfigurationChange"), silentTap)
+        XCTAssertFalse(silentTap.contains("postInterruption"), silentTap)
+        XCTAssertFalse(silentTap.contains("AVAudioEngineConfigurationChange"), silentTap)
+        XCTAssertFalse(
+            silentTap.contains("simulateHALTapYankLeavingInstalledFlagTrue"),
+            "552ef0c silent tap is not a HAL yank"
+        )
+        XCTAssertFalse(
+            silentTap.contains("simulateHALTapYankLeavingSwiftObjectInPlace"),
+            "do not start another leftover-hot object-left slice"
+        )
+        XCTAssertFalse(silentTap.contains("waitUntilListenLoopDelayedSilentTapRepair"), silentTap)
+        XCTAssertFalse(
+            silentTap.contains("reinstallTapIfSilentWhileRunning"),
+            "do not restore drain-time tap-rearm"
+        )
+        XCTAssertFalse(silentTap.contains("resumeCapture"), silentTap)
+        XCTAssertFalse(silentTap.contains("audio.resume"), silentTap)
+        XCTAssertFalse(silentTap.contains("audioSessionHasMixWithOthers"), silentTap)
+        XCTAssertFalse(silentTap.contains("audioSessionHasA2DPOnly"), silentTap)
+        XCTAssertFalse(silentTap.contains("simulateListenLoopSocketClose1000"), silentTap)
+        XCTAssertFalse(silentTap.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"), silentTap)
+        XCTAssertTrue(silentTap.contains("stayLiveFlagsLieWhenTapSilentAfterVersionTTS"), silentTap)
+        XCTAssertTrue(silentTap.contains("silentTapWhileEngineRunning"), silentTap)
+        XCTAssertTrue(
+            silentTap.contains("552ef0c after version TTS: isRunning+listenArmed+stayLive with silent tap must fail"),
+            silentTap
+        )
+        XCTAssertTrue(
+            silentTap.contains("552ef0c silent tap after version write→player must drop the next command"),
+            silentTap
+        )
+        XCTAssertTrue(silentTap.contains("feedTapPCM16"), silentTap)
+        XCTAssertTrue(silentTap.contains("same live tap"), silentTap)
+        XCTAssertTrue(silentTap.contains("tapFires"), silentTap)
+        XCTAssertTrue(silentTap.contains("silent tap after version TTS while isRunning is the 552ef0c lie"), silentTap)
+        XCTAssertFalse(silentTap.contains("watchdog"), silentTap)
+        XCTAssertFalse(silentTap.contains("MicLivenessMonitor"), silentTap)
         let zeroNote = speakSlice(
             live,
             from: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn",

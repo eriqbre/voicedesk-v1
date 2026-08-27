@@ -301,9 +301,118 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         mixWithOthers: Bool,
         sessionActive: Bool,
         tapInstalled: Bool,
-        a2dpOnly: Bool = false
+        a2dpOnly: Bool = false,
+        tapEmitting: Bool = true
     ) -> Bool {
-        tapInstalled && sessionActive && !mixWithOthers && !a2dpOnly
+        tapInstalled && sessionActive && !mixWithOthers && !a2dpOnly && tapEmitting
+    }
+
+    /// 552ef0c after first write→player (version line): `isRunning` +
+    /// listenArmed/stayLive stayed true while the tap rate was zero.
+    /// That lie must fail. ~21s later DidClose 1000 stayIdle.
+    public static func stayLiveFlagsLieWhenTapSilentAfterVersionTTS(
+        engineRunning: Bool,
+        listenArmed: Bool,
+        stayLive: Bool,
+        tapEmitting: Bool
+    ) -> Bool {
+        silentTapWhileEngineRunning(tapEmitting: tapEmitting, engineRunning: engineRunning)
+            && listenArmed
+            && stayLive
+    }
+
+    /// First write→player desk TTS (version line), then the next command.
+    /// Silent tap after drain while flags stay live is 552ef0c: next is
+    /// not a turn, then DidClose 1000 stayIdle. Product keeps the same
+    /// tap emitting. `startCount` stays 1. Not a HAL yank.
+    public static func versionWritePlayerThenNextCommand(
+        first: Data = commandPCM(1),
+        next: Data = commandPCM(2),
+        silentTapAfterWritePlayer: Bool = false
+    ) -> FirstHearTapLoop {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        var tapLive = true
+        var stayLive = true
+        var startCount = 1
+        var turns: [Data] = []
+        var close1000 = ListenResumePolicy.afterSocketClose(
+            userWantsVoiceOff: false,
+            sessionShouldStayLive: true,
+            closeCode: 1000,
+            voiceState: session.state
+        )
+
+        func take(_ pcm: Data) {
+            if let accepted = accept(
+                pcm: pcm,
+                tapLive: tapLive,
+                session: session,
+                stayLive: stayLive,
+                startCount: startCount
+            ) {
+                turns.append(accepted)
+            }
+        }
+
+        take(first)
+        ListenResumePolicy.applyLeftoverGrokDuringClientTTS(&session)
+        let after = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: false,
+            liveSessionArmed: true,
+            captureRunning: tapLive
+        )
+        stayLive = after.stayLive
+        close1000 = after.close1000
+        if after.startAgain {
+            startCount += 1
+        }
+
+        if silentTapAfterWritePlayer {
+            close1000 = .stayIdle
+        } else if postTTSTapPCMIsAudible(
+            mixWithOthers: false,
+            sessionActive: true,
+            tapInstalled: tapLive,
+            tapEmitting: true
+        ) {
+            take(next)
+        }
+        return FirstHearTapLoop(
+            turns: turns,
+            tapLive: tapLive,
+            listenArmed: ListenResumePolicy.isListenArmed(state: session.state),
+            stayLive: stayLive,
+            close1000: close1000,
+            startCount: startCount
+        )
+    }
+
+    /// 552ef0c: version write→player, flags stay live, tap rate zero.
+    /// Next command is not a turn. Then DidClose 1000 stayIdle.
+    public static func sha552ef0cSilentTapAfterVersionWritePlayerDropsNext(
+        first: Data = commandPCM(1),
+        next: Data = commandPCM(2)
+    ) -> FirstHearTapLoop {
+        versionWritePlayerThenNextCommand(
+            first: first,
+            next: next,
+            silentTapAfterWritePlayer: true
+        )
+    }
+
+    /// Product: same version write→player, one tap still emitting.
+    /// Next command PCM through that tap is the next turn. Not stayIdle.
+    public static func noSilentTapAfterVersionWritePlayerLandsNext(
+        first: Data = commandPCM(1),
+        next: Data = commandPCM(2)
+    ) -> FirstHearTapLoop {
+        versionWritePlayerThenNextCommand(
+            first: first,
+            next: next,
+            silentTapAfterWritePlayer: false
+        )
     }
 
     /// 415c955 `startGraph` used `.allowBluetoothA2DP` without
