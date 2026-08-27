@@ -58,6 +58,10 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
                 GrokRealtime.teachesLeftoverDeskRouting(blob),
                 "83a5c6a put stay silent / let the app handle / NEVER narrate routing on this wire: \(blob)"
             )
+            XCTAssertFalse(
+                GrokRealtime.teachesNoTools(blob),
+                "83a5c6a put you have no tools / do not pretend to call functions on this wire: \(blob)"
+            )
         }
         voice.cancel()
     }

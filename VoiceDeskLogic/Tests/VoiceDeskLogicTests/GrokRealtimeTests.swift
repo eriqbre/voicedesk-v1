@@ -58,6 +58,9 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("NEVER say open it in Gmail"))
         XCTAssertTrue(text.contains("NEVER say they need Gmail for the rest"))
         XCTAssertFalse(text.contains("only have the subject"))
+        XCTAssertFalse(GrokRealtime.teachesNoTools(text), text)
+        XCTAssertFalse(text.contains("You have no tools"), text)
+        XCTAssertFalse(text.contains("do not pretend to call functions"), text)
     }
 
     func testConnectedPresenceDropsSampleDeskLies() {
@@ -98,7 +101,10 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(text.contains("in your own words"))
         XCTAssertFalse(text.contains("let the app handle"))
         XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(text))
+        XCTAssertFalse(GrokRealtime.teachesNoTools(text), text)
         XCTAssertFalse(text.contains("NEVER narrate routing"))
+        XCTAssertFalse(text.contains("You have no tools"), text)
+        XCTAssertFalse(text.contains("do not pretend to call functions"), text)
     }
 
     func testConnectedDeskFactsNeverLabelSnippetOnly() {
@@ -112,6 +118,23 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(facts.localizedCaseInsensitiveContains("preview"))
         XCTAssertFalse(facts.contains("stay silent"))
         XCTAssertTrue(facts.contains("You speak the answer"))
+        XCTAssertFalse(GrokRealtime.teachesNoTools(facts), facts)
+    }
+
+    func testNoToolsTeachingIsThe83a5c6aSessionUpdateSentence() {
+        let wire = "You have no tools this slice — do not pretend to call functions."
+        XCTAssertTrue(
+            GrokRealtime.teachesNoTools(wire),
+            "83a5c6a put this sentence on session.update"
+        )
+        XCTAssertFalse(GrokRealtime.teachesNoTools(GrokRealtime.presenceInstructions))
+        XCTAssertFalse(
+            GrokRealtime.teachesNoTools(
+                GrokRealtime.presenceInstructions(
+                    for: DeskContext(isConnected: true, snapshot: DeskSnapshot(emails: [SampleData.syncedEmail()]))
+                )
+            )
+        )
     }
 
     func testAppendAudioJSONIsHotPathSafe() {
@@ -225,6 +248,7 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("word-for-word"))
         XCTAssertFalse(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains("let the app handle"))
         XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(GrokRealtime.verbatimSpeakInstructions(text: spoken)))
+        XCTAssertFalse(GrokRealtime.teachesNoTools(GrokRealtime.verbatimSpeakInstructions(text: spoken)))
         XCTAssertTrue(GrokRealtime.verbatimSpeakInstructions(text: spoken).contains(spoken))
         XCTAssertFalse(GrokRealtime.isVerbatimSpeakPrompt("What’s in my inbox?"))
 

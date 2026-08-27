@@ -18,7 +18,8 @@ public enum GrokRealtime {
 
     /// Second-person VoiceDesk presence. Eve speaks the reply from
     /// last-synced facts. Do not teach leftover desk-routing language
-    /// ("the app will take this", "stay silent, the client owns it").
+    /// ("the app will take this", "stay silent, the client owns it")
+    /// or leftover no-tools ("you have no tools this slice").
     public static func presenceInstructions(
         for context: DeskContext,
         identity: BuildIdentity = .unknown
@@ -68,7 +69,7 @@ public enum GrokRealtime {
         Listen. Answer in a few spoken sentences. \(deskFlow)
 
         ## Guardrails & Escalation
-        NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You have no tools this slice — do not pretend to call functions. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
+        NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
         \(googleConnectGuard)
 
         ## Voice & Communication Style
@@ -660,6 +661,18 @@ public enum GrokRealtime {
         if lower.contains("the client owns those turns") { return true }
         if lower.contains("the client handles all gmail") { return true }
         if lower.contains("the client interrupts you") { return true }
+        return false
+    }
+
+    /// 12:14 leftover: no-tools on session.update made Eve's first VAD
+    /// mouth empty / I-don't-know before client tools landed. 83a5c6a
+    /// still sends these sentences. Detector only — not a mute.
+    public static func teachesNoTools(_ instructions: String) -> Bool {
+        let lower = instructions.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+        if lower.contains("you have no tools") { return true }
+        if lower.contains("do not pretend to call functions") { return true }
+        if lower.contains("don't pretend to call functions") { return true }
         return false
     }
 
