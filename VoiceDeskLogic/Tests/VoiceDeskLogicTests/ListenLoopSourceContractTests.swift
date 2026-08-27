@@ -323,6 +323,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSStayIdleDropsThird"), loop)
         XCTAssertTrue(loop.contains("close1000AfterTTSStayLiveThenThird"), loop)
         XCTAssertTrue(loop.contains("versionThenGlanceWritePlayerThenThird"), loop)
+        XCTAssertTrue(loop.contains("sessionMixWithOthersDowngradesVPU"), loop)
+        XCTAssertTrue(loop.contains("postTTSTapPCMIsAudible"), loop)
+        XCTAssertTrue(loop.contains("fe1ffc8Fa72e1c18d5878415c955MixWithOthersAfterWritePlayerDropsThird"), loop)
+        XCTAssertTrue(loop.contains("noMixWithOthersAfterWritePlayerLandsThird"), loop)
         XCTAssertTrue(loop.contains("applyLeftoverGrokDuringClientTTS"), loop)
         XCTAssertTrue(loopTests.contains("testFe1ffc8Fa72e1c18d5878415c955Close1000AfterTTSMustNotStayIdle"), loopTests)
         XCTAssertTrue(loop.contains("detachWhileRunningThenReinstallSameTap"), loop)
@@ -350,6 +354,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             loopTests.contains("testObjectLeftInPlaceSilentYankThenDemandRepairLandsThird"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("testMixWithOthersAfterWritePlayerFails415c955AndProductLandsThird"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("415c955 mixWithOthers after write→player must drop the third"),
             loopTests
         )
         XCTAssertTrue(
@@ -1031,6 +1043,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(detach.contains("startCount +="), detach)
         XCTAssertFalse(detach.contains("engine.stop"), detach)
         XCTAssertFalse(engine.contains(".mixWithOthers"), engine)
+        let earcon = try XCTUnwrap(repoFile("VoiceDesk/Voice/VoiceEarcon.swift"))
+        XCTAssertFalse(
+            earcon.contains(".mixWithOthers"),
+            "415c955 VoiceEarcon setCategory with mixWithOthers — same VPU downgrade"
+        )
         XCTAssertFalse(engine.contains("MicLivenessMonitor"), engine)
         XCTAssertFalse(engine.contains("MicRepairBackoff"), engine)
         XCTAssertFalse(engine.contains("func rearmTap"), engine)
@@ -1058,6 +1075,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testVersionThenGlanceWritePlayerMixWithOthersFails415c955AndSameTapThirdCommandIsATurn"),
             live
         )
         XCTAssertTrue(
@@ -1209,7 +1230,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let prevent = speakSlice(
             live,
             from: "func testVersionThenGlanceWritePlayerDoesNotFlickerAudioSession",
-            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
+            to: "func testVersionThenGlanceWritePlayerMixWithOthersFails415c955AndSameTapThirdCommandIsATurn"
         )
         XCTAssertFalse(prevent.contains("postEngineConfigurationChange"), prevent)
         XCTAssertFalse(prevent.contains("postInterruption"), prevent)
@@ -1218,6 +1239,38 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(prevent.contains("simulateHALTapYankLeavingInstalledFlagTrue"), prevent)
         XCTAssertTrue(prevent.contains("zero-notification yank must not be paper-greened"), prevent)
         XCTAssertTrue(prevent.contains("feedTapPCM16"), prevent)
+        let mixWithOthers = speakSlice(
+            live,
+            from: "func testVersionThenGlanceWritePlayerMixWithOthersFails415c955AndSameTapThirdCommandIsATurn",
+            to: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"
+        )
+        XCTAssertFalse(mixWithOthers.contains("postEngineConfigurationChange"), mixWithOthers)
+        XCTAssertFalse(mixWithOthers.contains("postInterruption"), mixWithOthers)
+        XCTAssertFalse(mixWithOthers.contains("AVAudioEngineConfigurationChange"), mixWithOthers)
+        XCTAssertFalse(
+            mixWithOthers.contains("simulateHALTapYankLeavingInstalledFlagTrue"),
+            "mixWithOthers is not a HAL yank"
+        )
+        XCTAssertFalse(
+            mixWithOthers.contains("simulateHALTapYankLeavingSwiftObjectInPlace"),
+            "do not start another leftover-hot object-left slice"
+        )
+        XCTAssertFalse(mixWithOthers.contains("waitUntilListenLoopDelayedSilentTapRepair"), mixWithOthers)
+        XCTAssertFalse(mixWithOthers.contains("reinstallTapIfSilentWhileRunning"), mixWithOthers)
+        XCTAssertTrue(mixWithOthers.contains("audioSessionHasMixWithOthers"), mixWithOthers)
+        XCTAssertTrue(
+            mixWithOthers.contains("415c955 startGraph mixWithOthers must fail this hole"),
+            mixWithOthers
+        )
+        XCTAssertTrue(
+            mixWithOthers.contains("415c955 mixWithOthers after write→player must drop the third"),
+            mixWithOthers
+        )
+        XCTAssertTrue(mixWithOthers.contains("feedTapPCM16"), mixWithOthers)
+        XCTAssertTrue(mixWithOthers.contains("same live tap"), mixWithOthers)
+        XCTAssertFalse(mixWithOthers.contains("for _ in 0..<"), mixWithOthers)
+        XCTAssertFalse(mixWithOthers.contains("while "), mixWithOthers)
+        XCTAssertFalse(mixWithOthers.contains("Task.sleep"), mixWithOthers)
         let zeroNote = speakSlice(
             live,
             from: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn",

@@ -28,6 +28,66 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertTrue(ListenInterrupt.isCommand("what's on my calendar"))
     }
 
+    func testMixWithOthersAfterWritePlayerFails415c955AndProductLandsThird() {
+        XCTAssertTrue(
+            FirstHearTapLoop.sessionMixWithOthersDowngradesVPU(true),
+            "415c955 startGraph mixWithOthers must fail this hole"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.sessionMixWithOthersDowngradesVPU(false),
+            "product must not mixWithOthers after write→player"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: true,
+                sessionActive: true,
+                tapInstalled: true
+            ),
+            "415c955 post-TTS tap PCM is zeros — tap stays, startCount stays 1"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: true,
+                tapInstalled: true
+            ),
+            "product exclusive session keeps post-TTS tap PCM audible"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: false,
+                tapInstalled: true
+            ),
+            "deferred setActive(false) after speak is a different hole"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let dead = FirstHearTapLoop.fe1ffc8Fa72e1c18d5878415c955MixWithOthersAfterWritePlayerDropsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(
+            dead.turns,
+            [first, second],
+            "415c955 mixWithOthers after write→player must drop the third"
+        )
+        XCTAssertTrue(dead.tapLive, "mixWithOthers is not a HAL yank — tap stays installed")
+        XCTAssertEqual(dead.startCount, 1, "415c955 mixWithOthers must not audio.start")
+        let walk = FirstHearTapLoop.noMixWithOthersAfterWritePlayerLandsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1, "same live tap — no second engine.start")
+    }
+
     func testProductThirdPCMAfterDrainIsATurnWithoutSecondStart() {
         // Product path: speakStarted slips during TTS, afterClientTTSFinished
         // returns to listen. Close 1000 stayIdle is a fail.

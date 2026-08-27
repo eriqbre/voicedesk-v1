@@ -210,7 +210,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     public static func versionThenGlanceWritePlayerThenThird(
         first: Data = commandPCM(1),
         second: Data = commandPCM(2),
-        third: Data = commandPCM(3)
+        third: Data = commandPCM(3),
+        mixWithOthersAfterWritePlayer: Bool = false
     ) -> FirstHearTapLoop {
         var session = VoiceSession()
         session.apply(.tapTalk)
@@ -265,7 +266,13 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             startCount += 1
         }
 
-        take(third)
+        if postTTSTapPCMIsAudible(
+            mixWithOthers: mixWithOthersAfterWritePlayer,
+            sessionActive: true,
+            tapInstalled: tapLive
+        ) {
+            take(third)
+        }
         return FirstHearTapLoop(
             turns: turns,
             tapLive: tapLive,
@@ -273,6 +280,55 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             stayLive: stayLive,
             close1000: close1000,
             startCount: startCount
+        )
+    }
+
+    /// 415c955 `startGraph` activated with `.mixWithOthers`. After
+    /// write→player the VPU is downgraded. The tap stays installed,
+    /// `startCount` stays 1, session stays playAndRecord — post-TTS
+    /// tap PCM is zeros. Not a HAL yank. Third is not a turn.
+    public static func sessionMixWithOthersDowngradesVPU(_ mixWithOthers: Bool) -> Bool {
+        mixWithOthers
+    }
+
+    /// Command PCM after write→player is audible only while the
+    /// session stays exclusive. `.mixWithOthers` leaves the tap up
+    /// and feeds zeros.
+    public static func postTTSTapPCMIsAudible(
+        mixWithOthers: Bool,
+        sessionActive: Bool,
+        tapInstalled: Bool
+    ) -> Bool {
+        tapInstalled && sessionActive && !mixWithOthers
+    }
+
+    /// 415c955: version + glance write→player, mixWithOthers still on
+    /// the session. Tap stays. `startCount` stays 1. Third is zeros.
+    public static func fe1ffc8Fa72e1c18d5878415c955MixWithOthersAfterWritePlayerDropsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        versionThenGlanceWritePlayerThenThird(
+            first: first,
+            second: second,
+            third: third,
+            mixWithOthersAfterWritePlayer: true
+        )
+    }
+
+    /// Product: same write→player walk without mixWithOthers. Third
+    /// command PCM through the same live tap is the next turn.
+    public static func noMixWithOthersAfterWritePlayerLandsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        versionThenGlanceWritePlayerThenThird(
+            first: first,
+            second: second,
+            third: third,
+            mixWithOthersAfterWritePlayer: false
         )
     }
 

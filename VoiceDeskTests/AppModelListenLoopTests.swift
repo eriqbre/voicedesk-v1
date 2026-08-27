@@ -163,6 +163,128 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// Honesty: VoiceEarcon already skips setCategory when the session
+    /// is playAndRecord, and flicker already gates category/mode. Do
+    /// not invent that paper slice. 415c955 `startGraph` still used
+    /// `.mixWithOthers`. After version + glance write→player the
+    /// category stays playAndRecord + voiceChat while mixWithOthers
+    /// downgrades VPU. Tap stays installed. startCount stays 1. No
+    /// HAL yank. Post-TTS tap PCM is zeros. This gate fails 415c955
+    /// if the session still has mixWithOthers. Product deleted that
+    /// option. Third command PCM through the SAME live tap is the
+    /// next turn. No second engine.start.
+    func testVersionThenGlanceWritePlayerMixWithOthersFails415c955AndSameTapThirdCommandIsATurn() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-mix-with-others")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(session: session, command: command3)
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        await model.applyUserTurn("what version are we on")
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive, "version write→player must stayLive on the live service")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "close 1000 stayIdle after version is a fail")
+        XCTAssertFalse(
+            Self.audioSessionHasMixWithOthers(),
+            "415c955 startGraph mixWithOthers must fail this hole after version write→player"
+        )
+
+        await model.applyUserTurn("show me my emails")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1, "glance write→player must not audio.start")
+        XCTAssertTrue(voice.listenLoopStayLive, "glance write→player must stayLive on the live service")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "close 1000 stayIdle after glance is a fail")
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "live speak() must drain before returnToListen")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+        XCTAssertTrue(engine.isTapInstalled, "mixWithOthers is not a HAL yank — tap stays installed")
+        XCTAssertTrue(engine.isHALTapAttached, "same live tap after write→player")
+        let afterGlance = Self.audioSessionSnapshot()
+        XCTAssertEqual(afterGlance.category, .playAndRecord, "glance TTS must not change category")
+        XCTAssertEqual(afterGlance.mode, .voiceChat, "glance TTS must not change mode")
+        XCTAssertFalse(
+            Self.audioSessionHasMixWithOthers(),
+            "415c955 mixWithOthers after write→player downgrades VPU — post-TTS tap PCM is zeros"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.sessionMixWithOthersDowngradesVPU(true),
+            "415c955 startGraph mixWithOthers must fail this hole"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: true,
+                sessionActive: true,
+                tapInstalled: true
+            ),
+            "415c955 post-TTS tap PCM is zeros without a HAL yank"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.postTTSTapPCMIsAudible(
+                mixWithOthers: false,
+                sessionActive: true,
+                tapInstalled: engine.isTapInstalled
+            ),
+            "product exclusive session keeps post-TTS tap PCM audible"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let dead = FirstHearTapLoop.fe1ffc8Fa72e1c18d5878415c955MixWithOthersAfterWritePlayerDropsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(
+            dead.turns,
+            [first, second],
+            "415c955 mixWithOthers after write→player must drop the third"
+        )
+        XCTAssertTrue(dead.tapLive, "mixWithOthers is not a HAL yank — tap stays installed")
+        XCTAssertEqual(dead.startCount, 1, "415c955 mixWithOthers must not audio.start")
+
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("live-path-mix-with-others-third.pcm")
+        try command3.write(to: fileURL)
+        let thirdFromFile = try Data(contentsOf: fileURL)
+        engine.feedTapPCM16(thirdFromFile)
+        XCTAssertEqual(sink.frames.last, thirdFromFile, "third command PCM must go through the same live tap")
+        XCTAssertEqual(sink.turns.last, thirdFromFile, "after write→player without mixWithOthers, that PCM is the next turn")
+        XCTAssertEqual(sink.turns.count, 1)
+        XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
+        XCTAssertTrue(engine.isTapInstalled, "same live tap — no reinstall ritual")
+        XCTAssertTrue(engine.isHALTapAttached)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle)
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.map(\.text),
+            ["what version are we on", "show me my emails"],
+            "transcript injects do not count as the third turn"
+        )
+
+        voice.cancel()
+    }
+
     /// Honesty: version + glance write→player on `GrokVoiceService`.
     /// Delayed HAL yank after `returnToListen` leaves the flag true,
     /// `isRunning` true, no interruption, no configuration change.
@@ -3654,6 +3776,10 @@ final class AppModelListenLoopTests: XCTestCase {
     private static func audioSessionSnapshot() -> (category: AVAudioSession.Category, mode: AVAudioSession.Mode) {
         let session = AVAudioSession.sharedInstance()
         return (session.category, session.mode)
+    }
+
+    private static func audioSessionHasMixWithOthers() -> Bool {
+        AVAudioSession.sharedInstance().categoryOptions.contains(.mixWithOthers)
     }
 }
 
