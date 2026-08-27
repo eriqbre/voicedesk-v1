@@ -216,6 +216,18 @@ public enum GrokRealtime {
         )
     }
 
+    /// Instructions string from a delivered `session.update`. Nil if
+    /// this is not that type or the field is missing.
+    public static func instructions(inSessionUpdate raw: String) -> String? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "session.update",
+              let session = object["session"] as? [String: Any],
+              let text = session["instructions"] as? String
+        else { return nil }
+        return text
+    }
+
     /// `nil` if this is not a session.update or the flag was omitted.
     public static func createResponse(inSessionUpdate raw: String) -> Bool? {
         guard let data = raw.data(using: .utf8),

@@ -7,6 +7,8 @@ import VoiceDeskLogic
 /// 83a5c6a swallow is UP: Eve chosen (opened && armed), send no-ops
 /// or void-returns, speak() returns with zero ClientTTS.
 /// Never-connected DOWN already wrote ClientTTS on 83a5c6a.
+/// Leftover teaching is asserted on delivered session.update
+/// instructions (the wire), not a Linux string detector.
 /// Linux `VoiceDeskLogic` never runs this file.
 @MainActor
 final class GrokVoiceServiceSpeakTests: XCTestCase {
@@ -43,6 +45,20 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         )
         XCTAssertEqual(voice.listenLoopClientTTSSpeakCount, 0)
         XCTAssertTrue(voice.listenLoopClientTTSRecordedTexts.isEmpty)
+
+        let instructionBlobs = loopback.receivedTexts.compactMap {
+            GrokRealtime.instructions(inSessionUpdate: $0)
+        }
+        XCTAssertFalse(
+            instructionBlobs.isEmpty,
+            "connect + speak must put session.update instructions on the task"
+        )
+        for blob in instructionBlobs {
+            XCTAssertFalse(
+                GrokRealtime.teachesLeftoverDeskRouting(blob),
+                "83a5c6a put stay silent / let the app handle / NEVER narrate routing on this wire: \(blob)"
+            )
+        }
         voice.cancel()
     }
 
