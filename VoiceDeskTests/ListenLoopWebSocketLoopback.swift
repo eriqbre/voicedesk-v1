@@ -1,6 +1,8 @@
 import CryptoKit
 import Foundation
 import Network
+import XCTest
+@testable import VoiceDesk
 
 /// In-process WebSocket the real `URLSessionWebSocketTask` can open.
 /// xAI is unreachable in XCTest. This is still a socket, not a send recorder.

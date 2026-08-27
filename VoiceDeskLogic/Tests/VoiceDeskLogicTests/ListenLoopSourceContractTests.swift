@@ -865,6 +865,12 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(idleClose.contains("FakeLiveVoiceService"), idleClose)
         XCTAssertFalse(idleClose.contains("quietCommitMaxPostponeMs"), idleClose)
         let loopbackSource = try XCTUnwrap(repoFile("VoiceDeskTests/ListenLoopWebSocketLoopback.swift"))
+        XCTAssertTrue(loopbackSource.contains("@testable import VoiceDesk"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("LiveGrokVoiceClient.pcmFromAppendJSON"), loopbackSource)
+        XCTAssertFalse(
+            loopbackSource.contains("func pcmFromAppendJSON"),
+            "do not copy the append parser into the loopback"
+        )
         XCTAssertTrue(loopbackSource.contains("101 Switching Protocols"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("Sec-WebSocket-Accept"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("session.updated"), loopbackSource)
