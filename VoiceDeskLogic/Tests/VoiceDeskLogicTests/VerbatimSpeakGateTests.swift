@@ -44,7 +44,9 @@ final class VerbatimSpeakGateTests: XCTestCase {
             VoiceRegressionDesk.murray,
             VoiceRegressionDesk.steve
         ])
-        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+        XCTAssertTrue(digest.isEmpty, digest)
+        XCTAssertNotEqual(digest, InboxGlance.spokenListAck())
+        XCTAssertNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
         let madison = ConversationPresence.emailBodyReply(
             EmailItem(
                 fromName: "John Madison",

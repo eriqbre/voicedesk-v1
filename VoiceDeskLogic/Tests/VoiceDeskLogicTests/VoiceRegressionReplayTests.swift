@@ -76,9 +76,10 @@ final class VoiceRegressionReplayTests: XCTestCase {
                         )
                     } else if !ConversationPresence.wantsInboxCount(ask) {
                         XCTAssertTrue(
-                            InboxGlance.isShortSpokenAck(replay.reply),
-                            "\(ask) spoken: \(replay.reply)"
+                            replay.reply.isEmpty,
+                            "\(ask) list/show: \(replay.reply)"
                         )
+                        XCTAssertNotEqual(replay.reply, InboxGlance.spokenListAck(), ask)
                     }
                 } else {
                     XCTAssertEqual(replay.reply, fixture.assistantReply, ask)
@@ -89,7 +90,9 @@ final class VoiceRegressionReplayTests: XCTestCase {
                     InboxGlance.isShortOnScreenLeadIn(replay.onScreen),
                     "\(ask): cards-only must not print Eve: \(replay.onScreen)"
                 )
-                XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
+                if !replay.reply.isEmpty {
+                    XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
+                }
             }
 
             let haystack = (replay.notes + replay.cardLabels + [replay.gmailQuery ?? "", replay.reply, replay.intent])

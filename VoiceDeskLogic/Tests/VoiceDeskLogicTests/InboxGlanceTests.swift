@@ -25,10 +25,49 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(digest.localizedCaseInsensitiveContains("please do not reply"), digest)
         XCTAssertFalse(digest.localizedCaseInsensitiveContains("hello bridget"), digest)
         XCTAssertFalse(digest.contains("Need you to notarize the closing package"), digest)
-        XCTAssertTrue(InboxGlance.isShortSpokenAck(spoken), spoken)
+        XCTAssertTrue(spoken.isEmpty, "83a5c6a inboxOverviewCopy spoke Here they are.: \(spoken)")
+        XCTAssertNotEqual(spoken, InboxGlance.spokenListAck())
+        XCTAssertFalse(spoken.localizedCaseInsensitiveContains("here they are"), spoken)
         XCTAssertFalse(InboxGlance.isMultiline(spoken), spoken)
         XCTAssertFalse(spoken.contains("Murray"), spoken)
         XCTAssertFalse(spoken.contains("—"), spoken)
+    }
+
+    /// 83a5c6a leftover first mouth: list/show spoke “Here they are.”
+    /// before tools. Production path is empty — cards are the list.
+    func testListShowDoesNotSpeakHereTheyAre() {
+        let emails = [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve
+        ]
+        let events = [
+            CalendarItem(title: "Massimo showing", whenLabel: "Today 3:00 PM")
+        ]
+        for ask in ["show me my emails", "see my latest emails", "what's in my inbox?"] {
+            let spoken = InboxGlance.spokenInbox(ask: ask, emails: emails)
+            XCTAssertTrue(spoken.isEmpty, "\(ask) → \(spoken)")
+            XCTAssertNotEqual(spoken, InboxGlance.spokenListAck(), ask)
+            XCTAssertFalse(spoken.localizedCaseInsensitiveContains("here they are"), ask)
+            let overview = ConversationPresence.inboxOverviewCopy(emails, ask: ask)
+            XCTAssertTrue(overview.isEmpty, "\(ask) overview → \(overview)")
+            XCTAssertFalse(overview.localizedCaseInsensitiveContains("here they are"), ask)
+            let plan = InboxGlanceSpeakPlan.fromCachedEmails(
+                emails,
+                ask: ask,
+                fallbackText: ""
+            )
+            XCTAssertNotEqual(plan.spokenText, InboxGlance.spokenListAck(), ask)
+            XCTAssertFalse(plan.spokenText.localizedCaseInsensitiveContains("here they are"), ask)
+        }
+        XCTAssertTrue(InboxGlance.spokenCalendar(ask: "show my calendar", events: events).isEmpty)
+        XCTAssertTrue(InboxGlance.spokenOverviewBeat(count: emails.count).isEmpty)
+        XCTAssertTrue(InboxGlance.spokenCalendarOverviewBeat(count: events.count).isEmpty)
+        let leftoverFollowUp = ConversationPresence.notSeeingCardsReply(hasInbox: true)
+        XCTAssertTrue(
+            leftoverFollowUp.isEmpty,
+            "83a5c6a notSeeingCardsReply spoke Here they are — the synced emails."
+        )
+        XCTAssertFalse(leftoverFollowUp.localizedCaseInsensitiveContains("here they are"))
     }
 
     func testGlanceIsMuchShorterThanThreadSummary() {
@@ -210,10 +249,11 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(onScreen.contains("—"), onScreen)
 
         let spoken = InboxGlance.spokenOverviewBeat(count: emails.count)
-        XCTAssertTrue(InboxGlance.isShortSpokenAck(spoken), spoken)
+        XCTAssertTrue(spoken.isEmpty, spoken)
+        XCTAssertNotEqual(spoken, InboxGlance.spokenListAck())
         XCTAssertFalse(InboxGlance.isMultiline(spoken), spoken)
         XCTAssertFalse(spoken.contains("—"), spoken)
-        XCTAssertEqual(DeskReplySpeech.textToSpeak(spoken, lastSpoken: nil), spoken)
+        XCTAssertNil(DeskReplySpeech.textToSpeak(spoken, lastSpoken: nil))
         XCTAssertNotEqual(spoken, glance)
 
         let evidence = ConversationPresence.deskEvidence(
@@ -222,7 +262,8 @@ final class InboxGlanceTests: XCTestCase {
         )
         XCTAssertEqual(evidence?.shouldGlanceInbox, true)
         XCTAssertEqual(evidence?.cards.count, 3)
-        XCTAssertTrue(InboxGlance.isShortSpokenAck(evidence?.text ?? ""), evidence?.text ?? "")
+        XCTAssertTrue((evidence?.text ?? "").isEmpty, evidence?.text ?? "")
+        XCTAssertNotEqual(evidence?.text, InboxGlance.spokenListAck())
         XCTAssertFalse(InboxGlance.isMultiline(evidence?.text ?? ""), evidence?.text ?? "")
         let bubble = InboxGlance.onScreenText(compactCardCount: evidence?.cards.count ?? 0)
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(bubble), bubble)

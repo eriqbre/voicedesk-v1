@@ -1417,7 +1417,7 @@ public enum ConversationPresence {
 
     public static func notSeeingCardsReply(hasInbox: Bool) -> String {
         if hasInbox {
-            return "Here they are — the synced emails."
+            return ""
         }
         return "I don’t have a synced thread yet. I’m not inventing cards."
     }

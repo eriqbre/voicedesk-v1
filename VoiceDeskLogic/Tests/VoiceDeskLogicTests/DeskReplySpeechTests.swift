@@ -26,7 +26,9 @@ final class DeskReplySpeechTests: XCTestCase {
             VoiceRegressionDesk.murray,
             VoiceRegressionDesk.steve
         ])
-        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+        XCTAssertTrue(digest.isEmpty, digest)
+        XCTAssertNotEqual(digest, InboxGlance.spokenListAck())
+        XCTAssertNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
         let madison = ConversationPresence.emailBodyReply(
             EmailItem(
                 fromName: "John Madison",
@@ -39,6 +41,6 @@ final class DeskReplySpeechTests: XCTestCase {
             )
         )
         XCTAssertEqual(DeskReplySpeech.textToSpeak(madison, lastSpoken: digest), madison)
-        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+        XCTAssertNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
     }
 }

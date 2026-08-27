@@ -11,7 +11,9 @@ public enum InboxGlance: Sendable {
     /// Allowed on-screen stand-in when cards already list the inbox. Empty is preferred.
     public static let onScreenLeadIn = "Here are the latest."
 
-    /// List / show family. Cards are the list — not subjects, senders, or a digest.
+    /// 83a5c6a leftover client list/show line. Production list/show
+    /// speaks empty — cards are the list. Keep the phrase so leftover
+    /// detectors and echo fixtures can fail that walk.
     public static func spokenListAck() -> String {
         "Here they are."
     }
@@ -22,7 +24,7 @@ public enum InboxGlance: Sendable {
         if ConversationPresence.wantsInboxSummary(ask) {
             return spokenInboxSummary(window)
         }
-        return spokenListAck()
+        return ""
     }
 
     /// One short spoken summary — not five recited Name — topic lines.
@@ -41,7 +43,7 @@ public enum InboxGlance: Sendable {
         if ConversationPresence.wantsCalendarSummary(ask) {
             return spokenCalendarSummary(events)
         }
-        return spokenListAck()
+        return ""
     }
 
     public static func spokenCalendarSummary(_ events: [CalendarItem]) -> String {
@@ -55,13 +57,13 @@ public enum InboxGlance: Sendable {
     /// Spoken inbox-overview beat. Cards stay the list — never recite Name — topic.
     public static func spokenOverviewBeat(count: Int) -> String {
         _ = count
-        return spokenListAck()
+        return ""
     }
 
     /// Spoken calendar-overview beat. Cards stay the list — never recite titles.
     public static func spokenCalendarOverviewBeat(count: Int) -> String {
         _ = count
-        return spokenListAck()
+        return ""
     }
 
     public static let systemPrompt = """

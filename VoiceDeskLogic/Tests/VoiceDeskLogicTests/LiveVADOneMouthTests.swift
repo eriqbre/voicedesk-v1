@@ -114,10 +114,11 @@ final class LiveVADOneMouthTests: XCTestCase {
         )
         let walkAsk = "Can you read my latest email?"
         let cacheWalk = InboxGlanceSpeakPlan.cacheHot(ask: walkAsk, snapshot: snapshot, now: now)
-        XCTAssertTrue(
+        XCTAssertFalse(
             InboxGlanceSpeakPlan.isSkippedGlanceListStub(cacheWalk),
-            "83a5c6a cache-hot first-audio on the walk ask: \(cacheWalk.spokenText) \(cacheWalk.voiceLogNotes)"
+            "83a5c6a cache-hot first-audio was Here they are.: \(cacheWalk.spokenText) \(cacheWalk.voiceLogNotes)"
         )
+        XCTAssertNotEqual(cacheWalk.spokenText, InboxGlance.spokenListAck())
         for ask in Self.readLatestFamily {
             if ask.localizedCaseInsensitiveContains("email") {
                 XCTAssertTrue(

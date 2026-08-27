@@ -93,15 +93,20 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
             XCTAssertFalse(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.gmailListStage), ask)
             XCTAssertFalse(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.xaiGlanceStage), ask)
             XCTAssertEqual(plan.cardCount, InboxGlance.overviewLimit, ask)
-            XCTAssertFalse(plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ask)
+            XCTAssertNotEqual(plan.spokenText, InboxGlance.spokenListAck(), ask)
+            XCTAssertFalse(plan.spokenText.localizedCaseInsensitiveContains("here they are"), ask)
             XCTAssertTrue(
-                InboxGlance.isShortSpokenAck(plan.spokenText)
+                plan.spokenText.isEmpty
                     || InboxGlance.isShortSpokenSummary(plan.spokenText),
                 "\(ask) → \(plan.spokenText)"
             )
             XCTAssertFalse(InboxGlance.isMultiline(plan.spokenText), ask)
             XCTAssertFalse(plan.spokenText.contains("—"), ask)
-            XCTAssertNotNil(DeskReplySpeech.textToSpeak(plan.spokenText, lastSpoken: nil), ask)
+            if plan.spokenText.isEmpty {
+                XCTAssertNil(DeskReplySpeech.textToSpeak(plan.spokenText, lastSpoken: nil), ask)
+            } else {
+                XCTAssertNotNil(DeskReplySpeech.textToSpeak(plan.spokenText, lastSpoken: nil), ask)
+            }
             XCTAssertTrue(plan.voiceLogNotes.contains("firstAudio skipped xaiGlance"), ask)
             XCTAssertTrue(plan.voiceLogNotes.contains("firstAudio skipped gmailList"), ask)
             XCTAssertTrue(plan.voiceLogNotes.contains("cacheAgeSec=9"), ask)

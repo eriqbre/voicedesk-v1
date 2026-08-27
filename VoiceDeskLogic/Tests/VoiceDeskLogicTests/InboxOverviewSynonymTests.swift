@@ -101,10 +101,11 @@ final class InboxOverviewSynonymTests: XCTestCase {
             let onScreen = InboxGlance.onScreenText(compactCardCount: replay.cardLabels.count)
             XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(onScreen), "\(ask) on-screen: \(onScreen)")
             XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), ask)
-            XCTAssertTrue(InboxGlance.isShortSpokenAck(replay.reply), "\(ask) spoken: \(replay.reply)")
+            XCTAssertTrue(replay.reply.isEmpty, "\(ask) list/show: \(replay.reply)")
+            XCTAssertNotEqual(replay.reply, InboxGlance.spokenListAck(), ask)
             XCTAssertFalse(InboxGlance.isMultiline(replay.reply), ask)
             XCTAssertFalse(replay.reply.contains("Murray"), ask)
-            XCTAssertEqual(DeskReplySpeech.textToSpeak(replay.reply, lastSpoken: nil), replay.reply, ask)
+            XCTAssertNil(DeskReplySpeech.textToSpeak(replay.reply, lastSpoken: nil), ask)
         }
     }
 
