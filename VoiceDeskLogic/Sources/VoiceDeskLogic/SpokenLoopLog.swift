@@ -159,13 +159,6 @@ public enum SpokenLoopLog: Sendable {
         }.first
     }
 
-    /// Desk drain + Eve stayLive + first_audio absent. a2727b1 version cut.
-    public static func isVoiceCut(_ records: [VoiceInteractionEntry]) -> Bool {
-        let drained = records.contains { parse($0)["event"] == deskTTSDrainEvent }
-        let eve = mouths(in: records).contains(.eve)
-        return drained && eve && firstAudioStatus(in: records) == .absent
-    }
-
     public static func closeIsStayIdle(_ records: [VoiceInteractionEntry]) -> Bool {
         records.contains { rec in
             let fields = parse(rec)
