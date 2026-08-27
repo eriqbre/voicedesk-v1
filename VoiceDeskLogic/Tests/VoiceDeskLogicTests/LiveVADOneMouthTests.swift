@@ -46,10 +46,13 @@ final class LiveVADOneMouthTests: XCTestCase {
         XCTAssertFalse(
             LiveVADPlayerKeep.oneMouthFullReply(cardCount: 3).voiceCutsAfterFirstDelta
         )
-        let eve = LiveEveSpeak.plan(text: "1.2.3", socketConnected: true)
-        XCTAssertEqual(eve.mouth, .eve)
-        XCTAssertFalse(eve.wroteClientTTS)
-        XCTAssertEqual(eve.wireTypes, LiveEveSpeak.eveWireTypes)
+        XCTAssertFalse(
+            LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
+                liveVADTurn: true,
+                spoken: "Here they are.",
+                identityLine: "VoiceDesk point 1, build 6."
+            )
+        )
     }
 
     func testLiveSpeakDoesNotSendSecondCreateOrClientStub() throws {
@@ -60,9 +63,7 @@ final class LiveVADOneMouthTests: XCTestCase {
             to: "private func returnToListenAfterDeskTTS"
         )
         XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
-        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
         XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
-        XCTAssertTrue(source.contains("private func speakLiveReplyViaEve"), source)
         XCTAssertTrue(source.contains("interruptAssistant(sendCancel: true)"), source)
         XCTAssertTrue(source.contains("clearBufferObject"), source)
         XCTAssertTrue(source.contains("verbatimSpeakResponseID"), source)

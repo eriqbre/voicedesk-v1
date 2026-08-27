@@ -75,11 +75,6 @@ public struct LiveEveSpeak: Equatable, Sendable {
         return LiveEveSpeak(mouth: .clientTTS, wireTypes: [], wroteClientTTS: true)
     }
 
-    /// 83a5c6a hole: `speakLiveReplyViaEve` guard-returned. No write, no log.
-    public static func swallowedGuardReturn() -> LiveEveSpeak {
-        LiveEveSpeak(mouth: .eve, wireTypes: [], wroteClientTTS: false, swallowed: true)
-    }
-
     public static func bindVerbatimResponseID(
         existing: String?,
         createdID: String?

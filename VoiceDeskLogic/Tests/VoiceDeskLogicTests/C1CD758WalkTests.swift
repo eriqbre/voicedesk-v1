@@ -74,7 +74,6 @@ final class C1CD758WalkTests: XCTestCase {
                 wrotePlayerPCM: false
             )
         )
-        XCTAssertFalse(GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: true))
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
                 alreadyBarged: false,
@@ -135,7 +134,19 @@ final class C1CD758WalkTests: XCTestCase {
         XCTAssertFalse(version.contains("reply: \"\""), version)
 
         let desk = speakSlice(app, from: "private func speakDeskReply(_ text: String) async", to: "private func rememberUserTurn")
-        XCTAssertTrue(desk.contains("liveVersionAsk.speakDeskReply"), desk)
+        XCTAssertTrue(desk.contains("if isLiveVADTurn"), desk)
+        XCTAssertTrue(desk.contains("await voice.speak"), desk)
+        if let liveAt = desk.range(of: "if isLiveVADTurn"),
+           let helperAt = desk.range(of: "liveVersionAsk.speakDeskReply") {
+            let liveBranch = String(desk[liveAt.lowerBound..<helperAt.lowerBound])
+            XCTAssertTrue(
+                liveBranch.contains("await voice.speak"),
+                "live VAD must call voice.speak before the helper"
+            )
+            XCTAssertTrue(liveBranch.contains("return"), liveBranch)
+        } else {
+            XCTFail("live VAD speakDeskReply must call voice.speak; helper is typed only")
+        }
         XCTAssertFalse(desk.contains("Here they are"), desk)
         let seam = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/LiveVersionAsk.swift"))
         XCTAssertTrue(seam.contains("shouldWriteLiveDeskLineToPlayer"), seam)
@@ -150,10 +161,17 @@ final class C1CD758WalkTests: XCTestCase {
             to: "private func returnToListenAfterDeskTTS"
         )
         XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
-        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
         XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
         XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
-        XCTAssertTrue(LiveVADPlayerKeep.c1cd758Regression().voiceCutsAfterFirstDelta)
+        XCTAssertTrue(
+            LiveVADPlayerKeep.c1cd758Regression().voiceCutsAfterFirstDelta,
+            "c1cd758 walk: first delta then silence after interrupt with no mouth"
+        )
+        let speakTests = try XCTUnwrap(repoFile("VoiceDeskTests/GrokVoiceServiceSpeakTests.swift"))
+        XCTAssertTrue(
+            speakTests.contains("testInFlightVADSpeakInterruptsBeforeCreateAndDoesNotStarveEve"),
+            speakTests
+        )
 
         let handle = speakSlice(app, from: "private func handleLiveUser", to: "private func upsertLiveAssistant")
         XCTAssertTrue(handle.contains("shouldInterruptOnUserTranscript"), handle)

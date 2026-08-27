@@ -1,12 +1,12 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// Live version seam AppModel.handleLiveUser / speakDeskReply call.
-/// Desk identity write on live VAD is a2727b1 two-mouth. Not the
-/// SpokenLoopLog fixture gate.
+/// Helper only. Live VAD `AppModel.speakDeskReply` bypasses
+/// `LiveVersionAsk.speakDeskReply` and calls `voice.speak`.
+/// Production speak proof is `GrokVoiceServiceSpeakTests`.
 final class LiveVersionAskTests: XCTestCase {
 
-    func testOneMouthOnVersionDoesNotPlayDeskIdentityAndEveOnTheSameTurn() {
+    func testHelperRefusesLiveVADDeskWrite() {
         var session = LiveVersionAsk(
             identity: .a2727b1Walk,
             liveVADTurn: true
@@ -14,36 +14,24 @@ final class LiveVersionAskTests: XCTestCase {
         XCTAssertTrue(session.handleLiveUser(A2727B1Walk.versionAsk))
         XCTAssertFalse(
             session.speakDeskReply(session.spokenIdentityLine),
-            "desk identity write on live VAD is the second mouth"
+            "helper still refuses desk PCM; AppModel live VAD does not use this return"
         )
         XCTAssertFalse(session.wroteIdentityPCM)
         XCTAssertEqual(session.spokenLoopMouth, .eve)
         XCTAssertTrue(A2727B1Walk.versionIsDualMouth())
-        XCTAssertEqual(LiveEveSpeak.plan(text: "1.2.3", socketConnected: true).mouth, .eve)
     }
 
-    func testEveFinishesTheTurnWithoutVoiceCut() {
-        var session = LiveVersionAsk(
-            identity: .a2727b1Walk,
-            liveVADTurn: true
-        )
+    func testHelperOfflineVersionStillWritesIdentityNotEmptyEveLie() {
+        var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: false)
         XCTAssertTrue(session.handleLiveUser(A2727B1Walk.versionAsk))
-        XCTAssertFalse(session.speakDeskReply(session.spokenIdentityLine))
-        XCTAssertFalse(
-            LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
-                alreadyBarged: false,
-                hasPendingPlayback: true
-            )
-        )
-        XCTAssertTrue(LiveVADPlayerKeep.c1cd758Regression().voiceCutsAfterFirstDelta)
-        XCTAssertFalse(
-            LiveVADPlayerKeep.oneMouthFullReply(cardCount: 1).voiceCutsAfterFirstDelta
-        )
+        XCTAssertTrue(session.speakDeskReply(session.spokenIdentityLine))
+        XCTAssertTrue(session.wroteIdentityPCM)
+        XCTAssertEqual(session.spokenLoopMouth, .desk)
         XCTAssertFalse(
             LiveVADPlayerKeep.isEmptyEveSpeaksIdentityLie(
                 routingNotes: session.routingNotes,
                 assistantReply: session.assistantReply,
-                wrotePlayerPCM: false
+                wrotePlayerPCM: session.wroteIdentityPCM
             )
         )
     }
@@ -69,21 +57,6 @@ final class LiveVersionAskTests: XCTestCase {
                 userWantsVoiceOff: false,
                 liveSessionArmed: false,
                 audioStarted: false
-            )
-        )
-    }
-
-    func testOfflineVersionStillWritesIdentityNotEmptyEveLie() {
-        var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: false)
-        XCTAssertTrue(session.handleLiveUser(A2727B1Walk.versionAsk))
-        XCTAssertTrue(session.speakDeskReply(session.spokenIdentityLine))
-        XCTAssertTrue(session.wroteIdentityPCM)
-        XCTAssertEqual(session.spokenLoopMouth, .desk)
-        XCTAssertFalse(
-            LiveVADPlayerKeep.isEmptyEveSpeaksIdentityLie(
-                routingNotes: session.routingNotes,
-                assistantReply: session.assistantReply,
-                wrotePlayerPCM: session.wroteIdentityPCM
             )
         )
     }

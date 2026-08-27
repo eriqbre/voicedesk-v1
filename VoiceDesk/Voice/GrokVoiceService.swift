@@ -88,6 +88,8 @@ final class GrokVoiceService: VoiceServicing {
     private var responseCreatedCountForTests = 0
     /// Live `response.done` events. Tests only — not a second loop.
     private var responseDoneCountForTests = 0
+    /// Times `speak()` entered ClientVoiceSpeech. Tests only.
+    private var clientTTSSpeakCountForTests = 0
     /// Same frames the live tap sends to Grok. Tests only — not a second loop.
     /// The HAL tap is Sendable; this box is captured like `socket`, not read
     /// off `self` inside that closure.
@@ -182,6 +184,7 @@ final class GrokVoiceService: VoiceServicing {
             startAudioIfNeeded()
         }
         clientTTSInFlight = true
+        clientTTSSpeakCountForTests += 1
         await ClientVoiceSpeech.shared.speak(trimmed) { [weak self] pcm in
             guard let self else { return }
             self.audio.playPCM16(pcm)
@@ -1022,6 +1025,30 @@ extension GrokVoiceService {
     var listenLoopDeliveredSendTypes: [String] { client.deliveredSendTypes }
 
     var listenLoopDeliveredSends: [String] { client.deliveredSends }
+
+    /// Fake live socket. `notifyOpen` does not set `opened` without a
+    /// real task. `speak()` reads `client.isConnected`.
+    func markListenLoopOpenedForTests() {
+        client.markOpenedForTests()
+    }
+
+    var listenLoopVerbatimSpeakResponseID: String? { verbatimSpeakResponseID }
+
+    var listenLoopAwaitingVerbatimSpeakID: Bool { awaitingVerbatimSpeakID }
+
+    var listenLoopClientTTSSpeakCount: Int { clientTTSSpeakCountForTests }
+
+    var listenLoopClientTTSRecordedTexts: [String] {
+        ClientVoiceSpeech.shared.recordedSpeakTexts
+    }
+
+    func attachListenLoopClientTTSRecorderForTests() {
+        ClientVoiceSpeech.shared.attachTestSpeakRecorder()
+    }
+
+    func injectListenLoopJSON(_ json: [String: Any], type: String) {
+        grokWebSocketDidReceive(json: json, type: type)
+    }
 
     /// Tiny hook. Not a mock Grok client. Flushes the dead-socket queue.
     func attachListenLoopSendTaskForTests() {

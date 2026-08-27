@@ -56,8 +56,6 @@ final class LiveVADPlayerKeepAliveTests: XCTestCase {
         XCTAssertFalse(keep.isCardlessBlob)
         XCTAssertFalse(keep.dumpsTranscriptLate)
         XCTAssertTrue(keep.isOneMouthFullReply)
-        XCTAssertEqual(LiveEveSpeak.plan(text: "1.2.3", socketConnected: true).mouth, .eve)
-        XCTAssertFalse(GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: true))
     }
 
     func testSameTurnFirstAnswerMustNotBeInterrupted() {
@@ -218,8 +216,6 @@ final class LiveVADPlayerKeepAliveTests: XCTestCase {
             from: "func speak(_ text: String) async {",
             to: "private func returnToListenAfterDeskTTS"
         )
-        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
-        XCTAssertTrue(service.contains("private func speakLiveReplyViaEve"), service)
         XCTAssertTrue(service.contains("verbatimSpeakResponseID"), service)
     }
 

@@ -50,9 +50,6 @@ final class FirstAskOneMouthTests: XCTestCase {
                 identityLine: A2727B1Walk.spokenIdentity
             )
         )
-        let eve = LiveEveSpeak.plan(text: "1.2.3", socketConnected: true)
-        XCTAssertEqual(eve.mouth, .eve)
-        XCTAssertFalse(eve.wroteClientTTS)
     }
 
     func testVersionAskKeepsEveMouthAndDoesNotWriteDesk() {
@@ -107,7 +104,6 @@ final class FirstAskOneMouthTests: XCTestCase {
             to: "private func returnToListenAfterDeskTTS"
         )
         XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
-        XCTAssertTrue(speakFn.contains("speakLiveReplyViaEve"), speakFn)
         XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
         XCTAssertFalse(service.contains("eve speaks identity"), service)
     }

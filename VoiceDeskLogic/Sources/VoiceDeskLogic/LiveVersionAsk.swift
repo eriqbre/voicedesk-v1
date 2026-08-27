@@ -1,12 +1,10 @@
 import Foundation
 
-/// Production spoken-loop seam. AppModel.handleLiveUser and
-/// AppModel.speakDeskReply call these same functions.
-///
-/// Live Talk: Eve is the mouth. handleLiveUser records a version ask;
-/// it does not mute Eve. speakDeskReply refuses desk PCM on live VAD
-/// (that write + Eve on the same turn is a2727b1 two-mouth). Offline /
-/// typed still writes identity. Mute flags and unmute-after-drain
+/// Spoken-loop helper. AppModel.handleLiveUser still records a version
+/// ask here. Live VAD `AppModel.speakDeskReply` does not: it calls
+/// `voice.speak` directly. This helper still refuses desk PCM on live
+/// VAD (that write + Eve on the same turn is a2727b1 two-mouth).
+/// Offline / typed still writes identity. Mute flags and unmute-after-drain
 /// lived here and produced 8927c2d silence — they are gone.
 public struct LiveVersionAsk: Equatable, Sendable {
     public var identity: BuildIdentity
@@ -67,8 +65,9 @@ public struct LiveVersionAsk: Equatable, Sendable {
         return true
     }
 
-    /// AppModel.speakDeskReply. Live VAD returns false so Eve stays
-    /// the only mouth. Offline / typed writes identity PCM.
+    /// Typed / offline `AppModel.speakDeskReply` still calls this.
+    /// Live VAD returns false so a desk write is not a second mouth.
+    /// Live VAD production speak is `GrokVoiceService.speak`, not this.
     @discardableResult
     public mutating func speakDeskReply(_ text: String) -> Bool {
         guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {

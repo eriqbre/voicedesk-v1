@@ -14,6 +14,8 @@ final class ClientVoiceSpeech: NSObject {
     private var play: ((Data) -> Void)?
     private var continuation: CheckedContinuation<Void, Never>?
     private var currentUtterance: AVSpeechUtterance?
+    private var recordsSpeakForTests = false
+    private(set) var recordedSpeakTexts: [String] = []
 
     private override init() {
         super.init()
@@ -23,9 +25,23 @@ final class ClientVoiceSpeech: NSObject {
         synthesizer.usesApplicationAudioSession = false
     }
 
+    /// Tests only. Record the text and finish. No AVSpeech.
+    func attachTestSpeakRecorder() {
+        recordsSpeakForTests = true
+    }
+
+    func resetTestSpeakRecorder() {
+        recordsSpeakForTests = false
+        recordedSpeakTexts.removeAll()
+    }
+
     func speak(_ text: String, play: @escaping (Data) -> Void) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        if recordsSpeakForTests {
+            recordedSpeakTexts.append(trimmed)
+            return
+        }
         finishPendingWait()
         synthesizer.stopSpeaking(at: .immediate)
         self.play = play
