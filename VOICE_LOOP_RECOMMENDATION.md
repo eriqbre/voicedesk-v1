@@ -216,15 +216,27 @@ Pass = Elon writes the ≤10 step Eriq handoff from `TESTING_AND_BRANCHING.md` �
 
 ---
 
-## CoS checkbox
+## Elon signed 2026-08-27 (read the PR, not a paste)
 
-```
+Accepted (matches the simple one-pipe loop already in flight on #35):
+- One session playAndRecord + voiceChat + defaultToSpeaker/BT. No mixWithOthers. No A2DP-only.
+- One AVAudioEngine, VP on while stopped, one tap, one AVAudioPlayerNode.
+- Live Talk is Eve only. Delete ClientVoiceSpeech / desk-TTS first-audio from the live session. write→playPCM16. Never AVSpeechSynthesizer.speak().
+- After last buffer drains: do nothing. Rebuild only on AVAudioEngineConfigurationChange or media-services reset.
+- Barge-in: player.stop(); player.play() + cancel in-flight if Grok is speaking.
+
+Rejected:
+- Freeze #35 / “#35 is not the loop” / implement §6 on main or thin #36. Stay on #35. Do not merge #36.
+- Silent-tap watchdog reinstall after drain (that is the 552ef0c hole).
+- interruption.ended / route / app-active rebuilds as part of this slice (already .none on 5bcfbd7).
+- Walk in §7 as the ship gate. Linux + honest sim first. Do not ask Eriq to walk. Phone hold 5bcfbd7.
+- UIBackgroundModes, stop-intent substring, socket-backoff as this slice. Later, not now.
+
 ## Elon
-- [ ] Agree: freeze stacked PRs; one audio slice; #35 not the loop
-- [ ] Agree: one mouth (no AVSpeechSynthesizer on live Talk)
-- [ ] Agree: walk in §7 is the ship gate
-- [ ] Next brief: implement §6 on main / thin #36
+- [x] REJECT: freeze stacked PRs; one audio slice; #35 not the loop
+- [x] ACCEPT: one mouth (no AVSpeechSynthesizer.speak() on live Talk)
+- [x] REJECT: walk in §7 is the ship gate
+- [x] REJECT: Next brief: implement §6 on main / thin #36
 
 ## Eriq
 - [ ] Not yet — wait for Elon handoff after the implementation PR is green
-```
