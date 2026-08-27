@@ -42,5 +42,7 @@ final class DeskReplySpeechTests: XCTestCase {
         )
         XCTAssertEqual(DeskReplySpeech.textToSpeak(madison, lastSpoken: digest), madison)
         XCTAssertNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(digest))
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(madison))
     }
 }
