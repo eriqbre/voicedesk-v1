@@ -6,20 +6,40 @@ import XCTest
 final class FirstAskOneMouthTests: XCTestCase {
     func testFirstAskDeskPlusEveIsTwoMouthsAndFixIsDeskOnly() {
         let hole = LiveTalkMouth.firstAskDeskIdentityPlusEve()
+        XCTAssertTrue(hole.afterDeskTTSDrain, "4f4f4da version logged after desk tts drain")
         XCTAssertTrue(hole.liveVADResponse)
         XCTAssertTrue(hole.clientVoiceSpeechWrite)
         XCTAssertTrue(hole.eveVoicePath)
         XCTAssertFalse(hole.sentVerbatimCreate)
         XCTAssertTrue(
             hole.isDualMouth,
-            "4f4f4da wrote identity while Eve A still spoke"
+            "5bcfbd7 / 4f4f4da: desk TTS drain + Eve"
+        )
+        let walkNotes = [
+            "local build identity",
+            "0.1.0 build 6 sha 4f4f4da",
+            "after desk tts drain listenArmed=true stayLive=true"
+        ]
+        XCTAssertTrue(
+            LiveTalkMouth.versionNotesAreDualMouth(
+                routingNotes: walkNotes,
+                eveAlsoSpoke: true
+            ),
+            "jsonl has no second firstAudio; both mouths were heard"
         )
 
         let keep = LiveTalkMouth.firstAskDeskIdentityOnly()
+        XCTAssertTrue(keep.afterDeskTTSDrain)
         XCTAssertTrue(keep.clientVoiceSpeechWrite)
         XCTAssertFalse(keep.eveVoicePath)
         XCTAssertFalse(keep.sentVerbatimCreate)
         XCTAssertFalse(keep.isDualMouth)
+        XCTAssertFalse(
+            LiveTalkMouth.versionNotesAreDualMouth(
+                routingNotes: walkNotes,
+                eveAlsoSpoke: false
+            )
+        )
         XCTAssertFalse(LiveTalkMouth.liveTalkEveOnly().isDualMouth)
         XCTAssertFalse(GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: true))
     }

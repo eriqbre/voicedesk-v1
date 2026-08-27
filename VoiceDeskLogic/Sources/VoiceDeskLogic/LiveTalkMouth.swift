@@ -64,10 +64,12 @@ public struct LiveTalkMouth: Equatable, Sendable {
         )
     }
 
-    /// 4f4f4da first ask: write→player identity while Eve A still speaks.
+    /// 4f4f4da / 5bcfbd7 first ask: `local build identity` +
+    /// `after desk tts drain` while Eve still speaks. No second
+    /// firstAudio in jsonl — both mouths still heard.
     public static func firstAskDeskIdentityPlusEve() -> LiveTalkMouth {
         LiveTalkMouth(
-            afterDeskTTSDrain: false,
+            afterDeskTTSDrain: true,
             eveVoicePath: true,
             skippedGlanceStubFirstAudio: false,
             clientVoiceSpeechWrite: true,
@@ -76,16 +78,27 @@ public struct LiveTalkMouth: Equatable, Sendable {
         )
     }
 
-    /// Version / first identity ask: desk write is the only mouth.
+    /// Version identity write→player only. Drain may log. Eve does not.
     public static func firstAskDeskIdentityOnly() -> LiveTalkMouth {
         LiveTalkMouth(
-            afterDeskTTSDrain: false,
+            afterDeskTTSDrain: true,
             eveVoicePath: false,
             skippedGlanceStubFirstAudio: false,
             clientVoiceSpeechWrite: true,
             liveVADResponse: true,
             sentVerbatimCreate: false
         )
+    }
+
+    /// Device version turn: those two notes plus Eve is two mouths.
+    public static func versionNotesAreDualMouth(
+        routingNotes: [String],
+        eveAlsoSpoke: Bool
+    ) -> Bool {
+        let blob = routingNotes.joined(separator: "\n")
+        let identity = blob.contains("local build identity")
+        let drain = blob.contains("after desk tts drain")
+        return identity && drain && eveAlsoSpoke
     }
 
     public static func liveTalkEveOnly() -> LiveTalkMouth {
