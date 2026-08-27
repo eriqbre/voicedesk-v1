@@ -302,14 +302,29 @@ public enum GrokRealtime {
 
     /// First-answer id that barge dropped. Leftover deltas with this
     /// id must not raise pending after `interruptPlayback`.
+    /// `lastCreated` is the first `response.created` when Grok PCM
+    /// omitted `response_id` — scheduled/playing can stay nil.
     public static func cancelledPlaybackResponseID(
         interruptTargetID: String?,
         lastScheduledResponseID: String?,
-        playingResponseID: String?
+        playingResponseID: String?,
+        lastCreatedResponseID: String? = nil
     ) -> String? {
         nonemptyID(interruptTargetID)
             ?? nonemptyID(lastScheduledResponseID)
             ?? nonemptyID(playingResponseID)
+            ?? nonemptyID(lastCreatedResponseID)
+    }
+
+    /// Tag a scheduled buffer when the delta omitted `response_id`.
+    public static func scheduledResponseID(
+        deltaResponseID: String?,
+        createdAwaitingAudioID: String?,
+        lastCreatedResponseID: String?
+    ) -> String? {
+        nonemptyID(deltaResponseID)
+            ?? nonemptyID(createdAwaitingAudioID)
+            ?? nonemptyID(lastCreatedResponseID)
     }
 
     /// Newer created after barge. Not the cancelled first answer.
@@ -328,25 +343,25 @@ public enum GrokRealtime {
         return nil
     }
 
-    /// After barge, only the interrupt-answer id may schedule.
-    /// Leftover first-answer `output_audio.delta` must not raise pending.
+    /// After barge, reject only leftover that carries the cancelled
+    /// first-answer id. A nil latch or a delta without `response_id`
+    /// must still schedule — that is R2. Do not eat the interrupt answer.
     public static func shouldScheduleAfterBarge(
         bargeConsumed: Bool,
         deltaResponseID: String?,
         cancelledResponseID: String?,
-        interruptAnswerID: String?,
+        interruptAnswerID: String? = nil,
         playingResponseID: String? = nil
     ) -> Bool {
+        _ = interruptAnswerID
+        _ = playingResponseID
         guard bargeConsumed else { return true }
         let delta = nonemptyID(deltaResponseID)
         let cancelled = nonemptyID(cancelledResponseID)
-        let answer = nonemptyID(interruptAnswerID)
         if let delta, let cancelled, delta == cancelled {
             return false
         }
-        guard let answer else { return false }
-        if let delta { return delta == answer }
-        return nonemptyID(playingResponseID) == answer
+        return true
     }
 
     /// The interrupt created already scheduled. Dropping local wipes

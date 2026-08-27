@@ -246,7 +246,8 @@ final class GrokVoiceService: VoiceServicing {
         cancelledPlaybackResponseID = GrokRealtime.cancelledPlaybackResponseID(
             interruptTargetID: interruptTargetID,
             lastScheduledResponseID: lastScheduledResponseID,
-            playingResponseID: playingResponseID
+            playingResponseID: playingResponseID,
+            lastCreatedResponseID: lastCreatedResponseID
         )
         if decision.dropLocal {
             interruptAssistant(sendCancel: false)
@@ -605,7 +606,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
-        let deltaID = createdAwaitingAudioID
+        let deltaID = GrokRealtime.scheduledResponseID(
+            deltaResponseID: nil,
+            createdAwaitingAudioID: createdAwaitingAudioID,
+            lastCreatedResponseID: lastCreatedResponseID
+        )
         guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { return }
         if playingResponseID == nil {
             playingResponseID = deltaID
@@ -665,12 +670,16 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             break
         case .outputAudioDelta(let delta):
             // Live Grok PCM on the one-engine player. After barge,
-            // leftover first-answer deltas must not raise pending —
-            // only the interrupt-answer id may schedule.
+            // reject leftover that carries the cancelled first-answer
+            // id. Deltas without response_id are R2 — do not eat them.
             let deltaID = GrokRealtime.responseID(in: json)
             guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { break }
             if playingResponseID == nil {
-                playingResponseID = deltaID ?? createdAwaitingAudioID
+                playingResponseID = GrokRealtime.scheduledResponseID(
+                    deltaResponseID: deltaID,
+                    createdAwaitingAudioID: createdAwaitingAudioID,
+                    lastCreatedResponseID: lastCreatedResponseID
+                )
                 noteScheduledResponse(playingResponseID)
             }
             audio.playAudioDelta(base64: delta)

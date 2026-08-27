@@ -395,6 +395,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let outputAudio = speakSlice(service, from: "case .outputAudioDelta", to: "case .outputAudioDone")
         XCTAssertTrue(outputAudio.contains("playAudioDelta"), outputAudio)
         XCTAssertTrue(outputAudio.contains("shouldPlayBargeAudio"), outputAudio)
+        XCTAssertTrue(outputAudio.contains("scheduledResponseID"), outputAudio)
         XCTAssertFalse(
             outputAudio.contains("currentResponseID"),
             "leftover response_id skip leaves pending at 0"
@@ -417,6 +418,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(interruptLive.contains("createdCountAtBarge"), interruptLive)
         XCTAssertTrue(interruptLive.contains("interruptTargetID"), interruptLive)
         XCTAssertTrue(interruptLive.contains("cancelledPlaybackResponseID"), interruptLive)
+        XCTAssertTrue(
+            interruptLive.contains("lastCreatedResponseID"),
+            "Grok PCM omits response_id — latch the first created or the leftover filter never arms"
+        )
         XCTAssertTrue(
             interruptLive.contains("interruptAssistant(sendCancel: false)"),
             "barge must not send response.cancel — that races the interrupt created"
@@ -465,6 +470,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func shouldKeepInterruptAnswerOnPlayer"), realtime)
         XCTAssertTrue(realtime.contains("func shouldScheduleAfterBarge"), realtime)
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
+        XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func interruptAnswerID"), realtime)
         XCTAssertTrue(realtime.contains("func bargeProofLine"), realtime)
         XCTAssertTrue(realtime.contains("func latchedInterruptTarget"), realtime)

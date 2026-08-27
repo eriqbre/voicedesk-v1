@@ -380,6 +380,24 @@ final class GrokRealtimeTests: XCTestCase {
             "resp_1"
         )
         XCTAssertEqual(
+            GrokRealtime.cancelledPlaybackResponseID(
+                interruptTargetID: nil,
+                lastScheduledResponseID: nil,
+                playingResponseID: nil,
+                lastCreatedResponseID: "resp_1"
+            ),
+            "resp_1",
+            "Grok PCM often omits response_id — latch the first created"
+        )
+        XCTAssertEqual(
+            GrokRealtime.scheduledResponseID(
+                deltaResponseID: nil,
+                createdAwaitingAudioID: nil,
+                lastCreatedResponseID: "resp_2"
+            ),
+            "resp_2"
+        )
+        XCTAssertEqual(
             GrokRealtime.interruptAnswerID(
                 createdAwaitingAudioID: "resp_2",
                 lastCreatedResponseID: "resp_2",
@@ -431,14 +449,23 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             "interrupt-answer id may raise pending"
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             GrokRealtime.shouldScheduleAfterBarge(
                 bargeConsumed: true,
                 deltaResponseID: nil,
                 cancelledResponseID: "resp_1",
                 interruptAnswerID: "resp_2"
             ),
-            "unattributed leftover after barge must not raise pending"
+            "Grok PCM without response_id is R2 — do not eat the interrupt answer"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: true,
+                deltaResponseID: "resp_2",
+                cancelledResponseID: nil,
+                interruptAnswerID: nil
+            ),
+            "a nil latch must not drop every delta (dropAssistantAudio in disguise)"
         )
         XCTAssertEqual(
             GrokRealtime.bargeInDecision(
