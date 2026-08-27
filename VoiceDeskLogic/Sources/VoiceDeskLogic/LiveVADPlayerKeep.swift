@@ -133,6 +133,42 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
         !dropAssistantOutput && !clientTTSInFlight
     }
 
+    /// Production `GrokVoiceService.shouldPlayBargeAudio` body.
+    /// a2727b1 leftover was `shouldScheduleAfterBarge` only — Eve
+    /// still played after identity write. The Eve mute is this
+    /// `shouldPlayEveAudio` guard. Wrapper only increments reject count.
+    public static func shouldPlayBargeAudio(
+        dropAssistantOutput: Bool,
+        clientTTSInFlight: Bool,
+        bargeConsumed: Bool,
+        deltaResponseID: String?,
+        cancelledResponseID: String?,
+        createdAwaitingAudioID: String?,
+        lastCreatedResponseID: String?,
+        playingResponseID: String?,
+        lastScheduledResponseID: String?,
+        hasPendingPlayback: Bool
+    ) -> Bool {
+        guard shouldPlayEveAudio(
+            dropAssistantOutput: dropAssistantOutput,
+            clientTTSInFlight: clientTTSInFlight
+        ) else { return false }
+        let answerID = GrokRealtime.interruptAnswerID(
+            createdAwaitingAudioID: createdAwaitingAudioID,
+            lastCreatedResponseID: lastCreatedResponseID,
+            cancelledResponseID: cancelledResponseID
+        )
+        return GrokRealtime.shouldScheduleAfterBarge(
+            bargeConsumed: bargeConsumed,
+            deltaResponseID: deltaResponseID,
+            cancelledResponseID: cancelledResponseID,
+            interruptAnswerID: answerID,
+            playingResponseID: playingResponseID,
+            lastScheduledResponseID: lastScheduledResponseID,
+            hasPendingPlayback: hasPendingPlayback
+        )
+    }
+
     /// Live VAD may write the identity line to the one player.
     /// Inbox stubs stay silent — no client “Here they are.”
     public static func shouldWriteLiveDeskLineToPlayer(

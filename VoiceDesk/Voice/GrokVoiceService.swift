@@ -461,20 +461,14 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     private func shouldPlayBargeAudio(deltaResponseID: String?) -> Bool {
-        guard LiveVADPlayerKeep.shouldPlayEveAudio(
+        let allow = LiveVADPlayerKeep.shouldPlayBargeAudio(
             dropAssistantOutput: dropAssistantTranscript,
-            clientTTSInFlight: clientTTSInFlight
-        ) else { return false }
-        let answerID = GrokRealtime.interruptAnswerID(
-            createdAwaitingAudioID: createdAwaitingAudioID,
-            lastCreatedResponseID: lastCreatedResponseID,
-            cancelledResponseID: cancelledPlaybackResponseID
-        )
-        let allow = GrokRealtime.shouldScheduleAfterBarge(
+            clientTTSInFlight: clientTTSInFlight,
             bargeConsumed: bargeConsumed,
             deltaResponseID: deltaResponseID,
             cancelledResponseID: cancelledPlaybackResponseID,
-            interruptAnswerID: answerID,
+            createdAwaitingAudioID: createdAwaitingAudioID,
+            lastCreatedResponseID: lastCreatedResponseID,
             playingResponseID: playingResponseID,
             lastScheduledResponseID: lastScheduledResponseID,
             hasPendingPlayback: audio.hasPendingPlayback

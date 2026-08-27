@@ -216,8 +216,8 @@ final class FirstAskOneMouthTests: XCTestCase {
             to: "private func noteScheduledResponse"
         )
         XCTAssertTrue(
-            playGate.contains("shouldPlayEveAudio"),
-            "a2727b1 scheduled Eve deltas during identity write"
+            playGate.contains("LiveVADPlayerKeep.shouldPlayBargeAudio"),
+            "wrapper must call the extracted shouldPlayBargeAudio"
         )
         XCTAssertTrue(playGate.contains("dropAssistantTranscript"), playGate)
         XCTAssertTrue(playGate.contains("clientTTSInFlight"), playGate)

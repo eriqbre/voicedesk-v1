@@ -1,14 +1,9 @@
 import Foundation
 
 /// Production first-ask version path. AppModel.handleLiveUser and
-/// AppModel.speakDeskReply call these same functions. Linux cannot
-/// instantiate iOS AppModel or GrokVoiceService; Eve PCM is gated
-/// by `LiveVADPlayerKeep.shouldPlayEveAudio`, the function
-/// `GrokVoiceService.shouldPlayBargeAudio` already calls.
-///
-/// a2727b1 leftover barge-only (`shouldScheduleAfterBarge`) still
-/// lets Eve through after identity write. Not flash-ready until
-/// that path is production, not reconstructed.
+/// AppModel.speakDeskReply call these same functions. Eve PCM is
+/// `LiveVADPlayerKeep.shouldPlayBargeAudio` — the body
+/// GrokVoiceService.shouldPlayBargeAudio wraps. Not flash-ready.
 public struct LiveVersionAsk: Equatable, Sendable {
     public var identity: BuildIdentity
     public var liveVADTurn: Bool
