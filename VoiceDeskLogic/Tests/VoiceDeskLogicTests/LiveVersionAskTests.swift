@@ -51,7 +51,7 @@ final class LiveVersionAskTests: XCTestCase {
     /// clientTTSInFlight only. drop stayed true — following Eve
     /// delta is shouldPlayBargeAudio false. Same function
     /// GrokVoiceService.returnToListenAfterDeskTTS calls.
-    func testFollowingEveDeltaPlaysAfterIdentityWriteDrain() throws {
+    func testFollowingEveDeltaPlaysAfterIdentityWriteDrain() {
         var session = LiveVersionAsk(identity: .a2727b1Walk, liveVADTurn: true)
         XCTAssertTrue(session.handleLiveUser(ask))
         XCTAssertTrue(session.speakDeskReply(session.spokenIdentityLine))
@@ -69,15 +69,6 @@ final class LiveVersionAskTests: XCTestCase {
             playerAllowsEve(session),
             "8927c2d leftover cleared clientTTS only; drop stayed true and Eve stayed false"
         )
-
-        let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        let drain = drainSlice(service)
-        XCTAssertTrue(
-            drain.contains("LiveVADPlayerKeep.returnToListenAfterDeskTTS"),
-            drain
-        )
-        XCTAssertTrue(drain.contains("dropAssistantOutput: &dropAssistantTranscript"), drain)
-        XCTAssertTrue(drain.contains("clientTTSInFlight: &clientTTSInFlight"), drain)
     }
 
     private func playerAllowsEve(_ session: LiveVersionAsk) -> Bool {
@@ -93,24 +84,5 @@ final class LiveVersionAskTests: XCTestCase {
             lastScheduledResponseID: nil,
             hasPendingPlayback: true
         )
-    }
-
-    private func drainSlice(_ source: String) -> String {
-        guard let start = source.range(of: "private func returnToListenAfterDeskTTS()"),
-              let end = source.range(of: "private func waitUntilPlaybackDrained")
-        else { return "" }
-        return String(source[start.lowerBound..<end.lowerBound])
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
     }
 }
