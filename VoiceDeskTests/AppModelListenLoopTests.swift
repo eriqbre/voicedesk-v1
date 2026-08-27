@@ -604,7 +604,9 @@ final class AppModelListenLoopTests: XCTestCase {
     /// dead, then DidOpen → session.updated flush. Do not feed more PCM
     /// after that. 48eb875 sent the appends and stopped. No trailing
     /// silence, no commit — VAD never closed the turn. One commit after
-    /// the queued command is enough. `startCount` stays 1.
+    /// the queued command is enough. The live tap may still append
+    /// after that close — lastIndex(append) is not command 2.
+    /// `startCount` stays 1.
     func testLiveConversationLoopDidClose1000FlushClosesQueuedTurn() async throws {
         let voice = GrokVoiceService(apiKey: "test-listen-loop-flush-commit")
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
@@ -668,8 +670,11 @@ final class AppModelListenLoopTests: XCTestCase {
             voice.listenLoopDeliveredAudioPCM.contains(command2),
             "queued command 2 must flush after session.updated"
         )
+        let pcm = voice.listenLoopDeliveredAudioPCM
         let types = voice.listenLoopDeliveredSendTypes
-        guard let appendAt = types.lastIndex(of: "input_audio_buffer.append"),
+        let appendSlots = types.enumerated().compactMap { $0.element == "input_audio_buffer.append" ? $0.offset : nil }
+        let paired = Array(zip(appendSlots, pcm))
+        guard let command2At = paired.last(where: { $0.1 == command2 })?.0,
               let commitAt = types.firstIndex(of: "input_audio_buffer.commit")
         else {
             XCTFail("48eb875 flushed appends only — no commit, no trailing silence, VAD never closed the turn")
@@ -677,7 +682,7 @@ final class AppModelListenLoopTests: XCTestCase {
             return
         }
         XCTAssertLessThan(
-            appendAt,
+            command2At,
             commitAt,
             "commit must follow the queued command, not precede it"
         )

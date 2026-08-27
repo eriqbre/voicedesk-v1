@@ -756,8 +756,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(closeTurn.contains("simulateListenLoopSocketDidOpenThenSessionReady"), closeTurn)
         XCTAssertTrue(closeTurn.contains("waitUntilListenLoopQueuedTurnClosed"), closeTurn)
         XCTAssertTrue(closeTurn.contains("input_audio_buffer.commit"), closeTurn)
+        XCTAssertTrue(closeTurn.contains("listenLoopDeliveredAudioPCM"), closeTurn)
+        XCTAssertTrue(closeTurn.contains("command2At"), closeTurn)
         XCTAssertTrue(closeTurn.contains("48eb875"), closeTurn)
         XCTAssertTrue(closeTurn.contains("interruptResponse"), closeTurn)
+        XCTAssertFalse(
+            closeTurn.contains("types.lastIndex(of: \"input_audio_buffer.append\")"),
+            "a5646b0 lastIndex(append) is a later live-tap frame, not the queued command"
+        )
         XCTAssertFalse(closeTurn.contains("emitUser"), closeTurn)
         XCTAssertFalse(closeTurn.contains("FakeLiveVoiceService"), closeTurn)
         XCTAssertFalse(closeTurn.contains("attachListenLoopSendTaskForTests"), closeTurn)
