@@ -295,27 +295,6 @@ final class FirstHearTapLoopTests: XCTestCase {
     }
 
     func testDelayedYankAfterReturnToListenThenDelayedRepairLandsThird() {
-        XCTAssertTrue(
-            FirstHearTapLoop.shouldScheduleDelayedSilentTapRepairAfterDrain(
-                wantsCapture: true,
-                engineRunning: true
-            )
-        )
-        XCTAssertFalse(
-            FirstHearTapLoop.shouldScheduleDelayedSilentTapRepairAfterDrain(
-                wantsCapture: true,
-                engineRunning: false
-            )
-        )
-        XCTAssertFalse(
-            FirstHearTapLoop.shouldScheduleDelayedSilentTapRepairAfterDrain(
-                wantsCapture: true,
-                engineRunning: true,
-                bargeConsumed: true
-            ),
-            "command barge must not keep a delayed tap rebuild in the leftover window"
-        )
-        XCTAssertEqual(FirstHearTapLoop.delayedSilentTapRepairMilliseconds, 400)
         XCTAssertFalse(
             FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
                 engineRunning: true,
@@ -330,7 +309,7 @@ final class FirstHearTapLoopTests: XCTestCase {
                 wantsCapture: true,
                 tapObjectMissing: true
             ),
-            "HAL yank leaves tap nil — delayed check puts it back"
+            "HAL yank leaves tap nil — demand-driven reinstall puts it back"
         )
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)

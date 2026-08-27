@@ -57,10 +57,6 @@ final class GrokVoiceService: VoiceServicing {
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var isTearingDown = false
-    /// One delayed silent-tap reinstall after write→player drain.
-    /// HAL yank can arrive after drain-time reinstall, with zero
-    /// notifications. Not a poll loop.
-    private var delayedSilentTapRepair: Task<Void, Never>?
     private var isRecovering = false
     private var reconnectsUsed = 0
     /// User tap-stop / cancel / explicit voice off. Blocks auto-reconnect and
@@ -180,33 +176,12 @@ final class GrokVoiceService: VoiceServicing {
         )
         clientTTSInFlight = false
         eventHandler?(.state(session.state))
-        // Tape-1 desk speak() can drain after command barge. Reinstall
-        // then raced leftover created (ed0b5ef 53s, deltas=0).
-        if !bargeConsumed {
-            audio.reinstallTapIfSilentWhileRunning()
-            scheduleDelayedSilentTapRepair()
-        }
+        audio.reinstallTapIfSilentWhileRunning()
         // Desk TTS is write→player. The socket stays open. The next
         // tap-PCM command is a live append, not a queued recover.
         logListenResume(
             note: "after desk tts drain listenArmed=\(result.listenArmed) stayLive=\(result.stayLive) \(result.close1000) startAgain=\(result.startAgain) state=\(session.state.rawValue)"
         )
-    }
-
-    private func scheduleDelayedSilentTapRepair() {
-        guard FirstHearTapLoop.shouldScheduleDelayedSilentTapRepairAfterDrain(
-            wantsCapture: true,
-            engineRunning: audio.isRunning,
-            bargeConsumed: bargeConsumed
-        ) else { return }
-        delayedSilentTapRepair?.cancel()
-        delayedSilentTapRepair = Task { @MainActor [weak self] in
-            let delay = FirstHearTapLoop.delayedSilentTapRepairMilliseconds
-            try? await Task.sleep(for: .milliseconds(delay))
-            guard !Task.isCancelled else { return }
-            guard let self, !self.bargeConsumed else { return }
-            self.audio.reinstallTapIfYankedWhileRunning()
-        }
     }
 
     private func waitUntilPlaybackDrained() async {
@@ -282,8 +257,6 @@ final class GrokVoiceService: VoiceServicing {
             createdCountNow: responseCreatedCountForTests
         )
         bargeConsumed = true
-        delayedSilentTapRepair?.cancel()
-        delayedSilentTapRepair = nil
         lastBargeCancelSentID = decision.cancelResponseID
         cancelledPlaybackResponseID = GrokRealtime.nonemptyID(lastScheduledResponseID)
             ?? knownCancelled
@@ -532,8 +505,6 @@ final class GrokVoiceService: VoiceServicing {
             interruptAssistant(sendCancel: true)
             client.sendJSON(GrokRealtime.clearBufferObject())
         }
-        delayedSilentTapRepair?.cancel()
-        delayedSilentTapRepair = nil
         failReady(GrokVoiceError.connectFailed("Cancelled"))
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
@@ -1041,10 +1012,11 @@ extension GrokVoiceService {
         return !audio.hasPendingPlayback
     }
 
-    /// Product's one delayed silent-tap reinstall after drain.
-    /// Tests yank, prove deaf, then wait here — no config change.
+    /// After a zero-notification yank the first feed is deaf.
+    /// Put the HAL tap back here — no 400ms Task, no config change.
+    /// `claimLocal` / leftover barge must not own this repair.
     func waitUntilListenLoopDelayedSilentTapRepair() async {
-        await delayedSilentTapRepair?.value
+        audio.reinstallTapIfYankedWhileRunning()
     }
 }
 

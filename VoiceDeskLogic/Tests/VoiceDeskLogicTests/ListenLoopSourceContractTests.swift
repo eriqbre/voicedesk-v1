@@ -331,12 +331,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("drainOnly573f654DelayedYankAfterReturnToListenDropsThird"), loop)
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenConfigChangeReinstallsSameTap"), loop)
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenDelayedRepairLandsThird"), loop)
-        XCTAssertTrue(loop.contains("delayedSilentTapRepairMilliseconds"), loop)
-        XCTAssertTrue(loop.contains("shouldScheduleDelayedSilentTapRepairAfterDrain"), loop)
-        XCTAssertTrue(
-            loop.contains("bargeConsumed: Bool = false"),
-            "delayed silent-tap schedule must refuse after command barge"
+        XCTAssertFalse(
+            loop.contains("delayedSilentTapRepairMilliseconds"),
+            "400ms after drain raced leftover barge — demand-driven yank repair only"
         )
+        XCTAssertFalse(loop.contains("shouldScheduleDelayedSilentTapRepairAfterDrain"), loop)
         XCTAssertTrue(loop.contains("shouldApplyDelayedSilentTapRepair"), loop)
         XCTAssertTrue(
             loopTests.contains("testDelayedYankAfterReturnToListenThenDelayedRepairLandsThird"),
@@ -367,40 +366,38 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(start.contains("frames.emit"), start)
         XCTAssertTrue(service.contains("returnToListenAfterDeskTTS"), service)
         XCTAssertTrue(service.contains("reinstallTapIfSilentWhileRunning"), service)
-        XCTAssertTrue(service.contains("scheduleDelayedSilentTapRepair"), service)
+        XCTAssertFalse(
+            service.contains("scheduleDelayedSilentTapRepair"),
+            "400ms Task after drain raced leftover — delete it"
+        )
         XCTAssertTrue(service.contains("waitUntilListenLoopDelayedSilentTapRepair"), service)
-        XCTAssertTrue(service.contains("delayedSilentTapRepairMilliseconds"), service)
+        XCTAssertFalse(service.contains("delayedSilentTapRepairMilliseconds"), service)
         let returnToListen = speakSlice(
             service,
             from: "private func returnToListenAfterDeskTTS",
-            to: "private func scheduleDelayedSilentTapRepair"
+            to: "private func waitUntilPlaybackDrained"
         )
         XCTAssertTrue(returnToListen.contains("reinstallTapIfSilentWhileRunning"), returnToListen)
-        XCTAssertTrue(returnToListen.contains("scheduleDelayedSilentTapRepair"), returnToListen)
-        XCTAssertTrue(
+        XCTAssertFalse(
             returnToListen.contains("if !bargeConsumed"),
-            "speak() drain after command barge must not rebuild the tap — leftover created raced that"
+            "claimLocal sets bargeConsumed — that must not skip drain-time tap reinstall"
         )
+        XCTAssertFalse(returnToListen.contains("scheduleDelayedSilentTapRepair"), returnToListen)
         let delayedRepair = speakSlice(
             service,
-            from: "private func scheduleDelayedSilentTapRepair",
-            to: "private func waitUntilPlaybackDrained"
+            from: "func waitUntilListenLoopDelayedSilentTapRepair",
+            to: "private final class ListenLoopMicFrames"
         )
         XCTAssertFalse(delayedRepair.contains("while "), delayedRepair)
         XCTAssertFalse(delayedRepair.contains("for _ in"), delayedRepair)
-        XCTAssertTrue(delayedRepair.contains("Task.sleep"), delayedRepair)
+        XCTAssertFalse(
+            delayedRepair.contains("Task.sleep"),
+            "yank repair must not wait on a 400ms Task during leftover barge"
+        )
         XCTAssertTrue(delayedRepair.contains("reinstallTapIfYankedWhileRunning"), delayedRepair)
-        XCTAssertTrue(
-            delayedRepair.contains("bargeConsumed: bargeConsumed"),
-            "delayed repair must not schedule after command barge"
-        )
-        XCTAssertTrue(
-            delayedRepair.contains("!self.bargeConsumed"),
-            "woken delayed check must no-op if barge landed during the 400ms sleep"
-        )
         XCTAssertFalse(
             delayedRepair.contains("reinstallTapIfSilentWhileRunning"),
-            "delayed check must not tear down a live tap — drain-time reinstall is the always path"
+            "demand-driven yank repair must not tear down a live tap"
         )
         XCTAssertTrue(service.contains("var listenLoopEngine"), service)
         XCTAssertTrue(service.contains("onMicFrame"), service)
@@ -580,9 +577,9 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "command barge must set cancelled = lastScheduled so leftover inject matches the reject gate"
         )
         XCTAssertTrue(interruptLive.contains("shouldArmCommandBargeLatch"), interruptLive)
-        XCTAssertTrue(
-            interruptLive.contains("delayedSilentTapRepair?.cancel()"),
-            "command barge must drop the delayed tap rebuild before leftover created"
+        XCTAssertFalse(
+            interruptLive.contains("delayedSilentTapRepair"),
+            "claimLocal calls interruptResponse — that must not cancel yank repair"
         )
         XCTAssertTrue(
             interruptLive.contains("lastScheduledResponseID: lastScheduledResponseID"),

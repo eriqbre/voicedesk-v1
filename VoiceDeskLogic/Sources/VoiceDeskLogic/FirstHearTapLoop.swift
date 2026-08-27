@@ -43,21 +43,10 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         wantsCapture && engineRunning
     }
 
-    /// One check after write→player drain. iOS can yank the HAL tap
-    /// a beat later with zero notifications. Not a poll loop.
-    public static let delayedSilentTapRepairMilliseconds = 400
-
-    public static func shouldScheduleDelayedSilentTapRepairAfterDrain(
-        wantsCapture: Bool,
-        engineRunning: Bool,
-        bargeConsumed: Bool = false
-    ) -> Bool {
-        wantsCapture && engineRunning && !bargeConsumed
-    }
-
-    /// Delayed check after drain. Reinstall only if the HAL tap object
-    /// is gone. A healthy tap must not be torn down — that raced the
-    /// barge VoiceTape and leftover latch (ed0b5ef composed 53s).
+    /// Zero-notification HAL yank. Reinstall only if the HAL tap object
+    /// is gone. A healthy tap must not be torn down — a 400ms always-
+    /// rebuild after drain raced leftover barge (ed0b5ef / 69f777e).
+    /// Not a timer. Demand-driven after the first deaf feed.
     public static func shouldApplyDelayedSilentTapRepair(
         engineRunning: Bool,
         wantsCapture: Bool,
@@ -403,8 +392,9 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     }
 
     /// Drain-time repair ran while the tap was live. Delayed HAL yank
-    /// with zero notifications. One delayed silent-tap reinstall puts
-    /// the same tap back. Third command PCM is the next turn.
+    /// with zero notifications. Demand-driven reinstall when the tap
+    /// object is gone puts the same tap back. Third command PCM is
+    /// the next turn. Not a 400ms Task.
     public static func delayedYankAfterReturnToListenThenDelayedRepairLandsThird(
         first: Data = commandPCM(1),
         second: Data = commandPCM(2),

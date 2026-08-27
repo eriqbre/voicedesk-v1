@@ -101,9 +101,10 @@ final class GrokVoiceAudioEngine {
         reinstallTap()
     }
 
-    /// Delayed check after drain. HAL yank leaves `tap == nil` and the
-    /// installed flag true. Do not tear down a live tap — that raced
-    /// leftover barge. Do not increment `startCount`.
+    /// Zero-notification HAL yank leaves `tap == nil` and the installed
+    /// flag true. Demand-driven: first feed stays deaf, then this puts
+    /// the same tap back. Do not tear down a live tap. Do not increment
+    /// `startCount`. Not a delayed Task after drain — that raced leftover.
     func reinstallTapIfYankedWhileRunning() {
         guard FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
             engineRunning: engine?.isRunning ?? false,

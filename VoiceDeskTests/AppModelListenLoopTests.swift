@@ -166,10 +166,11 @@ final class AppModelListenLoopTests: XCTestCase {
     /// Honesty: version + glance write→player on `GrokVoiceService`.
     /// Delayed HAL yank after `returnToListen` leaves the flag true,
     /// `isRunning` true, no interruption, no configuration change.
-    /// First command PCM is not a turn (still deaf). Product's one
-    /// delayed silent-tap reinstall puts the same tap back. Same PCM
-    /// is then the next turn. Transcript injects do not count.
-    /// `startCount` stays 1. recoverCount 0. Do not poll.
+    /// First command PCM is not a turn (still deaf). Demand-driven
+    /// silent-tap reinstall (tap object gone) puts the same tap back.
+    /// Same PCM is then the next turn. Not a 400ms Task after drain.
+    /// Transcript injects do not count. `startCount` stays 1.
+    /// recoverCount 0. Do not poll.
     func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn() async throws {
         let voice = GrokVoiceService(apiKey: "test-listen-loop-zero-note")
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
