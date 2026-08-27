@@ -140,16 +140,6 @@ public enum SpokenLoopLog: Sendable {
         return .absent
     }
 
-    public static func firstAudioStatus(in records: [VoiceInteractionEntry]) -> FirstAudio? {
-        records.reversed().compactMap { rec -> FirstAudio? in
-            let fields = parse(rec)
-            guard fields["event"] == firstAudioEvent,
-                  let raw = fields["first_audio"]
-            else { return nil }
-            return FirstAudio(rawValue: raw)
-        }.first
-    }
-
     public static func parse(_ entry: VoiceInteractionEntry) -> [String: String] {
         parseNote(entry.routingNotes.first ?? "")
     }
