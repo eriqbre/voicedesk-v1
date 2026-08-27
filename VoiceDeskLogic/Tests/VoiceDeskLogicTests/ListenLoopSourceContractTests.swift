@@ -857,14 +857,31 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("isTapObjectPresent"), engine)
         XCTAssertTrue(engine.contains("isHALTapAttached"), engine)
         XCTAssertTrue(engine.contains("objectLeftInPlaceSilent"), engine)
+        XCTAssertTrue(
+            engine.contains("tapInstalled || objectLeftInPlaceSilent"),
+            "public isTapInstalled must keep lying after object-left inject — leftover feed uses storage"
+        )
         XCTAssertFalse(
             engine.contains("HALTapLease"),
             "lease deinit reinstall raced leftover created (9b3d42b 53s)"
         )
         XCTAssertFalse(engine.contains("invalidateHALTapLease"), engine)
+        let feed = engineSlice(engine, from: "func feedTapPCM16(_ pcm: Data) {", to: "var isTapInstalled")
+        XCTAssertFalse(
+            feed.contains("objectLeftInPlaceSilent"),
+            "leftover-hot feed must stay 453bda8 — a flag check here still killed leftover on 2eb6cd6"
+        )
+        XCTAssertFalse(
+            feed.contains("halTapAttached"),
+            "global HAL-attach on every feed raced leftover composed (34d66a7)"
+        )
         XCTAssertTrue(
-            engine.contains("!objectLeftInPlaceSilent, let onMicAudio"),
-            "object-left inject is the only extra feed gate — not a global HAL-attach bit"
+            feed.contains("guard tap != nil, tapInstalled, let onMicAudio"),
+            feed
+        )
+        XCTAssertFalse(
+            engine.contains("guard tap != nil, tapInstalled, !objectLeftInPlaceSilent"),
+            "object-left must not ride leftover barge / tape feed"
         )
         XCTAssertFalse(
             engine.contains("guard tap != nil, tapInstalled, halTapAttached"),
@@ -888,6 +905,26 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let reinstall = engineSlice(engine, from: "private func reinstallTap() {", to: "private func teardownGraph()")
         XCTAssertFalse(reinstall.contains("setCategory"), reinstall)
         XCTAssertFalse(reinstall.contains("setActive(false"), reinstall)
+        XCTAssertFalse(
+            reinstall.contains("!objectLeftInPlaceSilent"),
+            "skip-second-removeTap on drain-time reinstall is leftover-hot — 453bda8 always removeTap"
+        )
+        let teardown = engineSlice(engine, from: "private func teardownGraph() {", to: "private func observeAudioLifecycle()")
+        XCTAssertFalse(
+            teardown.contains("!objectLeftInPlaceSilent"),
+            "teardown skip-removeTap is leftover-hot — 453bda8 always removeTap when installed"
+        )
+        let objectLeftInject = engineSlice(
+            engine,
+            from: "func simulateHALTapYankLeavingSwiftObjectInPlace()",
+            to: "func playAudioDelta"
+        )
+        XCTAssertTrue(objectLeftInject.contains("tapInstalled = false"), objectLeftInject)
+        XCTAssertTrue(objectLeftInject.contains("objectLeftInPlaceSilent = true"), objectLeftInject)
+        XCTAssertFalse(
+            objectLeftInject.contains("tap = nil"),
+            "object-left inject must not paper this hole as tap==nil"
+        )
         let detach = engineSlice(
             engine,
             from: "func simulateSystemTapDetachLeavingEngineRunning()",

@@ -40,9 +40,11 @@ final class GrokVoiceAudioEngine {
     private var onMicAudio: (@Sendable (String) -> Void)?
     private var echoCancellation = true
     private var tapInstalled = false
-    /// Inject-only. Phone-shaped yank: object stays, HAL is gone.
-    /// Must not ride along on drain-time reinstall — that dropped
-    /// barge tape / leftover player on 9b3d42b / 34d66a7.
+    /// Inject-only. Phone yank leaves the Swift object and a lying
+    /// public `isTapInstalled`. Storage `tapInstalled` goes false so
+    /// leftover-hot `feedTapPCM16` stays the 453bda8 guard — a feed
+    /// `&& !objectLeftInPlaceSilent` still killed leftover composed
+    /// on 2eb6cd6 (created==scheduled leftover, 56s).
     private var objectLeftInPlaceSilent = false
     private var pendingPlaybackBuffers = 0
     private(set) var playbackEpoch = 0
@@ -85,16 +87,18 @@ final class GrokVoiceAudioEngine {
     }
 
     /// Same callback the mic tap uses. Speech-shaped PCM is a turn, not a string.
-    /// A lying `tapInstalled` with no HAL tap must no-op so a silent tap
-    /// cannot be paper-greened by feeding PCM. Object-left-in-place
-    /// inject is the only extra deaf gate — not a global HAL-attach
-    /// bit on every feed (that raced leftover composed).
+    /// A lying public `isTapInstalled` with no HAL tap must no-op so a
+    /// silent tap cannot be paper-greened by feeding PCM. This guard
+    /// is 453bda8 — leftover barge / tape feeds live here. Object-left
+    /// inject clears storage `tapInstalled` (object stays) so first
+    /// feed is deaf without a leftover-hot flag check.
     func feedTapPCM16(_ pcm: Data) {
-        guard tap != nil, tapInstalled, !objectLeftInPlaceSilent, let onMicAudio else { return }
+        guard tap != nil, tapInstalled, let onMicAudio else { return }
         onMicAudio(pcm.base64EncodedString())
     }
 
-    var isTapInstalled: Bool { tapInstalled }
+    /// Phone object-left inject keeps this true while storage is false.
+    var isTapInstalled: Bool { tapInstalled || objectLeftInPlaceSilent }
 
     /// Phone HAL yank leaves this true. `simulateHALTapYankLeavingInstalledFlagTrue` nils it.
     var isTapObjectPresent: Bool { tap != nil }
@@ -156,14 +160,16 @@ final class GrokVoiceAudioEngine {
     }
 
     /// Phone HAL yank (415c955 / 18d5878): HAL tap is gone, Swift
-    /// `tap` stays, `tapInstalled` stays true, `isRunning` stays true.
-    /// Zero notifications. Inject-only silence — not a global attach
-    /// flag on feed. Do not auto-reinstall.
+    /// `tap` stays, public `isTapInstalled` stays true, `isRunning`
+    /// stays true. Storage `tapInstalled` goes false so 453bda8
+    /// leftover feed is deaf — not tap==nil, not a leftover-hot
+    /// flag on every feed. Do not auto-reinstall.
     func simulateHALTapYankLeavingSwiftObjectInPlace() {
         guard let engine else { return }
         if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
         }
+        tapInstalled = false
         objectLeftInPlaceSilent = true
     }
 
@@ -306,7 +312,7 @@ final class GrokVoiceAudioEngine {
             }
             return
         }
-        if tap != nil, !objectLeftInPlaceSilent {
+        if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
         }
         tapInstalled = false
@@ -333,7 +339,7 @@ final class GrokVoiceAudioEngine {
         tap?.detach()
         tap = nil
         if let engine {
-            if tapInstalled, !objectLeftInPlaceSilent {
+            if tapInstalled {
                 engine.inputNode.removeTap(onBus: 0)
                 tapInstalled = false
             }
