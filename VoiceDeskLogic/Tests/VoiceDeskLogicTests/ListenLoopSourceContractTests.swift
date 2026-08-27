@@ -871,22 +871,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
             loopbackSource.contains("func pcmFromAppendJSON"),
             "do not copy the append parser into the loopback"
         )
-        XCTAssertTrue(loopbackSource.contains("101 Switching Protocols"), loopbackSource)
-        XCTAssertTrue(loopbackSource.contains("Sec-WebSocket-Accept"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("import Network"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("NWListener"), loopbackSource)
+        XCTAssertTrue(loopbackSource.contains("NWProtocolWebSocket"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("session.updated"), loopbackSource)
-        XCTAssertTrue(loopbackSource.contains("socket(AF_INET"), loopbackSource)
         XCTAssertTrue(loopbackSource.contains("127.0.0.1"), loopbackSource)
-        XCTAssertTrue(loopbackSource.contains("serveQueue"), loopbackSource)
-        XCTAssertTrue(loopbackSource.contains("Thread.detachNewThread"), loopbackSource)
-        XCTAssertFalse(
-            loopbackSource.contains("acceptQueue.async"),
-            "9e25f64 served the 101 on the same serial queue as blocking accept"
-        )
-        XCTAssertFalse(loopbackSource.contains("import Network"), loopbackSource)
-        XCTAssertFalse(
-            loopbackSource.contains("try NWListener"),
-            "do not bring back a Network.framework listener"
-        )
+        XCTAssertFalse(loopbackSource.contains("socket(AF_INET"), loopbackSource)
+        XCTAssertFalse(loopbackSource.contains("Thread.detachNewThread"), loopbackSource)
+        XCTAssertFalse(loopbackSource.contains("serveQueue"), loopbackSource)
+        XCTAssertFalse(loopbackSource.contains("Sec-WebSocket-Accept"), loopbackSource)
         XCTAssertFalse(loopbackSource.contains("testSendSink"), loopbackSource)
         let connectFn = speakSlice(
             try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoice.swift")),
