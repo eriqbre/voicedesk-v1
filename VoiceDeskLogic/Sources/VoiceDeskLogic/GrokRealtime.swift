@@ -318,17 +318,23 @@ public enum GrokRealtime {
             ?? playbackEpochLatch(playbackEpoch)
     }
 
-    /// Command barge must arm leftover reject even when the first
-    /// answer already drained (`pending == 0`). First listen — no
-    /// answer id and nothing on the player — is not a barge.
+    /// Leftover reject arms only after an answer actually scheduled
+    /// on the player. `lastCreated` alone is the first answer arriving
+    /// — claimLocal / speech_started at pending 0 must not stamp that
+    /// as cancelled or the first PCM is eaten.
+    /// pending > 0: arm (and drop). pending 0 + lastScheduled/playing:
+    /// arm leftover, nothing to drop. pending 0 + only lastCreated:
+    /// do not arm.
     public static func shouldArmCommandBargeLatch(
         alreadyBarged: Bool,
         hasPendingPlayback: Bool,
-        cancelledResponseID: String?
+        lastScheduledResponseID: String?,
+        playingResponseID: String?
     ) -> Bool {
         guard !alreadyBarged else { return false }
         if hasPendingPlayback { return true }
-        return nonemptyID(cancelledResponseID) != nil
+        return nonemptyID(lastScheduledResponseID) != nil
+            || nonemptyID(playingResponseID) != nil
     }
 
     /// First-answer id that barge dropped. Leftover deltas with this

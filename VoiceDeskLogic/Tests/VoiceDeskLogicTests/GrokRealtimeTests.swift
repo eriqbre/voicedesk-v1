@@ -525,23 +525,53 @@ final class GrokRealtimeTests: XCTestCase {
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: false,
                 hasPendingPlayback: false,
-                cancelledResponseID: nil
+                lastScheduledResponseID: nil,
+                playingResponseID: nil
             ),
-            "first listen — no answer yet — is not a barge"
+            "first listen — no answer on the player — is not a barge"
+        )
+        XCTAssertEqual(
+            GrokRealtime.cancelledPlaybackResponseID(
+                interruptTargetID: nil,
+                lastScheduledResponseID: nil,
+                playingResponseID: nil,
+                lastCreatedResponseID: "resp_1"
+            ),
+            "resp_1"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldArmCommandBargeLatch(
+                alreadyBarged: false,
+                hasPendingPlayback: false,
+                lastScheduledResponseID: nil,
+                playingResponseID: nil
+            ),
+            "lastCreated-only at pending 0 is first-answer audio about to arrive — do not arm leftover reject"
         )
         XCTAssertTrue(
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: false,
                 hasPendingPlayback: false,
-                cancelledResponseID: "resp_1"
+                lastScheduledResponseID: "resp_1",
+                playingResponseID: nil
             ),
-            "command barge after drain must still latch leftover — 1488 lastScheduled with cancelled nil"
+            "drained first answer still has lastScheduled — latch leftover, do not drop"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldArmCommandBargeLatch(
+                alreadyBarged: false,
+                hasPendingPlayback: false,
+                lastScheduledResponseID: nil,
+                playingResponseID: "resp_1"
+            ),
+            "playing id without pending still means an answer was on the player"
         )
         XCTAssertTrue(
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: false,
                 hasPendingPlayback: true,
-                cancelledResponseID: nil
+                lastScheduledResponseID: nil,
+                playingResponseID: nil
             ),
             "first-answer PCM with no response_id must still drop"
         )
@@ -549,7 +579,8 @@ final class GrokRealtimeTests: XCTestCase {
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: true,
                 hasPendingPlayback: true,
-                cancelledResponseID: "resp_1"
+                lastScheduledResponseID: "resp_1",
+                playingResponseID: "resp_1"
             ),
             "second interruptResponse must not re-drop the interrupt answer"
         )

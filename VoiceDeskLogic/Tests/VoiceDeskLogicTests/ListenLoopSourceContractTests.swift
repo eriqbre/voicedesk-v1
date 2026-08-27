@@ -476,6 +476,23 @@ final class ListenLoopSourceContractTests: XCTestCase {
             "pending 0 must still latch cancelled/bargeConsumed — leftover inject uses that id"
         )
         XCTAssertTrue(interruptLive.contains("shouldArmCommandBargeLatch"), interruptLive)
+        XCTAssertTrue(
+            interruptLive.contains("lastScheduledResponseID: lastScheduledResponseID"),
+            "pending 0 leftover latch needs lastScheduled — lastCreated alone is first-answer arriving"
+        )
+        XCTAssertTrue(
+            interruptLive.contains("playingResponseID: playingResponseID"),
+            "arm leftover only if an answer actually scheduled on the player"
+        )
+        let armCall = speakSlice(
+            interruptLive,
+            from: "shouldArmCommandBargeLatch",
+            to: "else { return }"
+        )
+        XCTAssertFalse(
+            armCall.contains("lastCreatedResponseID"),
+            "do not arm leftover reject on lastCreated when pending is 0"
+        )
         XCTAssertTrue(interruptLive.contains("bargeInDecision"), interruptLive)
         XCTAssertTrue(
             interruptLive.contains("hasPendingPlayback: hasPending"),

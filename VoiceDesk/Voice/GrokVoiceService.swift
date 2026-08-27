@@ -226,24 +226,25 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {
-        // Latch leftover even when the first answer already drained.
+        // Latch leftover only after an answer scheduled on the player.
+        // lastCreated at pending 0 is first-answer audio about to
+        // arrive — claimLocal must not stamp that as cancelled.
         // Drop buffers only if something is still on the player.
-        // Do not send response.cancel — xAI server VAD already
-        // interrupted, and a client cancel races the next created.
-        // First listen (no answer id, pending 0) is not a barge.
+        // Do not send response.cancel.
         guard !bargeConsumed else { return }
+        let hasPending = audio.hasPendingPlayback
+        guard GrokRealtime.shouldArmCommandBargeLatch(
+            alreadyBarged: false,
+            hasPendingPlayback: hasPending,
+            lastScheduledResponseID: lastScheduledResponseID,
+            playingResponseID: playingResponseID
+        ) else { return }
         let knownCancelled = GrokRealtime.cancelledPlaybackResponseID(
             interruptTargetID: interruptTargetID,
             lastScheduledResponseID: lastScheduledResponseID,
             playingResponseID: playingResponseID,
             lastCreatedResponseID: lastCreatedResponseID
         )
-        let hasPending = audio.hasPendingPlayback
-        guard GrokRealtime.shouldArmCommandBargeLatch(
-            alreadyBarged: false,
-            hasPendingPlayback: hasPending,
-            cancelledResponseID: knownCancelled
-        ) else { return }
         let decision = GrokRealtime.bargeInDecision(
             hasPendingPlayback: hasPending,
             alreadyBarged: false,
