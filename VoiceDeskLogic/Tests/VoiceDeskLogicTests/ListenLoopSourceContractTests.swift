@@ -77,6 +77,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let interrupt = engineSlice(engine, from: "func interruptPlayback() {", to: "func feedTapPCM16")
         XCTAssertFalse(interrupt.contains("removeTap"), interrupt)
         XCTAssertTrue(interrupt.contains("playerNode?.play()"), interrupt)
+        let play = engineSlice(engine, from: "func playPCM16(_ audioData: Data) {", to: "private func applyLifecycle")
+        XCTAssertTrue(
+            play.contains("playerNode.play()"),
+            "interrupt answer must schedule after stop()+play() — pending 0 after created is leftover"
+        )
     }
 
     func testLiveIngressDoesNotLeftoverMatch() throws {
@@ -364,6 +369,18 @@ final class ListenLoopSourceContractTests: XCTestCase {
             outputAudio.contains("dropAssistantAudio"),
             "Grok PCM must hit the one-engine player"
         )
+        let interruptLive = speakSlice(
+            service,
+            from: "func interruptResponse() {",
+            to: "func suppressAssistantOutput"
+        )
+        XCTAssertTrue(
+            interruptLive.contains("guard audio.hasPendingPlayback else { return }"),
+            "cancel after pending is 0 kills the interrupt answer (leftover created, pending 0)"
+        )
+        let suppressLive = speakSlice(service, from: "func suppressAssistantOutput", to: "func cancel()")
+        XCTAssertTrue(suppressLive.contains("audio.hasPendingPlayback"), suppressLive)
+        XCTAssertFalse(service.contains("dropAssistantAudio"), service)
         let waitUntil = speakSlice(
             service,
             from: "func waitUntilListenLoopQueuedTurnClosed() async {",

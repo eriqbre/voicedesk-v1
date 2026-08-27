@@ -194,13 +194,19 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {
+        // Barge-in cancels the playing answer. A leftover cancel after
+        // pending is already 0 kills the next response.created before
+        // output_audio.delta can schedule — leftover created, pending 0.
+        guard audio.hasPendingPlayback else { return }
         interruptAssistant(sendCancel: true)
     }
 
     func suppressAssistantOutput(_ suppress: Bool) {
         if suppress {
             dropAssistantTranscript = true
-            interruptAssistant(sendCancel: true)
+            if audio.hasPendingPlayback {
+                interruptAssistant(sendCancel: true)
+            }
             return
         }
         dropAssistantTranscript = false
