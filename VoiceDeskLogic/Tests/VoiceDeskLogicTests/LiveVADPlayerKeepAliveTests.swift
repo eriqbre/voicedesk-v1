@@ -161,7 +161,10 @@ final class LiveVADPlayerKeepAliveTests: XCTestCase {
         } else {
             XCTFail("appendUser before fulfill")
         }
-        XCTAssertFalse(handleUser.contains("claimLocalAssistantReply()"), handleUser)
+        XCTAssertTrue(
+            handleUser.contains("deskWritesIdentity"),
+            "version claimLocal is the identity mouth; inbox still unmutes Eve"
+        )
         XCTAssertFalse(handleUser.contains("Here they are"), handleUser)
 
         let upsert = speakSlice(

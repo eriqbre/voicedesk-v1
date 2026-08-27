@@ -81,11 +81,15 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
 
     /// First-answer PCM on the player is this turn's mouth. Do not
     /// latch it cancelled. speech_started already dropped leftover.
+    /// Version identity write is the exception: desk is the mouth,
+    /// so drop Eve or ask 1 is two voices.
     public static func shouldInterruptOnUserTranscript(
         alreadyBarged: Bool,
-        hasPendingPlayback: Bool
+        hasPendingPlayback: Bool,
+        deskWritesIdentity: Bool = false
     ) -> Bool {
         if alreadyBarged { return false }
+        if deskWritesIdentity { return true }
         if hasPendingPlayback { return false }
         return true
     }

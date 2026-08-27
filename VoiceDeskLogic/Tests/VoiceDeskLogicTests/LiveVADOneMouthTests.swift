@@ -99,9 +99,19 @@ final class LiveVADOneMouthTests: XCTestCase {
             to: "unmuteGrokAssistant()\n        pendingDeskTopic"
         )
         XCTAssertTrue(live.contains("unmuteGrokAssistant()"), live)
+        XCTAssertTrue(
+            live.contains("deskWritesIdentity"),
+            "version first-ask must claimLocal; inbox must not"
+        )
+        let inbox = speakSlice(
+            live,
+            from: "if yieldGrokInterruptAnswer",
+            to: "if let evidence = ConversationPresence.deskEvidence"
+        )
+        XCTAssertTrue(inbox.contains("unmuteGrokAssistant()"), inbox)
         XCTAssertFalse(
-            live.contains("claimLocalAssistantReply()"),
-            "claimLocal drops in-flight Eve audio on a live VAD desk turn"
+            inbox.contains("claimLocalAssistantReply()"),
+            "claimLocal drops in-flight Eve audio on a live VAD inbox turn"
         )
     }
 

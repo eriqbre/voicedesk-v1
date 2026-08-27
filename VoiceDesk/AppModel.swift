@@ -374,9 +374,11 @@ final class AppModel {
         // (playingResponseID already the next created).
         let bargeConsumedBefore = voice.listenLoopBargeConsumed
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
+        let deskWritesIdentity = ConversationPresence.wantsVersionAsk(text)
         if LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
             alreadyBarged: voice.listenLoopBargeConsumed,
-            hasPendingPlayback: voice.hasPendingPlayback
+            hasPendingPlayback: voice.hasPendingPlayback,
+            deskWritesIdentity: deskWritesIdentity
         ) {
             voice.interruptResponse()
         }
@@ -423,6 +425,12 @@ final class AppModel {
                         awaitingClarify: awaitingClarify
                     )
                 }
+                if isLiveVADTurn, deskWritesIdentity {
+                    // Desk identity is the mouth. Do not unmute Eve.
+                    claimLocalAssistantReply()
+                    Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
+                    return
+                }
                 if yieldGrokInterruptAnswer {
                     unmuteGrokAssistant()
                     return
@@ -442,6 +450,11 @@ final class AppModel {
         ) {
             if isLiveVADTurn {
                 parkOrAttachLiveDeskCards(evidence.cards)
+            }
+            if isLiveVADTurn, deskWritesIdentity {
+                claimLocalAssistantReply()
+                surfaceDeskEvidence(evidence)
+                return
             }
             if yieldGrokInterruptAnswer {
                 unmuteGrokAssistant()

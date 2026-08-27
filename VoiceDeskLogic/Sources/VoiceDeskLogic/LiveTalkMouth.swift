@@ -64,6 +64,30 @@ public struct LiveTalkMouth: Equatable, Sendable {
         )
     }
 
+    /// 4f4f4da first ask: write→player identity while Eve A still speaks.
+    public static func firstAskDeskIdentityPlusEve() -> LiveTalkMouth {
+        LiveTalkMouth(
+            afterDeskTTSDrain: false,
+            eveVoicePath: true,
+            skippedGlanceStubFirstAudio: false,
+            clientVoiceSpeechWrite: true,
+            liveVADResponse: true,
+            sentVerbatimCreate: false
+        )
+    }
+
+    /// Version / first identity ask: desk write is the only mouth.
+    public static func firstAskDeskIdentityOnly() -> LiveTalkMouth {
+        LiveTalkMouth(
+            afterDeskTTSDrain: false,
+            eveVoicePath: false,
+            skippedGlanceStubFirstAudio: false,
+            clientVoiceSpeechWrite: true,
+            liveVADResponse: true,
+            sentVerbatimCreate: false
+        )
+    }
+
     public static func liveTalkEveOnly() -> LiveTalkMouth {
         LiveTalkMouth(
             afterDeskTTSDrain: false,
