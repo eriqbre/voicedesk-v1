@@ -697,7 +697,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(openSocket.contains("GrokVoiceService("), openSocket)
         XCTAssertTrue(openSocket.contains("AppModel("), openSocket)
         XCTAssertTrue(openSocket.contains("startListenLoopAudioForTests"), openSocket)
-        XCTAssertTrue(openSocket.contains("attachListenLoopSendTaskForTests"), openSocket)
+        XCTAssertTrue(openSocket.contains("simulateListenLoopSocketDidOpenThenSessionReady"), openSocket)
         XCTAssertTrue(openSocket.contains("feedTapPCM16(command1)"), openSocket)
         XCTAssertTrue(openSocket.contains("voice.speak"), openSocket)
         XCTAssertTrue(openSocket.contains("feedTapPCM16(command2)"), openSocket)
@@ -708,20 +708,30 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(openSocket.contains("engine.startCount"), openSocket)
         XCTAssertTrue(openSocket.contains("interruptResponse"), openSocket)
         XCTAssertTrue(openSocket.contains("415c955"), openSocket)
+        XCTAssertTrue(openSocket.contains("4dc589f"), openSocket)
+        XCTAssertFalse(
+            openSocket.contains("attachListenLoopSendTaskForTests"),
+            "4dc589f attach is a fake send task — sendRaw is a no-op when the real task is nil"
+        )
         XCTAssertFalse(openSocket.contains("simulateListenLoopSocketClose1000"), openSocket)
-        XCTAssertFalse(openSocket.contains("simulateListenLoopSocketDidOpenThenSessionReady"), openSocket)
         XCTAssertFalse(openSocket.contains("waitUntilListenLoopQueuedTurnClosed"), openSocket)
         XCTAssertFalse(openSocket.contains("applyUserTurn"), openSocket)
         XCTAssertFalse(openSocket.contains("emitUser"), openSocket)
         XCTAssertFalse(openSocket.contains("FakeLiveVoiceService"), openSocket)
         XCTAssertFalse(openSocket.contains("quietCommitMaxPostponeMs"), openSocket)
-        if let attachAt = openSocket.range(of: "attachListenLoopSendTaskForTests"),
-           let speakAt = openSocket.range(of: "voice.speak"),
+        if let openAt = openSocket.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
+           let firstFeed = openSocket.range(of: "feedTapPCM16(command1)"),
+           let speakAt = openSocket.range(of: "InboxGlance.spokenListAck"),
            let secondFeed = openSocket.range(of: "feedTapPCM16(command2)") {
             XCTAssertLessThan(
-                attachAt.lowerBound,
+                openAt.lowerBound,
+                firstFeed.lowerBound,
+                "DidOpen + session.updated must arm the real client before command 1"
+            )
+            XCTAssertLessThan(
+                firstFeed.lowerBound,
                 speakAt.lowerBound,
-                "live send must exist before desk TTS — attach after drain paper-greens a queue flush"
+                "command PCM 1 must be before write→player drain"
             )
             XCTAssertLessThan(
                 speakAt.lowerBound,
@@ -730,12 +740,19 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
             let afterSpeak = String(openSocket[speakAt.upperBound..<secondFeed.lowerBound])
             XCTAssertFalse(
-                afterSpeak.contains("attachListenLoopSendTaskForTests"),
-                "do not re-attach after drain to flush a queue this gate must fail"
+                afterSpeak.contains("simulateListenLoopSocketDidOpenThenSessionReady"),
+                "DidOpen after drain paper-greens a dead client"
             )
-            XCTAssertFalse(afterSpeak.contains("simulateListenLoopSocket"), afterSpeak)
+            XCTAssertFalse(
+                afterSpeak.contains("attachListenLoopSendTaskForTests"),
+                "do not attach after drain to flush a queue this gate must fail"
+            )
+            XCTAssertFalse(
+                afterSpeak.contains("session.updated"),
+                "do not session.updated after drain"
+            )
         } else {
-            XCTFail("open-socket gate must attach send, drain, then take PCM 2")
+            XCTFail("open-socket gate must DidOpen once before command 1, drain, then take PCM 2")
         }
         let close1000 = speakSlice(
             live,

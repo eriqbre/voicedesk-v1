@@ -256,11 +256,11 @@ final class AppModelListenLoopTests: XCTestCase {
     }
 
     /// Product path after Eve talks on a socket that stays open.
-    /// TalkAnswerTalkAgain only watches the tap observer. If drain
-    /// clears the live send path, command 2 queues forever —
-    /// first-hear-then-deaf, 415c955 class. Do not DidClose 1000.
-    /// Attach send before TTS. Command 2 must go out as a live
-    /// append. `startCount` stays 1. Transcript injects do not count.
+    /// 4dc589f armed send with attachListenLoopSendTaskForTests —
+    /// a fake task. sendRaw is a no-op when the real task is nil.
+    /// That is 415c955. Arm once via DidOpen + session.updated
+    /// before command 1. Do not DidClose 1000. Do not attach.
+    /// Command 2 after drain is a live append. `startCount` stays 1.
     func testLiveConversationLoopAfterDeskTTSWithoutSocketCloseNextCommandIsATurn() async throws {
         let voice = GrokVoiceService(apiKey: "test-listen-loop-open-socket-after-desk-tts")
         let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
@@ -297,8 +297,9 @@ final class AppModelListenLoopTests: XCTestCase {
         sink.startCount = engine.startCount
         sink.stayLive = voice.listenLoopStayLive
 
-        voice.attachListenLoopSendTaskForTests()
-        XCTAssertTrue(voice.listenLoopSocketHasSendTask, "socket is already live before Eve talks")
+        voice.simulateListenLoopSocketDidOpenThenSessionReady()
+        XCTAssertTrue(voice.listenLoopSocketHasSendTask, "DidOpen + session.updated arms the real client")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0, "first arm is not a recover")
 
         engine.feedTapPCM16(command1)
         XCTAssertEqual(sink.turns, [command1], "command PCM 1 through the live tap is a turn")
@@ -324,7 +325,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertEqual(sink.turns, [command1, command2], "command PCM 2 after drain is the next turn")
         XCTAssertTrue(
             voice.listenLoopDeliveredAudioPCM.contains(command2),
-            "command 2 must be a live append — drain that clears sessionReady queues forever"
+            "command 2 must be a live append — 4dc589f attach paper-greened a dead client"
         )
         XCTAssertTrue(
             voice.listenLoopDeliveredSendTypes.contains("input_audio_buffer.append"),
