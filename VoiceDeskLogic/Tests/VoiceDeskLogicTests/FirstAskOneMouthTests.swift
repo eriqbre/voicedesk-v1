@@ -1,8 +1,9 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// 4f4f4da first ask after a new session: desk identity write→player
-/// AND Eve A both speak. Later turns are Eve-only and stay that way.
+/// 4f4f4da / a2727b1 first ask: desk identity write→player AND Eve
+/// live VAD PCM both reach the player. Unmute/claimLocal paper is
+/// not the path. Later turns are Eve-only and stay that way.
 final class FirstAskOneMouthTests: XCTestCase {
     func testFirstAskDeskPlusEveIsTwoMouthsAndFixIsDeskOnly() {
         let hole = LiveTalkMouth.firstAskDeskIdentityPlusEve()
@@ -128,6 +129,72 @@ final class FirstAskOneMouthTests: XCTestCase {
 
         XCTAssertFalse(handle.contains("Here they are"), handle)
         XCTAssertFalse(handle.contains("speakLiveReplyViaEve"), handle)
+    }
+
+    /// a2727b1 was green on unmute/claimLocal paper and still two
+    /// mouths: desk write→player AND Eve live VAD PCM. Suppress
+    /// dropped the transcript only. This is the device path.
+    func testIdentityWriteAndEveDeltasBothReachPlayerIsTheHole() throws {
+        XCTAssertFalse(
+            LiveVADPlayerKeep.shouldPlayEveAudio(
+                dropAssistantOutput: true,
+                clientTTSInFlight: false
+            ),
+            "claimLocal suppress must drop Eve PCM, not only the transcript"
+        )
+        XCTAssertFalse(
+            LiveVADPlayerKeep.shouldPlayEveAudio(
+                dropAssistantOutput: false,
+                clientTTSInFlight: true
+            ),
+            "identity write→player must not mix Eve deltas"
+        )
+        XCTAssertTrue(
+            LiveVADPlayerKeep.shouldPlayEveAudio(
+                dropAssistantOutput: false,
+                clientTTSInFlight: false
+            ),
+            "later Eve turns still play"
+        )
+        XCTAssertTrue(
+            LiveTalkMouth.firstAskDeskIdentityPlusEve().isDualMouth
+        )
+        XCTAssertFalse(
+            LiveTalkMouth.firstAskDeskIdentityOnly().isDualMouth
+        )
+
+        let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
+        let playGate = speakSlice(
+            service,
+            from: "private func shouldPlayBargeAudio",
+            to: "private func noteScheduledResponse"
+        )
+        XCTAssertTrue(
+            playGate.contains("shouldPlayEveAudio"),
+            "a2727b1 scheduled Eve deltas during identity write"
+        )
+        XCTAssertTrue(playGate.contains("dropAssistantTranscript"), playGate)
+        XCTAssertTrue(playGate.contains("clientTTSInFlight"), playGate)
+        XCTAssertFalse(playGate.contains("dropAssistantAudio"), playGate)
+
+        let speakFn = speakSlice(
+            service,
+            from: "func speak(_ text: String) async {",
+            to: "private func returnToListenAfterDeskTTS"
+        )
+        XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
+        XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
+        if let realtimeAt = speakFn.range(of: "shouldSpeakViaRealtime"),
+           let writeAt = speakFn.range(of: "ClientVoiceSpeech.shared.speak") {
+            let between = String(speakFn[realtimeAt.upperBound..<writeAt.lowerBound])
+            XCTAssertFalse(
+                between.contains("return"),
+                "do not restore empty eve-speaks-identity / silent player"
+            )
+        } else {
+            XCTFail("identity must still write→player")
+        }
+        XCTAssertFalse(service.contains("eve speaks identity"), service)
     }
 
     private func speakSlice(_ source: String, from: String, to: String) -> String {

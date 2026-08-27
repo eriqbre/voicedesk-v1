@@ -121,6 +121,18 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
             && !wrotePlayerPCM
     }
 
+    /// a2727b1: claimLocal set `dropAssistantTranscript` only.
+    /// Eve `output_audio.delta` still hit the player while
+    /// `speak()` wrote identity. Two mouths. Suppress and the
+    /// identity write must both mute Eve PCM. Later turns
+    /// unmute and `clientTTSInFlight` is false — Eve plays.
+    public static func shouldPlayEveAudio(
+        dropAssistantOutput: Bool,
+        clientTTSInFlight: Bool
+    ) -> Bool {
+        !dropAssistantOutput && !clientTTSInFlight
+    }
+
     /// Live VAD may write the identity line to the one player.
     /// Inbox stubs stay silent — no client “Here they are.”
     public static func shouldWriteLiveDeskLineToPlayer(
