@@ -10,8 +10,8 @@ public enum ListenResumeDecision: Equatable, Sendable {
 }
 
 /// After a local desk line, the live Grok socket must keep hearing.
-/// Desk speak is on-device TTS — it does not go through the socket.
-/// This policy is only “stay in listen / reconnect.”
+/// Live Talk speaks through Eve. Offline / down-socket still uses
+/// ClientVoiceSpeech. This policy is only “stay in listen / reconnect.”
 public enum ListenResumePolicy: Sendable {
     /// Client TTS never leaves listen. Socket open → keep hearing.
     /// Closed socket → reconnect. User stop → idle.
@@ -24,8 +24,8 @@ public enum ListenResumePolicy: Sendable {
         return .keepListening
     }
 
-    /// Desk replies always use on-device TTS. Grok realtime is listen +
-    /// general conversation only — never a fake user turn / response.create.
+    /// Offline / down-socket leftover walks still model ClientVoiceSpeech.
+    /// Live Talk (socket up) speaks through Eve — see shouldSpeakViaRealtime.
     public static func deskSpeakUsesClientTTS() -> Bool {
         true
     }

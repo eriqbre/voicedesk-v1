@@ -587,17 +587,15 @@ public enum GrokRealtime {
 
     public static let speakVerbatimMarker = "SPEAK_VERBATIM"
 
-    /// Desk replies use on-device TTS. Always false — do not inject a fake
-    /// user turn + `response.create` so Grok can speak a local line.
+    /// Live Talk (socket up): Eve is the only mouth. Version / inbox /
+    /// person go through session.update + text item + response.create.
+    /// ClientVoiceSpeech stays for a down socket (typed / offline).
     public static func shouldSpeakViaRealtime(
         usesLiveLoop: Bool,
         isConnected: Bool,
         userWantsVoiceOff: Bool
     ) -> Bool {
-        _ = usesLiveLoop
-        _ = isConnected
-        _ = userWantsVoiceOff
-        return false
+        usesLiveLoop && isConnected && !userWantsVoiceOff
     }
 
     public static func verbatimSpeakInstructions(text: String) -> String {

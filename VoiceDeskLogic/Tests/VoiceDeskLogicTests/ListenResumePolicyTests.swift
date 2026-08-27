@@ -131,13 +131,21 @@ final class ListenResumePolicyTests: XCTestCase {
     func testDeskSpeakUsesClientTTSNotGrokVerbatim() {
         XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
         XCTAssertFalse(ListenResumePolicy.deskSpeakUsesGrokVerbatim())
-        XCTAssertFalse(
+        XCTAssertTrue(
             GrokRealtime.shouldSpeakViaRealtime(
                 usesLiveLoop: true,
                 isConnected: true,
                 userWantsVoiceOff: false
             ),
-            "desk lines must not inject a fake Grok turn"
+            "live Talk is Eve; leftover walks still model offline client TTS"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: false,
+                userWantsVoiceOff: false
+            ),
+            "down socket keeps ClientVoiceSpeech"
         )
     }
 

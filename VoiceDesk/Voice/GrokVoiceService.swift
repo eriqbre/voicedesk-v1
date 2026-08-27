@@ -71,10 +71,13 @@ final class GrokVoiceService: VoiceServicing {
     /// First Tap to talk armed this live loop. Cleared only on user stop.
     /// Independent of VoiceSession flipping idle after TTS / timeout.
     private var liveSessionArmed = false
-    /// True only while `speak()` is writing and the player is draining.
-    /// Cleared in `returnToListenAfterDeskTTS`. stayLive after drain is
-    /// armed + running audio, not this flag.
+    /// True only while offline `speak()` is writing and the player is draining.
+    /// Cleared in `returnToListenAfterDeskTTS`. Live Talk never sets this —
+    /// Eve PCM is the mouth. stayLive after drain is armed + running audio.
     private var clientTTSInFlight = false
+    /// Live Talk told Eve to say a desk line. Restore presence listen
+    /// instructions on that response.done. Not a tap rearm.
+    private var restorePresenceAfterEveSpeak = false
     /// How many times socket recover ran. Tests only — not a second loop.
     private var recoverAfterDropCount = 0
     /// Live `response.created` events. Tests only — not a second loop.
@@ -151,6 +154,14 @@ final class GrokVoiceService: VoiceServicing {
     func speak(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        if GrokRealtime.shouldSpeakViaRealtime(
+            usesLiveLoop: usesLiveLoop,
+            isConnected: client.isConnected && liveSessionArmed,
+            userWantsVoiceOff: userWantsVoiceOff
+        ) {
+            speakLiveReplyViaEve(trimmed)
+            return
+        }
         if !audio.isRunning, !userWantsVoiceOff {
             startAudioIfNeeded()
         }
@@ -162,6 +173,16 @@ final class GrokVoiceService: VoiceServicing {
         }
         await waitUntilPlaybackDrained()
         returnToListenAfterDeskTTS()
+    }
+
+    /// Socket up + live Talk: Eve says the line. Do not write desk TTS.
+    /// Do not emit after-desk-tts-drain. Cards stay with AppModel.
+    private func speakLiveReplyViaEve(_ text: String) {
+        guard client.isConnected else { return }
+        client.sendJSON(GrokRealtime.verbatimSpeakSessionUpdateObject(voice: voiceID, text: text))
+        client.sendJSON(GrokRealtime.textItemObject(GrokRealtime.verbatimSpeakUserText(text: text)))
+        client.sendJSON(GrokRealtime.responseCreateObject())
+        restorePresenceAfterEveSpeak = true
     }
 
     /// After write→player drain. Leftover created/done must not park
@@ -274,6 +295,7 @@ final class GrokVoiceService: VoiceServicing {
         userWantsVoiceOff = true
         liveSessionArmed = false
         clientTTSInFlight = false
+        restorePresenceAfterEveSpeak = false
         teardown(sendCancel: true)
     }
 
@@ -523,6 +545,7 @@ final class GrokVoiceService: VoiceServicing {
         cancelledPlaybackResponseID = nil
         rejectedCancelledDeltaCount = 0
         audioDeltaCount = 0
+        restorePresenceAfterEveSpeak = false
         apply(.cancel)
         isTearingDown = false
     }
@@ -742,6 +765,10 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .outputAudioDone:
             break
         case .responseDone(let doneID):
+            if restorePresenceAfterEveSpeak {
+                restorePresenceAfterEveSpeak = false
+                sendListenResumeSessionUpdate()
+            }
             responseDoneCountForTests += 1
             if ListenResumePolicy.shouldApplyGrokTurnFinished(
                 clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight

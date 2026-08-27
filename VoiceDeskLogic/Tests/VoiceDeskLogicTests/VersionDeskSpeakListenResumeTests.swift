@@ -165,17 +165,25 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
         XCTAssertFalse(tts.contains("synthesizer.speak("), tts)
         XCTAssertTrue(tts.contains("usesApplicationAudioSession = false"), tts)
         XCTAssertFalse(tts.contains("usesApplicationAudioSession = true"), tts)
-        XCTAssertFalse(source.contains("verbatimSpeakSessionUpdateObject"), source)
+        XCTAssertTrue(source.contains("shouldSpeakViaRealtime"), source)
+        XCTAssertTrue(source.contains("speakLiveReplyViaEve"), source)
+        XCTAssertTrue(source.contains("verbatimSpeakSessionUpdateObject"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"desk speak\")"), source)
         XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
         XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
         XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
-        XCTAssertFalse(source.contains("shouldSpeakViaRealtime"), source)
         XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
-        XCTAssertFalse(
+        XCTAssertTrue(
             GrokRealtime.shouldSpeakViaRealtime(
                 usesLiveLoop: true,
                 isConnected: true,
+                userWantsVoiceOff: false
+            )
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: false,
                 userWantsVoiceOff: false
             )
         )
