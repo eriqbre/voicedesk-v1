@@ -1483,6 +1483,33 @@ final class AppModelListenLoopTests: XCTestCase {
             "opened && task must survive barge-in — sendRaw no-op is 415c955 first-hear-then-deaf"
         )
 
+        let cancelledAnswerID = voice.listenLoopCancelledResponseID
+            ?? voice.listenLoopLastScheduledResponseID
+        XCTAssertNotNil(
+            cancelledAnswerID,
+            "barge must latch the first-answer id — leftover deltas are told by that id"
+        )
+        let pendingBeforeLeftover = engine.pendingPlaybackCount
+        let rejectedBeforeLeftover = voice.listenLoopRejectedCancelledDeltaCount
+        if let cancelledAnswerID {
+            voice.playListenLoopOutputAudioDeltaForTests(
+                responseID: cancelledAnswerID,
+                pcm: Self.speechShapedPCM(hertz: 220)
+            )
+        }
+        XCTAssertEqual(
+            engine.pendingPlaybackCount,
+            pendingBeforeLeftover,
+            "cancelled first-answer deltas must not raise pending after interruptPlayback"
+        )
+        XCTAssertGreaterThan(
+            voice.listenLoopRejectedCancelledDeltaCount,
+            rejectedBeforeLeftover,
+            "leftover first-answer output_audio.delta must be rejected — not re-scheduled"
+        )
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+
         let createdAfterBarge = await voice.waitUntilListenLoopResponseCreated(after: createdBeforeBarge)
         XCTAssertTrue(
             createdAfterBarge,
@@ -1498,6 +1525,11 @@ final class AppModelListenLoopTests: XCTestCase {
             engine.pendingPlaybackCount,
             0,
             "pendingPlayback must rise again for the interrupt answer \(voice.listenLoopBargeProof)"
+        )
+        XCTAssertNotEqual(
+            voice.listenLoopLastScheduledResponseID,
+            cancelledAnswerID,
+            "only the interrupt-answer response_id may raise pending — leftover first-answer cannot green this \(voice.listenLoopBargeProof)"
         )
         XCTAssertTrue(engine.isTapInstalled)
         XCTAssertEqual(engine.startCount, 1)

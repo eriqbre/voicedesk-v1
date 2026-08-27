@@ -386,9 +386,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopLastCreatedResponseID"), service)
         XCTAssertTrue(service.contains("listenLoopLastScheduledResponseID"), service)
         XCTAssertTrue(service.contains("listenLoopLastCancelResponseID"), service)
+        XCTAssertTrue(service.contains("listenLoopCancelledResponseID"), service)
+        XCTAssertTrue(service.contains("listenLoopRejectedCancelledDeltaCount"), service)
+        XCTAssertTrue(service.contains("func playListenLoopOutputAudioDeltaForTests"), service)
+        XCTAssertTrue(service.contains("cancelledPlaybackResponseID"), service)
+        XCTAssertTrue(service.contains("func shouldPlayBargeAudio"), service)
         XCTAssertTrue(service.contains("func connectListenLoopProductionForTests"), service)
         let outputAudio = speakSlice(service, from: "case .outputAudioDelta", to: "case .outputAudioDone")
         XCTAssertTrue(outputAudio.contains("playAudioDelta"), outputAudio)
+        XCTAssertTrue(outputAudio.contains("shouldPlayBargeAudio"), outputAudio)
         XCTAssertFalse(
             outputAudio.contains("currentResponseID"),
             "leftover response_id skip leaves pending at 0"
@@ -410,6 +416,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(interruptLive.contains("bargeConsumed"), interruptLive)
         XCTAssertTrue(interruptLive.contains("createdCountAtBarge"), interruptLive)
         XCTAssertTrue(interruptLive.contains("interruptTargetID"), interruptLive)
+        XCTAssertTrue(interruptLive.contains("cancelledPlaybackResponseID"), interruptLive)
         XCTAssertTrue(
             interruptLive.contains("interruptAssistant(sendCancel: false)"),
             "barge must not send response.cancel — that races the interrupt created"
@@ -456,6 +463,9 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func bargeInDecision"), realtime)
         XCTAssertTrue(realtime.contains("func responseIDToCancelOnBarge"), realtime)
         XCTAssertTrue(realtime.contains("func shouldKeepInterruptAnswerOnPlayer"), realtime)
+        XCTAssertTrue(realtime.contains("func shouldScheduleAfterBarge"), realtime)
+        XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
+        XCTAssertTrue(realtime.contains("func interruptAnswerID"), realtime)
         XCTAssertTrue(realtime.contains("func bargeProofLine"), realtime)
         XCTAssertTrue(realtime.contains("func latchedInterruptTarget"), realtime)
         XCTAssertFalse(realtime.contains("keepNewAnswer"), realtime)
@@ -1725,6 +1735,17 @@ final class ListenLoopSourceContractTests: XCTestCase {
             composed.contains("listenLoopBargeProof"),
             "created vs scheduled vs cancel must be in the 1493 failure"
         )
+        XCTAssertTrue(composed.contains("playListenLoopOutputAudioDeltaForTests"), composed)
+        XCTAssertTrue(composed.contains("listenLoopCancelledResponseID"), composed)
+        XCTAssertTrue(composed.contains("listenLoopRejectedCancelledDeltaCount"), composed)
+        XCTAssertTrue(
+            composed.contains("cancelled first-answer deltas must not raise pending after interruptPlayback"),
+            composed
+        )
+        XCTAssertTrue(
+            composed.contains("only the interrupt-answer response_id may raise pending"),
+            composed
+        )
         XCTAssertFalse(
             composed.contains("bargeInDeskReply"),
             "a local desk line is not live Grok player audio"
@@ -1786,6 +1807,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
            let beforeBargeAt = composed.range(of: "createdBeforeBarge"),
            let tape2At = composed.range(of: "pcm: bargeTapePCM"),
            let cancelAt = composed.range(of: "waitUntilPlaybackZero"),
+           let leftoverAt = composed.range(of: "playListenLoopOutputAudioDeltaForTests"),
            let created2At = composed.range(of: "createdAfterBarge"),
            let pending2At = composed.range(of: "grokPlayingAfterBarge"),
            let doneAt = composed.range(of: "waitUntilListenLoopResponseDone"),
@@ -1833,6 +1855,16 @@ final class ListenLoopSourceContractTests: XCTestCase {
                 tape2At.lowerBound,
                 cancelAt.lowerBound,
                 "command must cancel player buffers after the tape"
+            )
+            XCTAssertLessThan(
+                cancelAt.lowerBound,
+                leftoverAt.lowerBound,
+                "leftover first-answer delta is proven after player cancel"
+            )
+            XCTAssertLessThan(
+                leftoverAt.lowerBound,
+                created2At.lowerBound,
+                "cancelled first-answer deltas must not raise pending before the interrupt created"
             )
             XCTAssertLessThan(
                 tape2At.lowerBound,

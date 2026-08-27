@@ -300,6 +300,55 @@ public enum GrokRealtime {
         return BargeInDecision(cancelResponseID: nil, dropLocal: true)
     }
 
+    /// First-answer id that barge dropped. Leftover deltas with this
+    /// id must not raise pending after `interruptPlayback`.
+    public static func cancelledPlaybackResponseID(
+        interruptTargetID: String?,
+        lastScheduledResponseID: String?,
+        playingResponseID: String?
+    ) -> String? {
+        nonemptyID(interruptTargetID)
+            ?? nonemptyID(lastScheduledResponseID)
+            ?? nonemptyID(playingResponseID)
+    }
+
+    /// Newer created after barge. Not the cancelled first answer.
+    public static func interruptAnswerID(
+        createdAwaitingAudioID: String?,
+        lastCreatedResponseID: String?,
+        cancelledResponseID: String?
+    ) -> String? {
+        let cancelled = nonemptyID(cancelledResponseID)
+        if let awaiting = nonemptyID(createdAwaitingAudioID), awaiting != cancelled {
+            return awaiting
+        }
+        if let created = nonemptyID(lastCreatedResponseID), created != cancelled {
+            return created
+        }
+        return nil
+    }
+
+    /// After barge, only the interrupt-answer id may schedule.
+    /// Leftover first-answer `output_audio.delta` must not raise pending.
+    public static func shouldScheduleAfterBarge(
+        bargeConsumed: Bool,
+        deltaResponseID: String?,
+        cancelledResponseID: String?,
+        interruptAnswerID: String?,
+        playingResponseID: String? = nil
+    ) -> Bool {
+        guard bargeConsumed else { return true }
+        let delta = nonemptyID(deltaResponseID)
+        let cancelled = nonemptyID(cancelledResponseID)
+        let answer = nonemptyID(interruptAnswerID)
+        if let delta, let cancelled, delta == cancelled {
+            return false
+        }
+        guard let answer else { return false }
+        if let delta { return delta == answer }
+        return nonemptyID(playingResponseID) == answer
+    }
+
     /// The interrupt created already scheduled. Dropping local wipes
     /// it — leftover created, pending 0.
     public static func shouldKeepInterruptAnswerOnPlayer(

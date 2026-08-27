@@ -372,6 +372,75 @@ final class GrokRealtimeTests: XCTestCase {
             "created=resp_2 scheduled=resp_2 cancel=resp_1 deltas=3"
         )
         XCTAssertEqual(
+            GrokRealtime.cancelledPlaybackResponseID(
+                interruptTargetID: "resp_1",
+                lastScheduledResponseID: "resp_1",
+                playingResponseID: "resp_2"
+            ),
+            "resp_1"
+        )
+        XCTAssertEqual(
+            GrokRealtime.interruptAnswerID(
+                createdAwaitingAudioID: "resp_2",
+                lastCreatedResponseID: "resp_2",
+                cancelledResponseID: "resp_1"
+            ),
+            "resp_2"
+        )
+        XCTAssertNil(
+            GrokRealtime.interruptAnswerID(
+                createdAwaitingAudioID: nil,
+                lastCreatedResponseID: "resp_1",
+                cancelledResponseID: "resp_1"
+            ),
+            "first-answer created is not the interrupt answer"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: false,
+                deltaResponseID: "resp_1",
+                cancelledResponseID: nil,
+                interruptAnswerID: nil
+            ),
+            "before barge every delta may schedule"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: true,
+                deltaResponseID: "resp_1",
+                cancelledResponseID: "resp_1",
+                interruptAnswerID: "resp_2"
+            ),
+            "leftover first-answer deltas must not raise pending"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: true,
+                deltaResponseID: "resp_1",
+                cancelledResponseID: "resp_1",
+                interruptAnswerID: nil
+            ),
+            "leftover first-answer before the interrupt created must not schedule"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: true,
+                deltaResponseID: "resp_2",
+                cancelledResponseID: "resp_1",
+                interruptAnswerID: "resp_2"
+            ),
+            "interrupt-answer id may raise pending"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: true,
+                deltaResponseID: nil,
+                cancelledResponseID: "resp_1",
+                interruptAnswerID: "resp_2"
+            ),
+            "unattributed leftover after barge must not raise pending"
+        )
+        XCTAssertEqual(
             GrokRealtime.bargeInDecision(
                 hasPendingPlayback: true,
                 alreadyBarged: true,

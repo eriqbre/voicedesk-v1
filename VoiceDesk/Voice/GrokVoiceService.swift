@@ -49,6 +49,11 @@ final class GrokVoiceService: VoiceServicing {
     /// Last live created / scheduled / barge-cancel ids. Proof only.
     private var lastCreatedResponseID: String?
     private var lastBargeCancelSentID: String?
+    /// First-answer id dropped on barge. Leftover deltas with this id
+    /// must not raise pending after `interruptPlayback`.
+    private var cancelledPlaybackResponseID: String?
+    /// Leftover first-answer deltas rejected after barge. Tests only.
+    private var rejectedCancelledDeltaCount = 0
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var isTearingDown = false
@@ -238,6 +243,11 @@ final class GrokVoiceService: VoiceServicing {
         )
         bargeConsumed = true
         lastBargeCancelSentID = decision.cancelResponseID
+        cancelledPlaybackResponseID = GrokRealtime.cancelledPlaybackResponseID(
+            interruptTargetID: interruptTargetID,
+            lastScheduledResponseID: lastScheduledResponseID,
+            playingResponseID: playingResponseID
+        )
         if decision.dropLocal {
             interruptAssistant(sendCancel: false)
         }
@@ -402,6 +412,27 @@ final class GrokVoiceService: VoiceServicing {
         VoiceCloudDogfoodClient.shared.enqueue(entry)
     }
 
+    private func shouldPlayBargeAudio(deltaResponseID: String?) -> Bool {
+        let answerID = GrokRealtime.interruptAnswerID(
+            createdAwaitingAudioID: createdAwaitingAudioID,
+            lastCreatedResponseID: lastCreatedResponseID,
+            cancelledResponseID: cancelledPlaybackResponseID
+        )
+        let allow = GrokRealtime.shouldScheduleAfterBarge(
+            bargeConsumed: bargeConsumed,
+            deltaResponseID: deltaResponseID,
+            cancelledResponseID: cancelledPlaybackResponseID,
+            interruptAnswerID: answerID,
+            playingResponseID: playingResponseID
+        )
+        if !allow,
+           GrokRealtime.nonemptyID(deltaResponseID) != nil,
+           GrokRealtime.nonemptyID(deltaResponseID) == cancelledPlaybackResponseID {
+            rejectedCancelledDeltaCount += 1
+        }
+        return allow
+    }
+
     private func noteScheduledResponse(_ id: String?) {
         guard let id = GrokRealtime.nonemptyID(id) else { return }
         lastScheduledResponseID = id
@@ -457,6 +488,8 @@ final class GrokVoiceService: VoiceServicing {
         bargeConsumed = false
         interruptAnswerScheduled = false
         createdCountAtBarge = 0
+        cancelledPlaybackResponseID = nil
+        rejectedCancelledDeltaCount = 0
         audioDeltaCount = 0
         apply(.cancel)
         isTearingDown = false
@@ -572,8 +605,10 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
+        let deltaID = createdAwaitingAudioID
+        guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { return }
         if playingResponseID == nil {
-            playingResponseID = currentResponseID ?? createdAwaitingAudioID
+            playingResponseID = deltaID
             noteScheduledResponse(playingResponseID)
         }
         audio.playPCM16(data)
@@ -629,12 +664,13 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .assistantTranscriptDone:
             break
         case .outputAudioDelta(let delta):
-            // Live Grok PCM on the one-engine player. A leftover
-            // id-match / suppress skip left pending at 0 — drain
-            // without a rise is paper (415c955 / second engine).
+            // Live Grok PCM on the one-engine player. After barge,
+            // leftover first-answer deltas must not raise pending —
+            // only the interrupt-answer id may schedule.
+            let deltaID = GrokRealtime.responseID(in: json)
+            guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { break }
             if playingResponseID == nil {
-                playingResponseID = GrokRealtime.responseID(in: json)
-                    ?? createdAwaitingAudioID
+                playingResponseID = deltaID ?? createdAwaitingAudioID
                 noteScheduledResponse(playingResponseID)
             }
             audio.playAudioDelta(base64: delta)
@@ -664,6 +700,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                         lastScheduledResponseID = nil
                         createdCountAtBarge = 0
                         speechStartedBarge = false
+                        cancelledPlaybackResponseID = nil
                     }
                 } else {
                     interruptTargetID = nil
@@ -818,7 +855,24 @@ extension GrokVoiceService {
 
     var listenLoopLastCancelResponseID: String? { lastBargeCancelSentID }
 
+    var listenLoopCancelledResponseID: String? { cancelledPlaybackResponseID }
+
+    var listenLoopRejectedCancelledDeltaCount: Int { rejectedCancelledDeltaCount }
+
     var listenLoopAudioDeltaCount: Int { audioDeltaCount }
+
+    /// Same `output_audio.delta` path live Grok uses. Leftover first-answer
+    /// PCM after barge must go through `shouldScheduleAfterBarge`.
+    func playListenLoopOutputAudioDeltaForTests(responseID: String, pcm: Data) {
+        grokWebSocketDidReceive(
+            json: [
+                "type": "response.output_audio.delta",
+                "response_id": responseID,
+                "delta": pcm.base64EncodedString()
+            ],
+            type: "response.output_audio.delta"
+        )
+    }
 
     var listenLoopBargeProof: String {
         GrokRealtime.bargeProofLine(
