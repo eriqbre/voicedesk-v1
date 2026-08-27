@@ -43,16 +43,17 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         wantsCapture && engineRunning
     }
 
-    /// Zero-notification HAL yank. Reinstall only if the HAL tap object
-    /// is gone. A healthy tap must not be torn down — a 400ms always-
-    /// rebuild after drain raced leftover barge (ed0b5ef / 69f777e).
-    /// Not a timer. Demand-driven after the first deaf feed.
+    /// Zero-notification HAL yank. Reinstall if the Swift tap object
+    /// is gone *or* the object is still there and HAL is gone.
+    /// `tapObjectMissing` only is 453bda8 — that misses the phone.
+    /// A healthy HAL tap must not be torn down. Not a timer.
     public static func shouldApplyDelayedSilentTapRepair(
         engineRunning: Bool,
         wantsCapture: Bool,
-        tapObjectMissing: Bool
+        tapObjectMissing: Bool,
+        halTapMissing: Bool = false
     ) -> Bool {
-        wantsCapture && engineRunning && tapObjectMissing
+        wantsCapture && engineRunning && (tapObjectMissing || halTapMissing)
     }
 
     /// bf0af19 / 415c955: trusted `tapInstalled`. HAL yank left the
@@ -395,6 +396,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     /// with zero notifications. Demand-driven reinstall when the tap
     /// object is gone puts the same tap back. Third command PCM is
     /// the next turn. Not a 400ms Task.
+    /// 453bda8: tap==nil only. Phone yank leaves the object.
     public static func delayedYankAfterReturnToListenThenDelayedRepairLandsThird(
         first: Data = commandPCM(1),
         second: Data = commandPCM(2),
@@ -406,6 +408,23 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             third: third,
             duringTTS: .keepListening,
             afterDrain: .drainThenDelayedYankThenDelayedRepair
+        )
+    }
+
+    /// Phone HAL yank: object stays, HAL is gone, flag still true.
+    /// 453bda8 tap==nil repair no-ops. Demand-driven HAL-missing
+    /// repair lands the third. Not a 400ms Task.
+    public static func objectLeftInPlaceSilentYankThenDemandRepairLandsThird(
+        first: Data = commandPCM(1),
+        second: Data = commandPCM(2),
+        third: Data = commandPCM(3)
+    ) -> FirstHearTapLoop {
+        run(
+            first: first,
+            second: second,
+            third: third,
+            duringTTS: .keepListening,
+            afterDrain: .drainThenObjectLeftInPlaceYankThenDemandRepair
         )
     }
 
@@ -444,6 +463,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         case drainThenDelayedYankNoConfigChange
         case drainThenDelayedYankThenConfigChange
         case drainThenDelayedYankThenDelayedRepair
+        case drainThenObjectLeftInPlaceYankThenDemandRepair
         case returnToListenAfterTTS
         case close1000AfterTTSStayIdle
         case close1000AfterTTSStayLive
@@ -580,7 +600,7 @@ public struct FirstHearTapLoop: Equatable, Sendable {
             } else if oldRepair {
                 tapLive = true
             }
-        case .drainThenDelayedYankNoConfigChange, .drainThenDelayedYankThenConfigChange, .drainThenDelayedYankThenDelayedRepair:
+        case .drainThenDelayedYankNoConfigChange, .drainThenDelayedYankThenConfigChange, .drainThenDelayedYankThenDelayedRepair, .drainThenObjectLeftInPlaceYankThenDemandRepair:
             // 573f654: returnToListen + reinstall while the tap is still live.
             let after = ListenResumePolicy.afterClientTTSFinished(
                 session: &session,
@@ -622,6 +642,23 @@ public struct FirstHearTapLoop: Equatable, Sendable {
                 tapObjectMissing: !tapLive
                ) {
                 tapLive = true
+            }
+            if afterDrain == .drainThenObjectLeftInPlaceYankThenDemandRepair {
+                let onlyNilObject = shouldApplyDelayedSilentTapRepair(
+                    engineRunning: true,
+                    wantsCapture: true,
+                    tapObjectMissing: false
+                )
+                if onlyNilObject {
+                    tapLive = true
+                } else if shouldApplyDelayedSilentTapRepair(
+                    engineRunning: true,
+                    wantsCapture: true,
+                    tapObjectMissing: false,
+                    halTapMissing: true
+                ) {
+                    tapLive = true
+                }
             }
         case .returnToListenAfterTTS:
             let after = ListenResumePolicy.afterClientTTSFinished(

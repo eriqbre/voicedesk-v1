@@ -311,6 +311,24 @@ final class FirstHearTapLoopTests: XCTestCase {
             ),
             "HAL yank leaves tap nil — demand-driven reinstall puts it back"
         )
+        XCTAssertFalse(
+            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
+                engineRunning: true,
+                wantsCapture: true,
+                tapObjectMissing: false,
+                halTapMissing: false
+            ),
+            "healthy HAL tap must not be torn down — leftover barge"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
+                engineRunning: true,
+                wantsCapture: true,
+                tapObjectMissing: false,
+                halTapMissing: true
+            ),
+            "object-left-in-place silent yank — 453bda8 tap==nil only misses this"
+        )
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)
         let third = FirstHearTapLoop.commandPCM(3)
@@ -324,6 +342,33 @@ final class FirstHearTapLoopTests: XCTestCase {
         XCTAssertTrue(walk.listenArmed)
         XCTAssertTrue(walk.stayLive)
         XCTAssertEqual(walk.startCount, 1, "delayed silent-tap reinstall must not audio.start")
+        XCTAssertFalse(
+            FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
+        )
+    }
+
+    func testObjectLeftInPlaceSilentYankThenDemandRepairLandsThird() {
+        XCTAssertFalse(
+            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
+                engineRunning: true,
+                wantsCapture: true,
+                tapObjectMissing: false
+            ),
+            "453bda8 tap==nil-only repair must not green object-left-in-place silence"
+        )
+        let first = FirstHearTapLoop.commandPCM(1)
+        let second = FirstHearTapLoop.commandPCM(2)
+        let third = FirstHearTapLoop.commandPCM(3)
+        let walk = FirstHearTapLoop.objectLeftInPlaceSilentYankThenDemandRepairLandsThird(
+            first: first,
+            second: second,
+            third: third
+        )
+        XCTAssertEqual(walk.turns, [first, second, third])
+        XCTAssertTrue(walk.tapLive)
+        XCTAssertTrue(walk.listenArmed)
+        XCTAssertTrue(walk.stayLive)
+        XCTAssertEqual(walk.startCount, 1, "object-left-in-place repair must not audio.start")
         XCTAssertFalse(
             FirstHearTapLoop.silentTapWhileEngineRunning(tapEmitting: walk.tapLive, engineRunning: true)
         )

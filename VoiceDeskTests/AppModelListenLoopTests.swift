@@ -258,6 +258,114 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// Honesty: phone HAL yank after write→player drain. Swift tap
+    /// object stays. `isTapInstalled` stays true. HAL tap is gone.
+    /// `isRunning` true. startCount 1. Zero notifications.
+    /// First command PCM is not a turn. 453bda8 tap==nil repair
+    /// no-ops here. Demand-driven HAL-missing reinstall puts the
+    /// same tap back. Same PCM is the next turn. Not a 400ms Task.
+    /// Transcript injects do not count. recoverCount 0. Do not poll.
+    func testVersionThenGlanceLivePathObjectLeftInPlaceSilentYankThirdCommandIsATurn() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-object-in-place")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(session: session, command: command3)
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        await model.applyUserTurn("what version are we on")
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive, "version write→player must stayLive on the live service")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "close 1000 stayIdle after version is a fail")
+        XCTAssertTrue(model.turns.contains { $0.text.contains("VoiceDesk") })
+
+        await model.applyUserTurn("show me my emails")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1, "glance write→player must not audio.start")
+        XCTAssertTrue(voice.listenLoopStayLive, "glance write→player must stayLive on the live service")
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle, "close 1000 stayIdle after glance is a fail")
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "live speak() must drain before returnToListen")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        XCTAssertTrue(engine.isTapObjectPresent, "pre-yank: Swift tap object is present")
+        XCTAssertTrue(engine.isHALTapAttached, "pre-yank: HAL tap is attached")
+        engine.simulateHALTapYankLeavingSwiftObjectInPlace()
+        XCTAssertTrue(engine.isTapInstalled, "flag still says installed after object-left-in-place yank")
+        XCTAssertTrue(engine.isTapObjectPresent, "phone yank leaves the Swift tap object — this is not tap==nil")
+        XCTAssertFalse(engine.isHALTapAttached, "HAL tap is gone")
+        XCTAssertTrue(engine.isRunning, "415c955-class yank leaves isRunning true")
+        XCTAssertEqual(engine.startCount, 1, "yank must not audio.start")
+        XCTAssertFalse(
+            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
+                engineRunning: engine.isRunning,
+                wantsCapture: true,
+                tapObjectMissing: !engine.isTapObjectPresent
+            ),
+            "453bda8 tap==nil-only repair must fail this hole"
+        )
+        XCTAssertFalse(
+            FirstHearTapLoop.startAudioIfNeededWouldStart(engineRunning: engine.isRunning),
+            "old loop no-ops here; a second start is not the repair"
+        )
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle)
+
+        engine.feedTapPCM16(command3)
+        XCTAssertTrue(sink.frames.isEmpty, "object-left-in-place yank must not paper-green the third")
+        XCTAssertTrue(sink.turns.isEmpty, "still deaf until HAL-missing silent-tap reinstall")
+
+        await voice.waitUntilListenLoopDelayedSilentTapRepair()
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertTrue(engine.isTapInstalled, "HAL-missing reinstall must put the same tap back")
+        XCTAssertTrue(engine.isTapObjectPresent)
+        XCTAssertTrue(engine.isHALTapAttached, "repair must attach HAL again")
+        XCTAssertEqual(engine.startCount, 1, "reinstall must not audio.start")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0, "repair is not recoverAfterDrop")
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("live-path-object-in-place-third.pcm")
+        try command3.write(to: fileURL)
+        let thirdFromFile = try Data(contentsOf: fileURL)
+        engine.feedTapPCM16(thirdFromFile)
+        XCTAssertEqual(sink.frames.last, thirdFromFile, "third command PCM must go through the live tap")
+        XCTAssertEqual(sink.turns.last, thirdFromFile, "after object-left-in-place silent-tap reinstall, that PCM is the next turn")
+        XCTAssertEqual(sink.turns.count, 1)
+        XCTAssertEqual(engine.startCount, 1, "if a second start would be required, fail")
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertNotEqual(voice.listenLoopClose1000, .stayIdle)
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.map(\.text),
+            ["what version are we on", "show me my emails"],
+            "transcript injects do not count as the third turn"
+        )
+
+        voice.cancel()
+    }
+
     /// Conversation loop on the live service. 415c955 first-hear-then-deaf
     /// heard PCM 1, answered, then never heard PCM 2. Talk, Eve answers
     /// intent on write→player, talk again without repeating. Ambient

@@ -331,14 +331,20 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("drainOnly573f654DelayedYankAfterReturnToListenDropsThird"), loop)
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenConfigChangeReinstallsSameTap"), loop)
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenDelayedRepairLandsThird"), loop)
+        XCTAssertTrue(loop.contains("objectLeftInPlaceSilentYankThenDemandRepairLandsThird"), loop)
         XCTAssertFalse(
             loop.contains("delayedSilentTapRepairMilliseconds"),
             "400ms after drain raced leftover barge — demand-driven yank repair only"
         )
         XCTAssertFalse(loop.contains("shouldScheduleDelayedSilentTapRepairAfterDrain"), loop)
         XCTAssertTrue(loop.contains("shouldApplyDelayedSilentTapRepair"), loop)
+        XCTAssertTrue(loop.contains("halTapMissing"), loop)
         XCTAssertTrue(
             loopTests.contains("testDelayedYankAfterReturnToListenThenDelayedRepairLandsThird"),
+            loopTests
+        )
+        XCTAssertTrue(
+            loopTests.contains("testObjectLeftInPlaceSilentYankThenDemandRepairLandsThird"),
             loopTests
         )
         XCTAssertTrue(
@@ -847,6 +853,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("reinstallTapIfYankedWhileRunning"), engine)
         XCTAssertTrue(engine.contains("simulateSystemTapDetachLeavingEngineRunning"), engine)
         XCTAssertTrue(engine.contains("simulateHALTapYankLeavingInstalledFlagTrue"), engine)
+        XCTAssertTrue(engine.contains("simulateHALTapYankLeavingSwiftObjectInPlace"), engine)
+        XCTAssertTrue(engine.contains("isTapObjectPresent"), engine)
+        XCTAssertTrue(engine.contains("isHALTapAttached"), engine)
+        XCTAssertTrue(engine.contains("halTapAttached"), engine)
+        XCTAssertTrue(engine.contains("HALTapLease"), engine)
+        XCTAssertTrue(
+            engine.contains("halTapAttached, let onMicAudio"),
+            "feed must require HAL attach — object+flag is the phone lie"
+        )
         XCTAssertTrue(engine.contains("AVAudioEngineConfigurationChange"), engine)
         XCTAssertTrue(engine.contains("guard tap != nil, tapInstalled"), engine)
         XCTAssertTrue(engine.contains("interruptionNotification"), engine)
@@ -906,6 +921,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testVersionThenGlanceLivePathObjectLeftInPlaceSilentYankThirdCommandIsATurn"),
             live
         )
         XCTAssertTrue(
@@ -1057,7 +1076,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let zeroNote = speakSlice(
             live,
             from: "func testVersionThenGlanceLivePathDelayedYankZeroNotificationThirdCommandIsATurn",
-            to: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"
+            to: "func testVersionThenGlanceLivePathObjectLeftInPlaceSilentYankThirdCommandIsATurn"
         )
         XCTAssertFalse(zeroNote.contains("postEngineConfigurationChange"), zeroNote)
         XCTAssertFalse(zeroNote.contains("postInterruption"), zeroNote)
@@ -1075,6 +1094,38 @@ final class ListenLoopSourceContractTests: XCTestCase {
             XCTAssertLessThan(deafAt.lowerBound, repairAt.lowerBound)
         } else {
             XCTFail("zero-notification gate must yank, prove deaf, then wait for delayed repair")
+        }
+        let objectInPlace = speakSlice(
+            live,
+            from: "func testVersionThenGlanceLivePathObjectLeftInPlaceSilentYankThirdCommandIsATurn",
+            to: "func testLiveConversationLoopTalkAnswerTalkAgainWithoutRepeat"
+        )
+        XCTAssertFalse(objectInPlace.contains("postEngineConfigurationChange"), objectInPlace)
+        XCTAssertFalse(objectInPlace.contains("postInterruption"), objectInPlace)
+        XCTAssertFalse(objectInPlace.contains("AVAudioEngineConfigurationChange"), objectInPlace)
+        XCTAssertFalse(
+            objectInPlace.contains("simulateHALTapYankLeavingInstalledFlagTrue"),
+            "object-left-in-place must not paper this hole as tap==nil"
+        )
+        XCTAssertTrue(objectInPlace.contains("simulateHALTapYankLeavingSwiftObjectInPlace"), objectInPlace)
+        XCTAssertTrue(objectInPlace.contains("isTapObjectPresent"), objectInPlace)
+        XCTAssertTrue(objectInPlace.contains("isHALTapAttached"), objectInPlace)
+        XCTAssertTrue(objectInPlace.contains("453bda8 tap==nil-only repair must fail this hole"), objectInPlace)
+        XCTAssertTrue(objectInPlace.contains("waitUntilListenLoopDelayedSilentTapRepair"), objectInPlace)
+        XCTAssertTrue(objectInPlace.contains("still deaf until HAL-missing silent-tap reinstall"), objectInPlace)
+        XCTAssertTrue(objectInPlace.contains("listenLoopRecoverCount"), objectInPlace)
+        XCTAssertFalse(objectInPlace.contains("for _ in 0..<"), objectInPlace)
+        XCTAssertFalse(objectInPlace.contains("while "), objectInPlace)
+        XCTAssertFalse(objectInPlace.contains("Task.sleep"), objectInPlace)
+        if let yankAt = objectInPlace.range(of: "simulateHALTapYankLeavingSwiftObjectInPlace"),
+           let objectAt = objectInPlace.range(of: "phone yank leaves the Swift tap object"),
+           let deafAt = objectInPlace.range(of: "still deaf until HAL-missing silent-tap reinstall"),
+           let repairAt = objectInPlace.range(of: "waitUntilListenLoopDelayedSilentTapRepair") {
+            XCTAssertLessThan(yankAt.lowerBound, objectAt.lowerBound)
+            XCTAssertLessThan(objectAt.lowerBound, deafAt.lowerBound)
+            XCTAssertLessThan(deafAt.lowerBound, repairAt.lowerBound)
+        } else {
+            XCTFail("object-left-in-place gate must yank, keep the object, prove deaf, then repair")
         }
         let conversation = speakSlice(
             live,

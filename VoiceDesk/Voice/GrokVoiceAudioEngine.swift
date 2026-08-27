@@ -40,6 +40,10 @@ final class GrokVoiceAudioEngine {
     private var onMicAudio: (@Sendable (String) -> Void)?
     private var echoCancellation = true
     private var tapInstalled = false
+    /// HAL `installTap` is actually on the input node. Phone yank
+    /// leaves `tap` and `tapInstalled` and drops this.
+    private var halTapAttached = false
+    private var halTapGeneration = 0
     private var pendingPlaybackBuffers = 0
     private(set) var playbackEpoch = 0
     private var generation = 0
@@ -82,13 +86,20 @@ final class GrokVoiceAudioEngine {
 
     /// Same callback the mic tap uses. Speech-shaped PCM is a turn, not a string.
     /// A lying `tapInstalled` with no HAL tap must no-op so a silent tap
-    /// cannot be paper-greened by feeding PCM.
+    /// cannot be paper-greened by feeding PCM. Object-left-in-place
+    /// yank keeps `tap` and the flag; HAL is gone.
     func feedTapPCM16(_ pcm: Data) {
-        guard tap != nil, tapInstalled, let onMicAudio else { return }
+        guard tap != nil, tapInstalled, halTapAttached, let onMicAudio else { return }
         onMicAudio(pcm.base64EncodedString())
     }
 
     var isTapInstalled: Bool { tapInstalled }
+
+    /// Phone HAL yank leaves this true. `simulateHALTapYankLeavingInstalledFlagTrue` nils it.
+    var isTapObjectPresent: Bool { tap != nil }
+
+    /// HAL `installTap` is on the input node. Object-left-in-place yank is false.
+    var isHALTapAttached: Bool { halTapAttached }
 
     /// After write→player drain. iOS can yank the HAL tap and leave
     /// `isRunning` true and `tapInstalled` true without posting
@@ -101,15 +112,16 @@ final class GrokVoiceAudioEngine {
         reinstallTap()
     }
 
-    /// Zero-notification HAL yank leaves `tap == nil` and the installed
-    /// flag true. Demand-driven: first feed stays deaf, then this puts
-    /// the same tap back. Do not tear down a live tap. Do not increment
-    /// `startCount`. Not a delayed Task after drain — that raced leftover.
+    /// Zero-notification HAL yank. `tap == nil` or object-left-in-place
+    /// (`tap` still there, HAL gone). Demand-driven: first feed stays
+    /// deaf, then this puts the same tap back. Do not tear down a live
+    /// HAL tap. Do not increment `startCount`. Not a 400ms Task.
     func reinstallTapIfYankedWhileRunning() {
         guard FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
             engineRunning: engine?.isRunning ?? false,
             wantsCapture: wantsCapture,
-            tapObjectMissing: tap == nil
+            tapObjectMissing: tap == nil,
+            halTapMissing: !halTapAttached
         ) else { return }
         reinstallTap()
     }
@@ -120,23 +132,41 @@ final class GrokVoiceAudioEngine {
     /// This is that detach. It must not increment `startCount`.
     func simulateSystemTapDetachLeavingEngineRunning() {
         guard let engine else { return }
+        invalidateHALTapLease()
         if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
         }
         tapInstalled = false
         tap?.detach()
         tap = nil
+        halTapAttached = false
     }
 
     /// Real iOS (415c955 / bf0af19): HAL tap is gone, `isRunning` stays
     /// true, and our installed flag still says true. No interruption.
+    /// This inject nils the Swift object. Phone yank does not.
     func simulateHALTapYankLeavingInstalledFlagTrue() {
         guard let engine else { return }
+        invalidateHALTapLease()
         if tap != nil {
             engine.inputNode.removeTap(onBus: 0)
         }
         tap?.detach()
         tap = nil
+        halTapAttached = false
+    }
+
+    /// Phone HAL yank (415c955 / 18d5878): HAL tap is gone, Swift
+    /// `tap` stays, `tapInstalled` stays true, `isRunning` stays true.
+    /// Zero notifications. Bump generation so lease-deinit does not
+    /// auto-repair before the first deaf feed.
+    func simulateHALTapYankLeavingSwiftObjectInPlace() {
+        guard let engine else { return }
+        invalidateHALTapLease()
+        if halTapAttached {
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        halTapAttached = false
     }
 
     func playAudioDelta(base64: String) {
@@ -246,9 +276,7 @@ final class GrokVoiceAudioEngine {
             return logs
         }
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap] buffer, _ in
-            frameTap.consume(buffer)
-        }
+        attachHALTap(inputNode: inputNode, inputFormat: inputFormat, frameTap: frameTap)
         tapInstalled = true
 
         do {
@@ -257,9 +285,11 @@ final class GrokVoiceAudioEngine {
             player.play()
             logs.append("Audio engine running")
         } catch {
+            invalidateHALTapLease()
             inputNode.removeTap(onBus: 0)
             frameTap.detach()
             tapInstalled = false
+            halTapAttached = false
             logs.append("Engine start error: \(error.localizedDescription)")
             return logs
         }
@@ -277,12 +307,14 @@ final class GrokVoiceAudioEngine {
             }
             return
         }
-        if tap != nil {
+        invalidateHALTapLease()
+        if halTapAttached {
             engine.inputNode.removeTap(onBus: 0)
         }
         tapInstalled = false
         tap?.detach()
         tap = nil
+        halTapAttached = false
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0,
@@ -292,18 +324,44 @@ final class GrokVoiceAudioEngine {
                 onFrame: onMicAudio
               )
         else { return }
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap] buffer, _ in
-            frameTap.consume(buffer)
-        }
+        attachHALTap(inputNode: inputNode, inputFormat: inputFormat, frameTap: frameTap)
         tap = frameTap
         tapInstalled = true
     }
 
+    private func invalidateHALTapLease() {
+        halTapGeneration += 1
+    }
+
+    /// Lease dies when HAL releases the tap block. That is the phone
+    /// yank signal. Not a poll. Not a 400ms Task after drain.
+    private func attachHALTap(
+        inputNode: AVAudioInputNode,
+        inputFormat: AVAudioFormat,
+        frameTap: MicFrameTap
+    ) {
+        invalidateHALTapLease()
+        let gen = halTapGeneration
+        halTapAttached = true
+        let lease = HALTapLease { [weak self] in
+            Task { @MainActor in
+                guard let self, self.halTapGeneration == gen else { return }
+                self.halTapAttached = false
+                self.reinstallTapIfYankedWhileRunning()
+            }
+        }
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [frameTap, lease] buffer, _ in
+            _ = lease
+            frameTap.consume(buffer)
+        }
+    }
+
     private func teardownGraph() {
+        invalidateHALTapLease()
         tap?.detach()
         tap = nil
         if let engine {
-            if tapInstalled {
+            if tapInstalled || halTapAttached {
                 engine.inputNode.removeTap(onBus: 0)
                 tapInstalled = false
             }
@@ -313,6 +371,7 @@ final class GrokVoiceAudioEngine {
         self.engine = nil
         self.playerNode = nil
         tapInstalled = false
+        halTapAttached = false
     }
 
     private func observeAudioLifecycle() {
@@ -414,6 +473,20 @@ final class GrokVoiceAudioEngine {
             packed[index] = Int16(clipped * Float(Int16.max))
         }
         return packed.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+}
+
+/// Lives inside the `installTap` block. HAL yank releases the block;
+/// `deinit` is the object-left-in-place silent-yank signal.
+private final class HALTapLease: @unchecked Sendable {
+    private let onRelease: @Sendable () -> Void
+
+    init(onRelease: @escaping @Sendable () -> Void) {
+        self.onRelease = onRelease
+    }
+
+    deinit {
+        onRelease()
     }
 }
 
