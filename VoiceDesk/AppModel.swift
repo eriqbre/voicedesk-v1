@@ -895,21 +895,15 @@ final class AppModel {
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
         rememberEvidence(evidence)
         if evidence.topic == .version {
-            if isLiveVADTurn {
-                refreshPresence()
-                logVoiceTurn(
-                    evidence: evidence,
-                    intentHint: "version",
-                    reply: "",
-                    cards: [],
-                    notes: ["eve speaks identity", buildIdentity.dogfoodLine]
-                )
-                return
-            }
             let line = ConversationPresence.spokenIdentityLine(
                 for: lastUserUtterance,
                 identity: buildIdentity
             )
+            if isLiveVADTurn {
+                // Walk: empty identity reply, no PCM. 83a5c6a wrote
+                // this line → player. Drop A so that write is the mouth.
+                claimLocalAssistantReply()
+            }
             appendAssistant(line)
             await speakDeskReply(line)
             logVoiceTurn(
@@ -1149,9 +1143,20 @@ final class AppModel {
         guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {
             return
         }
-        // Live VAD: Eve's one turn is the mouth. Do not send a stub.
+        // Live VAD: no inbox stub. Identity line writes PCM
+        // (83a5c6a version bar). Do not send a list ack.
         if isLiveVADTurn {
-            return
+            let identity = ConversationPresence.spokenIdentityLine(
+                for: lastUserUtterance,
+                identity: buildIdentity
+            )
+            if !LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
+                liveVADTurn: true,
+                spoken: spoken,
+                identityLine: identity
+            ) {
+                return
+            }
         }
         lastSpokenDeskReply = spoken
         await voice.speak(spoken)

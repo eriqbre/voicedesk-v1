@@ -160,9 +160,9 @@ final class GrokVoiceService: VoiceServicing {
             isConnected: client.isConnected && liveSessionArmed,
             userWantsVoiceOff: userWantsVoiceOff
         ) {
-            // Live VAD already created the one response. Do not stack
-            // session.update + fake user text + response.create.
-            return
+            // Live VAD: do not stack session.update + fake user text +
+            // response.create. Version identity writes PCM on this
+            // player — 83a5c6a bar. Inbox stubs never reach here.
         }
         if !audio.isRunning, !userWantsVoiceOff {
             startAudioIfNeeded()

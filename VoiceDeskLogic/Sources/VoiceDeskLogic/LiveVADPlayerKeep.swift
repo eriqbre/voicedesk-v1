@@ -103,4 +103,30 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
     public static func shouldBufferTranscriptUntilToolsFinish() -> Bool {
         false
     }
+
+    /// c1cd758 walk: `eve speaks identity` + empty assistantReply.
+    /// 83a5c6a spoke the identity line via write→player.
+    public static func isEmptyEveSpeaksIdentityLie(
+        routingNotes: [String],
+        assistantReply: String,
+        wrotePlayerPCM: Bool
+    ) -> Bool {
+        let notes = routingNotes.joined(separator: " ").lowercased()
+        guard notes.contains("eve speaks identity") else { return false }
+        return assistantReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !wrotePlayerPCM
+    }
+
+    /// Live VAD may write the identity line to the one player.
+    /// Inbox stubs stay silent — no client “Here they are.”
+    public static func shouldWriteLiveDeskLineToPlayer(
+        liveVADTurn: Bool,
+        spoken: String,
+        identityLine: String
+    ) -> Bool {
+        guard liveVADTurn else { return true }
+        let line = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty, !identityLine.isEmpty else { return false }
+        return line == identityLine
+    }
 }
