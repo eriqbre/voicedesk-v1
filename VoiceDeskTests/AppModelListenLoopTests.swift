@@ -776,7 +776,7 @@ final class AppModelListenLoopTests: XCTestCase {
         let drained = await voice.waitUntilListenLoopPlaybackDrained()
         XCTAssertTrue(
             drained,
-            "live Grok speak must drain on the one-engine player — not synthesizer.speak"
+            "live Grok speak must drain on the one-engine player — never the utterance speak API"
         )
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "talk again must wait until her answer drains")
         XCTAssertEqual(engine.startCount, 1, "live Grok speak must not audio.start")
