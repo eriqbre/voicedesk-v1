@@ -630,22 +630,6 @@ public enum GrokRealtime {
         usesLiveLoop && isConnected && !userWantsVoiceOff
     }
 
-    /// 12:54 / 3:27 live-Grok leak. Eve paraphrased routing-narration.
-    /// Detector only — not a mute, not a transcript scrub.
-    public static func isLeftoverDeskRoutingReply(_ raw: String) -> Bool {
-        let lower = raw.lowercased()
-            .replacingOccurrences(of: "’", with: "'")
-            .replacingOccurrences(of: "‘", with: "'")
-        if lower.contains("app will take") { return true }
-        if lower.contains("let the app handle") { return true }
-        if raw.hasPrefix(" "), isLeftoverDeskRoutingReply(
-            raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        ) {
-            return true
-        }
-        return false
-    }
-
     /// Connected presence must not teach stay-silent / app-owns routing.
     public static func teachesLeftoverDeskRouting(_ instructions: String) -> Bool {
         let lower = instructions.lowercased()
