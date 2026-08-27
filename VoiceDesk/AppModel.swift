@@ -38,6 +38,10 @@ final class AppModel {
     private var waitingToOfferConnectAfterTalk = false
     /// After we script Connect / email-body locally, drop Grok’s spoken contradiction.
     private var suppressLiveAssistant = false
+    /// Live VAD desk cards parked until Eve's first transcript delta.
+    /// Must attach on the stream — not after glanceInbox — or show-latest
+    /// is a blob.
+    private var pendingLiveDeskCards: [ContentCard] = []
     /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
     private var lastFocusedEmail: EmailItem?
     private var pendingThreadSummary = false
@@ -370,7 +374,12 @@ final class AppModel {
         // (playingResponseID already the next created).
         let bargeConsumedBefore = voice.listenLoopBargeConsumed
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
-        voice.interruptResponse()
+        if LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
+            alreadyBarged: voice.listenLoopBargeConsumed,
+            hasPendingPlayback: voice.hasPendingPlayback
+        ) {
+            voice.interruptResponse()
+        }
         let yieldGrokInterruptAnswer = !bargeConsumedBefore && voice.listenLoopBargeConsumed
         rememberUserTurn(text, source: "live voice")
         completePlaybook()
@@ -408,6 +417,12 @@ final class AppModel {
                 hasFocusedEmail: lastFocusedEmail != nil,
                 pendingSenderRefine: pendingSenderRefine
             ) {
+                if isLiveVADTurn {
+                    parkLiveVADDeskCards(
+                        for: text,
+                        awaitingClarify: awaitingClarify
+                    )
+                }
                 if yieldGrokInterruptAnswer {
                     unmuteGrokAssistant()
                     return
@@ -425,6 +440,9 @@ final class AppModel {
             focusedEmail: lastFocusedEmail,
             priorSearchAsk: lastSearchAsk
         ) {
+            if isLiveVADTurn {
+                parkOrAttachLiveDeskCards(evidence.cards)
+            }
             if yieldGrokInterruptAnswer {
                 unmuteGrokAssistant()
                 return
@@ -453,6 +471,7 @@ final class AppModel {
         }
         if text.isEmpty, isFinal {
             if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+                attachLiveDeskCardsIfNeeded(to: index)
                 attachPendingCards(to: index)
                 liveAssistantID = nil
                 finishGeneralVoiceLog(reply: turns[index].text)
@@ -462,6 +481,7 @@ final class AppModel {
 
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
             turns[index].text += text
+            attachLiveDeskCardsIfNeeded(to: index)
             if isFinal {
                 attachPendingCards(to: index)
                 liveAssistantID = nil
@@ -474,12 +494,61 @@ final class AppModel {
         let turn = ConversationTurn(role: .assistant, text: text)
         liveAssistantID = turn.id
         turns.append(turn)
-        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
+        attachLiveDeskCardsIfNeeded(to: turns.count - 1)
+        requestScroll(
+            ConversationScrollPolicy.afterAssistant(
+                turnID: turn.id,
+                hasCards: !turns[turns.count - 1].cards.isEmpty
+            )
+        )
         if isFinal {
             attachPendingCards(to: turns.count - 1)
             liveAssistantID = nil
             finishGeneralVoiceLog(reply: turns.last?.text ?? text)
         }
+    }
+
+    private func parkLiveVADDeskCards(for text: String, awaitingClarify: Bool) {
+        guard LiveVADPlayerKeep.shouldAttachCardsOnFirstTranscriptDelta(liveVADTurn: true) else {
+            return
+        }
+        if let evidence = ConversationPresence.deskEvidence(
+            for: text,
+            context: deskContext,
+            focusedEmail: lastFocusedEmail,
+            pendingSearchClarify: awaitingClarify,
+            clarifyMatches: lastSearchMatches,
+            pendingSenderRefine: pendingSenderRefine,
+            priorSearchAsk: lastSearchAsk
+        ) {
+            parkOrAttachLiveDeskCards(evidence.cards)
+            return
+        }
+        let topic = ConversationPresence.plan(for: text, context: deskContext).topic
+        let cards = ConversationPresence.cards(for: topic, context: deskContext)
+        parkOrAttachLiveDeskCards(cards)
+    }
+
+    private func parkOrAttachLiveDeskCards(_ cards: [ContentCard]) {
+        guard !cards.isEmpty else { return }
+        if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+            turns[index].cards = cards
+            pendingLiveDeskCards = []
+            requestScroll(
+                ConversationScrollPolicy.afterAssistant(turnID: turns[index].id, hasCards: true)
+            )
+            return
+        }
+        pendingLiveDeskCards = cards
+    }
+
+    private func attachLiveDeskCardsIfNeeded(to index: Int) {
+        guard !pendingLiveDeskCards.isEmpty, turns.indices.contains(index) else { return }
+        turns[index].cards = pendingLiveDeskCards
+        pendingLiveDeskCards = []
+        requestScroll(
+            ConversationScrollPolicy.afterAssistant(turnID: turns[index].id, hasCards: true)
+        )
     }
 
     private func attachPendingCards(to index: Int) {
@@ -646,6 +715,7 @@ final class AppModel {
         }
         liveAssistantID = nil
         pendingDeskTopic = nil
+        pendingLiveDeskCards = []
         scrubGrokDeskRefusals()
     }
 
@@ -875,9 +945,13 @@ final class AppModel {
         }
         // Calendar overview (and any other cards-only evidence): speak `text`,
         // don’t reprint it in the bubble. Cards are the visual — same as inbox.
-        appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
-        await speakDeskReply(evidence.text)
-        logVoiceTurn(evidence: evidence, reply: evidence.text)
+        if isLiveVADTurn {
+            parkOrAttachLiveDeskCards(evidence.cards)
+        } else {
+            appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
+        }
+        await speakDeskReply(isLiveVADTurn ? "" : evidence.text)
+        logVoiceTurn(evidence: evidence, reply: isLiveVADTurn ? "" : evidence.text)
     }
 
     private func applyInboxGlance(_ evidence: ConversationPresence.DeskEvidence) async {
@@ -901,7 +975,11 @@ final class AppModel {
         let onScreen = emails.isEmpty
             ? spoken
             : InboxGlance.onScreenText(compactCardCount: emails.count)
-        appendAssistant(onScreen, cards: evidence.cards)
+        if isLiveVADTurn {
+            parkOrAttachLiveDeskCards(evidence.cards)
+        } else {
+            appendAssistant(onScreen, cards: evidence.cards)
+        }
         await speakDeskReply(spoken)
         if isLiveVADTurn {
             _ = await emailSummarizer.glanceInbox(emails)

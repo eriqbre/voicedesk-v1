@@ -75,6 +75,10 @@ final class GrokVoiceService: VoiceServicing {
     /// Cleared in `returnToListenAfterDeskTTS`. Live Talk never sets this —
     /// Eve PCM is the mouth. stayLive after drain is armed + running audio.
     private var clientTTSInFlight = false
+    /// Presence text changed while A was in flight. Do not
+    /// `session.update` mid-reply — that cut c1cd758 after the first
+    /// delta and stalled transcripts. Flush when idle.
+    private var pendingPresenceSessionUpdate = false
     /// How many times socket recover ran. Tests only — not a second loop.
     private var recoverAfterDropCount = 0
     /// Live `response.created` events. Tests only — not a second loop.
@@ -231,9 +235,31 @@ final class GrokVoiceService: VoiceServicing {
 
     func updatePresenceInstructions(_ text: String) {
         instructions = text
-        if client.isConnected {
+        guard client.isConnected else { return }
+        if LiveVADPlayerKeep.shouldSendPresenceSessionUpdate(
+            responseInFlight: isLiveResponseInFlight
+        ) {
+            pendingPresenceSessionUpdate = false
             sendSessionUpdate()
+        } else {
+            pendingPresenceSessionUpdate = true
         }
+    }
+
+    private var isLiveResponseInFlight: Bool {
+        currentResponseID != nil
+            || createdAwaitingAudioID != nil
+            || audioDeltaCount > 0
+            || audio.hasPendingPlayback
+    }
+
+    private func flushPresenceSessionUpdateIfIdle() {
+        guard pendingPresenceSessionUpdate, client.isConnected else { return }
+        guard LiveVADPlayerKeep.shouldSendPresenceSessionUpdate(
+            responseInFlight: isLiveResponseInFlight
+        ) else { return }
+        pendingPresenceSessionUpdate = false
+        sendSessionUpdate()
     }
 
     func interruptResponse() {
@@ -532,6 +558,7 @@ final class GrokVoiceService: VoiceServicing {
         cancelledPlaybackResponseID = nil
         rejectedCancelledDeltaCount = 0
         audioDeltaCount = 0
+        pendingPresenceSessionUpdate = false
         apply(.cancel)
         isTearingDown = false
     }
@@ -795,6 +822,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             }
             assistantGate.reset()
             eventHandler?(.assistantTranscript("", isFinal: true))
+            flushPresenceSessionUpdateIfIdle()
         case .ping(let timestamp):
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))
         case .error(let code, let message):
