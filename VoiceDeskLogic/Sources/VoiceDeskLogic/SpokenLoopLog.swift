@@ -140,15 +140,6 @@ public enum SpokenLoopLog: Sendable {
         return .absent
     }
 
-    public static func mouths(in records: [VoiceInteractionEntry]) -> [Mouth] {
-        records.compactMap { rec in
-            guard parse(rec)["event"] == mouthEvent,
-                  let raw = parse(rec)["mouth"]
-            else { return nil }
-            return Mouth(rawValue: raw)
-        }
-    }
-
     public static func firstAudioStatus(in records: [VoiceInteractionEntry]) -> FirstAudio? {
         records.reversed().compactMap { rec -> FirstAudio? in
             let fields = parse(rec)
