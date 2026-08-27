@@ -390,7 +390,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(sendRaw.contains("pcmFromAppendJSON"), sendRaw)
         XCTAssertTrue(sendRaw.contains("quietCommitGeneration"), sendRaw)
         XCTAssertTrue(sendRaw.contains("quietCommitMaxPostponeMs"), sendRaw)
-        XCTAssertTrue(client.contains("quietCommitMaxPostponeMs = 2500"), client)
+        XCTAssertTrue(client.contains("quietCommitMaxPostponeMs = 1800"), client)
+        XCTAssertFalse(
+            client.contains("quietCommitMaxPostponeMs = 2500"),
+            "12a60a5 flush-clock cut a command that started ~2s after recover"
+        )
         XCTAssertFalse(
             client.contains("quietCommitMaxPostponeMs = 400"),
             "3c7524b 400ms cap truncated a 1–2s command"
@@ -562,6 +566,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000RealSpeechLongerThanMaxPostponeDoesNotTruncate"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000DelayedCommandAfterRecoverIsNotTruncated"),
             live
         )
         XCTAssertTrue(live.contains("mixedHarmonicSpeechPCM"), live)
@@ -1031,7 +1039,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let realSpeechLong = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000RealSpeechLongerThanMaxPostponeDoesNotTruncate",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000DelayedCommandAfterRecoverIsNotTruncated"
         )
         XCTAssertTrue(realSpeechLong.contains("GrokVoiceService("), realSpeechLong)
         XCTAssertTrue(realSpeechLong.contains("AppModel("), realSpeechLong)
@@ -1066,6 +1074,45 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("long real-speech gate must flush, keep feeding mixed-harmonic PCM past the old cap, then require commit after the tail")
+        }
+        let delayedCommand = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000DelayedCommandAfterRecoverIsNotTruncated",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(delayedCommand.contains("GrokVoiceService("), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("AppModel("), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("simulateListenLoopSocketClose1000"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("feedTapPCM16(command2)"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("simulateListenLoopSocketDidOpenThenSessionReady"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("feedTapPCM16(noise)"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("mixedHarmonicSpeechPCM"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("feedTapPCM16(delayed)"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("12a60a5"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("firstDelayedAt"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("lastDelayedAt"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("input_audio_buffer.commit"), delayedCommand)
+        XCTAssertTrue(delayedCommand.contains("interruptResponse"), delayedCommand)
+        XCTAssertFalse(delayedCommand.contains("let delayed = Self.speechShapedPCM"), delayedCommand)
+        XCTAssertFalse(delayedCommand.contains("emitUser"), delayedCommand)
+        XCTAssertFalse(delayedCommand.contains("FakeLiveVoiceService"), delayedCommand)
+        XCTAssertFalse(delayedCommand.contains("TapSpeechEnergy"), delayedCommand)
+        XCTAssertFalse(delayedCommand.contains("QueuedTurnClose.shouldPostpone"), delayedCommand)
+        if let openAt = delayedCommand.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
+           let noiseAt = delayedCommand.range(of: "feedTapPCM16(noise)"),
+           let delayedAt = delayedCommand.range(of: "feedTapPCM16(delayed)") {
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                noiseAt.lowerBound,
+                "think / radio must follow the session-ready flush"
+            )
+            XCTAssertLessThan(
+                noiseAt.lowerBound,
+                delayedAt.lowerBound,
+                "delayed command must follow ~2s of think / radio, not start at flush"
+            )
+        } else {
+            XCTFail("delayed-command gate must flush, feed radio, then feed mixed-harmonic PCM")
         }
     }
 

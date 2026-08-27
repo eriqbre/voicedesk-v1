@@ -211,16 +211,18 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var deliveredForTests: [String] = []
     /// Close a flushed command after they stop talking it. Any live
     /// append may be a tail — do not classify tones. Give up so
-    /// radio / other-room cannot sit on the close. Server VAD is
-    /// the speech detector.
+    /// radio / other-room cannot sit on the close. After that close,
+    /// a later command is a new server-VAD turn. Not a clock that
+    /// chops delayed speech.
     private var pendingQuietCommit = false
     private var quietCommitGeneration = 0
     private var quietCommitArmedAt: Date?
     private static let maxOutbound = 64
     private static let quietCommitMs = 80
-    /// Longer than a spoken command (1–2s). Finite so radio /
-    /// other-room cannot sit on the close. Not fake VAD.
-    private static let quietCommitMaxPostponeMs = 2500
+    /// Long enough for an immediate spoken tail. Short enough that
+    /// ~2s of think / radio after flush closes the queued turn
+    /// before a later command. Finite so radio cannot hold forever.
+    private static let quietCommitMaxPostponeMs = 1800
 
     var isConnected: Bool {
         lock.lock()
