@@ -101,6 +101,27 @@ public struct LiveTalkMouth: Equatable, Sendable {
         return identity && drain && eveAlsoSpoke
     }
 
+    /// a2727b1 walk L401+L402: drain record + version turn with
+    /// `local build identity`, spoken “VoiceDesk point 1, build 6.”,
+    /// and `voicePath` Eve realtime. No eve-speaks-identity. That
+    /// is two mouths. Do not take a boolean — the log has voicePath.
+    public static func versionTurnIsDualMouth(
+        versionNotes: [String],
+        assistantReply: String,
+        voicePath: String,
+        drainNotes: [String]
+    ) -> Bool {
+        let versionBlob = versionNotes.joined(separator: "\n")
+        let drainBlob = drainNotes.joined(separator: "\n")
+        let identityWrite = versionBlob.contains("local build identity")
+            && assistantReply.localizedCaseInsensitiveContains("VoiceDesk point")
+        let drain = drainBlob.contains("after desk tts drain")
+            || versionBlob.contains("after desk tts drain")
+        let eveRealtime = voicePath.localizedCaseInsensitiveContains("Eve realtime")
+        let silentEveLie = versionBlob.contains("eve speaks identity")
+        return identityWrite && drain && eveRealtime && !silentEveLie
+    }
+
     public static func liveTalkEveOnly() -> LiveTalkMouth {
         LiveTalkMouth(
             afterDeskTTSDrain: false,
