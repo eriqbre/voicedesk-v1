@@ -48,6 +48,8 @@ final class GrokVoiceService: VoiceServicing {
     private var recoverAfterDropCount = 0
     /// Live `response.created` events. Tests only — not a second loop.
     private var responseCreatedCountForTests = 0
+    /// Live `response.done` events. Tests only — not a second loop.
+    private var responseDoneCountForTests = 0
     /// Same frames the live tap sends to Grok. Tests only — not a second loop.
     /// The HAL tap is Sendable; this box is captured like `socket`, not read
     /// off `self` inside that closure.
@@ -551,6 +553,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .outputAudioDone:
             break
         case .responseDone:
+            responseDoneCountForTests += 1
             if ListenResumePolicy.shouldApplyGrokTurnFinished(
                 clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight
             ) {
@@ -708,6 +711,26 @@ extension GrokVoiceService {
             try? await Task.sleep(for: .milliseconds(50))
         }
         return listenLoopResponseCreatedCount > after
+    }
+
+    var listenLoopResponseDoneCount: Int { responseDoneCountForTests }
+
+    func waitUntilListenLoopResponseDone(after: Int, timeoutSeconds: Double = 45) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while ContinuousClock.now < deadline {
+            if listenLoopResponseDoneCount > after { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return listenLoopResponseDoneCount > after
+    }
+
+    /// Same one-engine player `speak()` drains. Not `synthesizer.speak()`.
+    func waitUntilListenLoopPlaybackDrained(timeoutSeconds: Double = 45) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while audio.hasPendingPlayback, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return !audio.hasPendingPlayback
     }
 }
 

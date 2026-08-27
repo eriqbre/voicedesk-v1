@@ -334,6 +334,9 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopResponseCreatedCount"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopResponseCreated"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopHasProductionSendTask"), service)
+        XCTAssertTrue(service.contains("listenLoopResponseDoneCount"), service)
+        XCTAssertTrue(service.contains("func waitUntilListenLoopResponseDone"), service)
+        XCTAssertTrue(service.contains("func waitUntilListenLoopPlaybackDrained"), service)
         let waitUntil = speakSlice(
             service,
             from: "func waitUntilListenLoopQueuedTurnClosed() async {",
@@ -941,6 +944,8 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(grokCreates.contains("voiceTapePCM16"), grokCreates)
         XCTAssertTrue(grokCreates.contains("mint-voice-tapes.sh"), grokCreates)
         XCTAssertTrue(grokCreates.contains("feedVoiceTapeThroughLiveTap"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("VoiceTape.secondAskPair"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("talkAgainPCM"), grokCreates)
         XCTAssertTrue(grokCreates.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"), grokCreates)
         XCTAssertTrue(grokCreates.contains("listenLoopPhoneStayLive"), grokCreates)
         XCTAssertTrue(grokCreates.contains("simulateListenLoopSocketClose1000"), grokCreates)
@@ -949,6 +954,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(grokCreates.contains("waitUntilListenLoopHasProductionSendTask"), grokCreates)
         XCTAssertTrue(grokCreates.contains("listenLoopResponseCreatedCount"), grokCreates)
         XCTAssertTrue(grokCreates.contains("waitUntilListenLoopResponseCreated"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("waitUntilListenLoopResponseDone"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("waitUntilListenLoopPlaybackDrained"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("createdBeforeCommand4"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("createdAfterCommand4"), grokCreates)
         XCTAssertTrue(grokCreates.contains("response.created"), grokCreates)
         XCTAssertTrue(grokCreates.contains("415c955"), grokCreates)
         XCTAssertTrue(grokCreates.contains("engine.startCount"), grokCreates)
@@ -975,6 +984,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(grokCreates.contains("emitUser"), grokCreates)
         XCTAssertFalse(grokCreates.contains("FakeLiveVoiceService"), grokCreates)
         XCTAssertFalse(grokCreates.contains("quietCommitMaxPostponeMs"), grokCreates)
+        XCTAssertFalse(grokCreates.contains("synthesizer.speak"), grokCreates)
         XCTAssertFalse(
             grokCreates.contains("XCTAssertTrue(\n            await "),
             "XCTAssertTrue is an autoclosure — await the Bool first"
@@ -990,8 +1000,13 @@ final class ListenLoopSourceContractTests: XCTestCase {
            let closeAt = grokCreates.range(of: "simulateListenLoopSocketClose1000"),
            let taskAt = grokCreates.range(of: "waitUntilListenLoopHasProductionSendTask"),
            let beforeAt = grokCreates.range(of: "createdBeforeCommand3"),
-           let tapeAt = grokCreates.range(of: "feedVoiceTapeThroughLiveTap"),
-           let createdAt = grokCreates.range(of: "waitUntilListenLoopResponseCreated") {
+           let tapeAt = grokCreates.range(of: "pcm: firstTapePCM"),
+           let createdAt = grokCreates.range(of: "createdAfterCommand3"),
+           let doneAt = grokCreates.range(of: "waitUntilListenLoopResponseDone"),
+           let drainAt = grokCreates.range(of: "waitUntilListenLoopPlaybackDrained"),
+           let before4At = grokCreates.range(of: "createdBeforeCommand4"),
+           let tape4At = grokCreates.range(of: "pcm: talkAgainPCM"),
+           let created4At = grokCreates.range(of: "createdAfterCommand4") {
             XCTAssertLessThan(
                 firstFeed.lowerBound,
                 speakAt.lowerBound,
@@ -1032,8 +1047,33 @@ final class ListenLoopSourceContractTests: XCTestCase {
                 createdAt.lowerBound,
                 "response.created must be asserted after the VoiceTape third command"
             )
+            XCTAssertLessThan(
+                createdAt.lowerBound,
+                doneAt.lowerBound,
+                "Eve must finish the live turn after response.created"
+            )
+            XCTAssertLessThan(
+                doneAt.lowerBound,
+                drainAt.lowerBound,
+                "live Grok speak must drain on the one-engine player after response.done"
+            )
+            XCTAssertLessThan(
+                drainAt.lowerBound,
+                before4At.lowerBound,
+                "snapshot the fourth response.created after drain — leftover created from command 3 cannot green it"
+            )
+            XCTAssertLessThan(
+                before4At.lowerBound,
+                tape4At.lowerBound,
+                "fourth VoiceTape command must follow the drained answer"
+            )
+            XCTAssertLessThan(
+                tape4At.lowerBound,
+                created4At.lowerBound,
+                "talk again must produce another response.created"
+            )
         } else {
-            XCTFail("live Grok gate must talk, answer, talk again, idle, DidClose, recover, then require response.created")
+            XCTFail("live Grok gate must recover, get response.created, drain her answer, then talk again")
         }
         let sendTask = speakSlice(
             try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoice.swift")),

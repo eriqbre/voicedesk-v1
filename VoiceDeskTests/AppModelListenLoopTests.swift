@@ -645,7 +645,11 @@ final class AppModelListenLoopTests: XCTestCase {
     /// After that exact death, recover must open production send
     /// (`opened && task && !testSendSink`) to live Grok — the existing
     /// VoiceTape PCM path, not a loopback we control. The third
-    /// command through the same tap must produce `response.created`.
+    /// command must produce `response.created`, that live answer must
+    /// finish on the one-engine player, and a fourth VoiceTape command
+    /// (talk again, no repeat) must be the next turn and produce
+    /// another `response.created`. Snapshot the fourth increment after
+    /// drain so leftover created from command 3 cannot green it.
     /// Transcript injects do not count. `startCount` stays 1.
     /// No key / no minted tape → skip, never fail CI.
     func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSGrokCreatesResponse() async throws {
@@ -653,8 +657,14 @@ final class AppModelListenLoopTests: XCTestCase {
         if VoiceTape.shouldSkipLive(hasAPIKey: apiKey != nil) {
             throw XCTSkip("skip: no XAI_API_KEY. Live Grok loop not run.")
         }
-        let tape = VoiceTape.catalog[0]
-        guard let tapePCM = Self.voiceTapePCM16(id: tape.id) else {
+        let firstTape = VoiceTape.catalog[0]
+        let talkAgainTape = VoiceTape.catalog[1]
+        XCTAssertEqual(firstTape.id, VoiceTape.secondAskPair.0)
+        XCTAssertEqual(talkAgainTape.id, VoiceTape.secondAskPair.1)
+        guard
+            let firstTapePCM = Self.voiceTapePCM16(id: firstTape.id),
+            let talkAgainPCM = Self.voiceTapePCM16(id: talkAgainTape.id)
+        else {
             throw XCTSkip("skip: mint WAVs on a Mac: ./scripts/mint-voice-tapes.sh")
         }
         let voice = GrokVoiceService(apiKey: apiKey!)
@@ -669,12 +679,13 @@ final class AppModelListenLoopTests: XCTestCase {
 
         let command1 = Self.speechShapedPCM(hertz: 140)
         let command2 = Self.speechShapedPCM(hertz: 160)
-        let command3 = Self.voiceTapeChunk(tapePCM, index: 0)
+        let command3 = Self.voiceTapeChunk(firstTapePCM, index: 0)
+        let command4 = Self.voiceTapeChunk(talkAgainPCM, index: 0)
         var session = VoiceSession()
         session.apply(.tapTalk)
         let sink = LiveTapSink(
             session: session,
-            commands: [command1, command2, command3],
+            commands: [command1, command2, command3, command4],
             noise: nil
         )
         voice.onMicFrame = { pcm in
@@ -741,8 +752,9 @@ final class AppModelListenLoopTests: XCTestCase {
 
         try? await Task.sleep(for: .seconds(2))
         let createdBeforeCommand3 = voice.listenLoopResponseCreatedCount
+        let doneBeforeCommand3 = voice.listenLoopResponseDoneCount
 
-        await Self.feedVoiceTapeThroughLiveTap(engine, pcm: tapePCM)
+        await Self.feedVoiceTapeThroughLiveTap(engine, pcm: firstTapePCM)
         XCTAssertEqual(
             sink.turns,
             [command1, command2, command3],
@@ -755,9 +767,40 @@ final class AppModelListenLoopTests: XCTestCase {
             "third command after 415c955 idle+1000 must produce response.created from live Grok — loopback bytes do not count"
         )
         XCTAssertGreaterThan(voice.listenLoopResponseCreatedCount, createdBeforeCommand3)
+
+        let answerDone = await voice.waitUntilListenLoopResponseDone(after: doneBeforeCommand3)
+        XCTAssertTrue(
+            answerDone,
+            "response.created is not the conversation — Eve must finish the live turn"
+        )
+        let drained = await voice.waitUntilListenLoopPlaybackDrained()
+        XCTAssertTrue(
+            drained,
+            "live Grok speak must drain on the one-engine player — not synthesizer.speak"
+        )
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "talk again must wait until her answer drains")
+        XCTAssertEqual(engine.startCount, 1, "live Grok speak must not audio.start")
+        XCTAssertTrue(engine.isRunning)
         XCTAssertTrue(voice.listenLoopHasProductionSendTask)
         XCTAssertFalse(voice.listenLoopUsesTestSendSink)
-        XCTAssertEqual(engine.startCount, 1, "live Grok turn must not audio.start")
+
+        let createdBeforeCommand4 = voice.listenLoopResponseCreatedCount
+        await Self.feedVoiceTapeThroughLiveTap(engine, pcm: talkAgainPCM)
+        XCTAssertEqual(
+            sink.turns,
+            [command1, command2, command3, command4],
+            "command PCM 4 after she finishes is the next turn — 415c955 required a repeat"
+        )
+        XCTAssertEqual(engine.startCount, 1, "talk again must not audio.start")
+        let createdAfterCommand4 = await voice.waitUntilListenLoopResponseCreated(after: createdBeforeCommand4)
+        XCTAssertTrue(
+            createdAfterCommand4,
+            "fourth command after live Grok speak must produce another response.created — leftover created from command 3 cannot green this"
+        )
+        XCTAssertGreaterThan(voice.listenLoopResponseCreatedCount, createdBeforeCommand4)
+        XCTAssertTrue(voice.listenLoopHasProductionSendTask)
+        XCTAssertFalse(voice.listenLoopUsesTestSendSink)
+        XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(engine.isRunning)
         XCTAssertEqual(
             model.turns.filter { $0.role == .user }.count,
