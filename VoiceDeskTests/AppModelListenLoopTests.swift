@@ -933,7 +933,7 @@ final class AppModelListenLoopTests: XCTestCase {
         }
 
         var closedDuringSilence = false
-        for _ in 0..<35 {
+        for _ in 0..<140 {
             engine.feedTapPCM16(silence)
             if voice.listenLoopDeliveredSendTypes.contains("input_audio_buffer.commit") {
                 closedDuringSilence = true
@@ -1083,7 +1083,7 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
 
         var closedDuringAmbient = false
-        for _ in 0..<35 {
+        for _ in 0..<140 {
             engine.feedTapPCM16(noise)
             if voice.listenLoopDeliveredSendTypes.contains("input_audio_buffer.commit") {
                 closedDuringAmbient = true
@@ -1495,6 +1495,143 @@ final class AppModelListenLoopTests: XCTestCase {
         let after = voice.listenLoopDeliveredSendTypes
         guard let commitAt = after.firstIndex(of: "input_audio_buffer.commit") else {
             XCTFail("after real-speech PCM stops, the queued command must still close")
+            voice.cancel()
+            return
+        }
+        XCTAssertGreaterThan(commitAt, lastContinuedAt, "commit belongs after the last continued frame")
+        XCTAssertEqual(engine.startCount, 1)
+
+        XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
+
+        let speaking = Task { await voice.speak(Self.laterDeskReply) }
+        await waitUntilPending(engine)
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
+        engine.feedTapPCM16(noise)
+        XCTAssertEqual(sink.ambient.last, noise)
+        XCTAssertEqual(sink.turns, [command1, command2], "ambient / radio / other-room is not a turn")
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "ambient must not cancel write→player")
+        XCTAssertTrue(engine.isPlayerPlaying)
+
+        model.voice.interruptResponse()
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "command intent drops playback")
+        XCTAssertTrue(engine.isRunning)
+        sink.startCount = engine.startCount
+        engine.feedTapPCM16(command3)
+        XCTAssertEqual(sink.turns.last, command3)
+        XCTAssertEqual(sink.turns, [command1, command2, command3])
+        XCTAssertEqual(engine.startCount, 1)
+        await speaking.value
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.count,
+            0,
+            "transcript injects do not count"
+        )
+
+        voice.cancel()
+    }
+
+    /// 3c7524b capped postpone at 400ms. A real command is 1–2s.
+    /// Same recover path, mixed-harmonic tail kept arriving longer
+    /// than quietCommitMaxPostponeMs of that SHA (~1.5s). Commit
+    /// must not land before the last continued frame. After it
+    /// stops, commit may fire. Radio still must not block forever.
+    /// `startCount` stays 1.
+    func testLiveConversationLoopDidClose1000RealSpeechLongerThanMaxPostponeDoesNotTruncate() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-real-speech-longer-than-max-postpone")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let continued = Self.mixedHarmonicSpeechPCM()
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(
+            session: session,
+            commands: [command1, command2, command3],
+            noise: noise
+        )
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        voice.startListenLoopAudioForTests()
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command1)
+        XCTAssertEqual(sink.turns, [command1])
+
+        await voice.speak(InboxGlance.spokenListAck())
+        XCTAssertEqual(engine.pendingPlaybackCount, 0)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+
+        await voice.simulateListenLoopSocketClose1000()
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertFalse(voice.listenLoopSocketHasSendTask)
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink.turns, [command1, command2])
+
+        voice.simulateListenLoopSocketDidOpenThenSessionReady()
+        XCTAssertTrue(voice.listenLoopDeliveredAudioPCM.contains(command2))
+
+        for _ in 0..<75 {
+            engine.feedTapPCM16(continued)
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(engine.isRunning)
+
+        let pcm = voice.listenLoopDeliveredAudioPCM
+        let types = voice.listenLoopDeliveredSendTypes
+        let appendSlots = types.enumerated().compactMap { $0.element == "input_audio_buffer.append" ? $0.offset : nil }
+        let paired = Array(zip(appendSlots, pcm))
+        guard let command2At = paired.last(where: { $0.1 == command2 })?.0,
+              let lastContinuedAt = paired.last(where: { $0.1 == continued })?.0
+        else {
+            XCTFail("queued command 2 and the long real-speech tail must both be sent")
+            voice.cancel()
+            return
+        }
+        XCTAssertLessThan(command2At, lastContinuedAt)
+        XCTAssertGreaterThanOrEqual(
+            paired.filter { $0.1 == continued }.count,
+            40,
+            "must keep feeding real-speech PCM longer than quietCommitMaxPostponeMs of 3c7524b"
+        )
+        if let commitAt = types.firstIndex(of: "input_audio_buffer.commit") {
+            XCTAssertFalse(
+                command2At < commitAt && commitAt < lastContinuedAt,
+                "3c7524b 400ms cap truncated a 1–2s command"
+            )
+        }
+
+        await voice.waitUntilListenLoopQueuedTurnClosed()
+        let after = voice.listenLoopDeliveredSendTypes
+        guard let commitAt = after.firstIndex(of: "input_audio_buffer.commit") else {
+            XCTFail("after the long real-speech tail stops, the queued command must still close")
             voice.cancel()
             return
         }

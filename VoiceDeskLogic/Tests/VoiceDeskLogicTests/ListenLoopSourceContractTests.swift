@@ -314,6 +314,15 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopDeliveredSends"), service)
         XCTAssertTrue(service.contains("func simulateListenLoopSocketDidOpenThenSessionReady()"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopQueuedTurnClosed()"), service)
+        let waitUntil = speakSlice(
+            service,
+            from: "func waitUntilListenLoopQueuedTurnClosed() async {",
+            to: "/// Same-thread tap observer"
+        )
+        XCTAssertFalse(
+            waitUntil.contains("for _ in 0..<20"),
+            "3c7524b waitUntil was 400ms — shorter than a 1–2s grace"
+        )
         XCTAssertTrue(service.contains("dropOutbound"), service)
         XCTAssertTrue(service.contains("markSessionReadyAndFlush"), service)
         let realtime = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/GrokRealtime.swift"))
@@ -381,6 +390,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(sendRaw.contains("pcmFromAppendJSON"), sendRaw)
         XCTAssertTrue(sendRaw.contains("quietCommitGeneration"), sendRaw)
         XCTAssertTrue(sendRaw.contains("quietCommitMaxPostponeMs"), sendRaw)
+        XCTAssertTrue(client.contains("quietCommitMaxPostponeMs = 2500"), client)
+        XCTAssertFalse(
+            client.contains("quietCommitMaxPostponeMs = 400"),
+            "3c7524b 400ms cap truncated a 1–2s command"
+        )
         XCTAssertTrue(sendRaw.contains("isAudioAppend"), sendRaw)
         XCTAssertNil(
             repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/TapSpeechEnergy.swift"),
@@ -544,6 +558,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000RealSpeechStillTalkingDoesNotTruncate"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000RealSpeechLongerThanMaxPostponeDoesNotTruncate"),
             live
         )
         XCTAssertTrue(live.contains("mixedHarmonicSpeechPCM"), live)
@@ -974,7 +992,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let realSpeech = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000RealSpeechStillTalkingDoesNotTruncate",
-            to: "private func waitUntilPending"
+            to: "func testLiveConversationLoopDidClose1000RealSpeechLongerThanMaxPostponeDoesNotTruncate"
         )
         XCTAssertTrue(realSpeech.contains("GrokVoiceService("), realSpeech)
         XCTAssertTrue(realSpeech.contains("AppModel("), realSpeech)
@@ -1009,6 +1027,45 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("real-speech still-talking gate must flush, keep feeding mixed-harmonic PCM, then require commit after the tail")
+        }
+        let realSpeechLong = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000RealSpeechLongerThanMaxPostponeDoesNotTruncate",
+            to: "private func waitUntilPending"
+        )
+        XCTAssertTrue(realSpeechLong.contains("GrokVoiceService("), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("AppModel("), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("simulateListenLoopSocketClose1000"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("feedTapPCM16(command2)"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("simulateListenLoopSocketDidOpenThenSessionReady"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("mixedHarmonicSpeechPCM"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("feedTapPCM16(continued)"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("3c7524b"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("quietCommitMaxPostponeMs"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("lastContinuedAt"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("input_audio_buffer.commit"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("interruptResponse"), realSpeechLong)
+        XCTAssertTrue(realSpeechLong.contains("let continued = Self.mixedHarmonicSpeechPCM()"), realSpeechLong)
+        XCTAssertFalse(realSpeechLong.contains("let continued = Self.speechShapedPCM"), realSpeechLong)
+        XCTAssertFalse(realSpeechLong.contains("emitUser"), realSpeechLong)
+        XCTAssertFalse(realSpeechLong.contains("FakeLiveVoiceService"), realSpeechLong)
+        XCTAssertFalse(realSpeechLong.contains("TapSpeechEnergy"), realSpeechLong)
+        XCTAssertFalse(realSpeechLong.contains("QueuedTurnClose.shouldPostpone"), realSpeechLong)
+        if let openAt = realSpeechLong.range(of: "simulateListenLoopSocketDidOpenThenSessionReady"),
+           let continuedAt = realSpeechLong.range(of: "feedTapPCM16(continued)"),
+           let waitAt = realSpeechLong.range(of: "waitUntilListenLoopQueuedTurnClosed") {
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                continuedAt.lowerBound,
+                "long real-speech PCM must keep arriving after the session-ready flush"
+            )
+            XCTAssertLessThan(
+                continuedAt.lowerBound,
+                waitAt.lowerBound,
+                "3c7524b paper-greens if we feed less than the 400ms cap and then wait"
+            )
+        } else {
+            XCTFail("long real-speech gate must flush, keep feeding mixed-harmonic PCM past the old cap, then require commit after the tail")
         }
     }
 

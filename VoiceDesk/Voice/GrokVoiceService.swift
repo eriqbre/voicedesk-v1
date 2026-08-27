@@ -641,7 +641,7 @@ extension GrokVoiceService {
 
     /// Quiet-close after a flushed command. Not a second listen loop.
     func waitUntilListenLoopQueuedTurnClosed() async {
-        for _ in 0..<20 {
+        for _ in 0..<160 {
             if listenLoopDeliveredSendTypes.contains("input_audio_buffer.commit") {
                 return
             }

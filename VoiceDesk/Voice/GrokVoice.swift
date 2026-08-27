@@ -218,9 +218,9 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var quietCommitArmedAt: Date?
     private static let maxOutbound = 64
     private static let quietCommitMs = 80
-    /// Longer than quietCommitMs so a real-speech tail is not cut
-    /// at 80ms. Shorter than a radio that never ends.
-    private static let quietCommitMaxPostponeMs = 400
+    /// Longer than a spoken command (1–2s). Finite so radio /
+    /// other-room cannot sit on the close. Not fake VAD.
+    private static let quietCommitMaxPostponeMs = 2500
 
     var isConnected: Bool {
         lock.lock()
