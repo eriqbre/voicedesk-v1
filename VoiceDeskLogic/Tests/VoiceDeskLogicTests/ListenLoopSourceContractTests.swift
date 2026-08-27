@@ -337,6 +337,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopResponseDoneCount"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopResponseDone"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopPlaybackDrained"), service)
+        XCTAssertTrue(service.contains("func connectListenLoopProductionForTests"), service)
         let waitUntil = speakSlice(
             service,
             from: "func waitUntilListenLoopQueuedTurnClosed() async {",
@@ -595,6 +596,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopBargeInOnlyOnCommandNotAmbientRadio"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopStayArmedAfterAnswerNoRecoverNextVoiceTapeCreatesResponse"),
             live
         )
         XCTAssertTrue(
@@ -1092,7 +1097,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let bargeIn = speakSlice(
             live,
             from: "func testLiveConversationLoopBargeInOnlyOnCommandNotAmbientRadio",
-            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+            to: "func testLiveConversationLoopStayArmedAfterAnswerNoRecoverNextVoiceTapeCreatesResponse"
         )
         XCTAssertTrue(bargeIn.contains("GrokVoiceService("), bargeIn)
         XCTAssertTrue(bargeIn.contains("AppModel("), bargeIn)
@@ -1202,6 +1207,134 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("live barge-in gate must recover, play, keep ambient, then cancel only on a VoiceTape command")
+        }
+        let stayArmed = speakSlice(
+            live,
+            from: "func testLiveConversationLoopStayArmedAfterAnswerNoRecoverNextVoiceTapeCreatesResponse",
+            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+        )
+        XCTAssertTrue(stayArmed.contains("GrokVoiceService("), stayArmed)
+        XCTAssertTrue(stayArmed.contains("AppModel("), stayArmed)
+        XCTAssertTrue(stayArmed.contains("startListenLoopAudioForTests"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("connectListenLoopProductionForTests"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("VoiceTape.shouldSkipLive"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("VoiceDeskSecrets.xaiAPIKey"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("voiceTapePCM16"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("mint-voice-tapes.sh"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("VoiceTape.secondAskPair"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("feedVoiceTapeThroughLiveTap"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("waitUntilListenLoopHasProductionSendTask"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("listenLoopHasProductionSendTask"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("listenLoopArmed"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("listenLoopStayLive"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("listenLoopRecoverCount"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("recoverCountAfterAnswer"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("waitUntilListenLoopResponseCreated"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("waitUntilListenLoopResponseDone"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("waitUntilListenLoopPlaybackDrained"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("InboxGlance.spokenListAck"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("createdBeforeCommand2"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("createdAfterCommand2"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("engine.startCount"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("transcript injects do not count"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("415c955"), stayArmed)
+        XCTAssertFalse(
+            stayArmed.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"),
+            "do not simulate the 415c955 idle death — do not die"
+        )
+        XCTAssertFalse(
+            stayArmed.contains("simulateListenLoopSocketClose1000"),
+            "do not simulate DidClose 1000 — recover is a crutch"
+        )
+        XCTAssertFalse(stayArmed.contains("simulateListenLoopSocketDidOpenThenSessionReady"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("attachTestSendRecorder"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("attachListenLoopSendTaskForTests"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("ListenLoopWebSocketLoopback"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("setListenLoopRealtimeURLOverrideForTests"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("listenLoopDeliveredAudioPCM"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("applyUserTurn"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("emitUser"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("FakeLiveVoiceService"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("role == .user }.count"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("quietCommitMaxPostponeMs"), stayArmed)
+        XCTAssertFalse(stayArmed.contains("synthesizer.speak"), stayArmed)
+        XCTAssertFalse(
+            stayArmed.contains("XCTAssertTrue(\n            await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        XCTAssertFalse(
+            stayArmed.contains("XCTAssertTrue(await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        if let connectAt = stayArmed.range(of: "connectListenLoopProductionForTests"),
+           let openAt = stayArmed.range(of: "waitUntilListenLoopHasProductionSendTask"),
+           let tape1At = stayArmed.range(of: "pcm: firstTapePCM"),
+           let created1At = stayArmed.range(of: "createdAfterCommand1"),
+           let doneAt = stayArmed.range(of: "waitUntilListenLoopResponseDone"),
+           let drainAt = stayArmed.range(of: "waitUntilListenLoopPlaybackDrained"),
+           let speakAt = stayArmed.range(of: "InboxGlance.spokenListAck"),
+           let armedAt = stayArmed.range(of: "listenLoopArmed"),
+           let recoverAt = stayArmed.range(of: "recoverCountAfterAnswer"),
+           let before2At = stayArmed.range(of: "createdBeforeCommand2"),
+           let tape2At = stayArmed.range(of: "pcm: talkAgainPCM"),
+           let created2At = stayArmed.range(of: "createdAfterCommand2") {
+            XCTAssertLessThan(
+                connectAt.lowerBound,
+                openAt.lowerBound,
+                "real connect must prove opened && task before talking to Grok"
+            )
+            XCTAssertLessThan(
+                openAt.lowerBound,
+                tape1At.lowerBound,
+                "first VoiceTape must follow the live handshake"
+            )
+            XCTAssertLessThan(
+                tape1At.lowerBound,
+                created1At.lowerBound,
+                "first response.created after VoiceTape 1"
+            )
+            XCTAssertLessThan(
+                created1At.lowerBound,
+                doneAt.lowerBound,
+                "live Grok answer must finish after response.created"
+            )
+            XCTAssertLessThan(
+                doneAt.lowerBound,
+                drainAt.lowerBound,
+                "player drain after response.done"
+            )
+            XCTAssertLessThan(
+                drainAt.lowerBound,
+                speakAt.lowerBound,
+                "write→player desk answer after the live Grok turn"
+            )
+            XCTAssertLessThan(
+                speakAt.lowerBound,
+                armedAt.lowerBound,
+                "listen must stay armed after she talks"
+            )
+            XCTAssertLessThan(
+                speakAt.lowerBound,
+                recoverAt.lowerBound,
+                "recoverCount must stay 0 after the answer"
+            )
+            XCTAssertLessThan(
+                armedAt.lowerBound,
+                before2At.lowerBound,
+                "snapshot the second response.created after the answer"
+            )
+            XCTAssertLessThan(
+                before2At.lowerBound,
+                tape2At.lowerBound,
+                "second VoiceTape must follow the drain snapshot"
+            )
+            XCTAssertLessThan(
+                tape2At.lowerBound,
+                created2At.lowerBound,
+                "talk again must produce another response.created"
+            )
+        } else {
+            XCTFail("stay-armed gate must connect live, talk, drain both answers, stay armed with no recover, then talk again")
         }
         let deadSocket = speakSlice(
             live,

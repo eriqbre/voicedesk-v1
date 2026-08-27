@@ -630,6 +630,11 @@ extension GrokVoiceService {
         startAudioIfNeeded()
     }
 
+    /// Real first-listen handshake. Not recover. Not DidClose 1000.
+    func connectListenLoopProductionForTests() async throws {
+        try await connectIfNeeded()
+    }
+
     /// Same close the phone logged after version/desk TTS.
     /// `listenLoopClose1000` only computes policy. This fires DidClose.
     func simulateListenLoopSocketClose1000() async {

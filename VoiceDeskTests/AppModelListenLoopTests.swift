@@ -969,6 +969,138 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// Recover is a crutch. After she talks, do not die: listen stays
+    /// armed, `opened && task` stays, recoverCount stays 0, and the
+    /// next VoiceTape is a turn + `response.created`. No idle+1000
+    /// simulation. No paper DidOpen. 415c955 first-hear-then-deaf
+    /// after she spoke: stayLive=false, sendRaw no-op, next command
+    /// never left the phone. That fails this. No key / no tape → skip.
+    func testLiveConversationLoopStayArmedAfterAnswerNoRecoverNextVoiceTapeCreatesResponse() async throws {
+        let apiKey = VoiceDeskSecrets.xaiAPIKey
+        if VoiceTape.shouldSkipLive(hasAPIKey: apiKey != nil) {
+            throw XCTSkip("skip: no XAI_API_KEY. Live Grok loop not run.")
+        }
+        let firstTape = VoiceTape.catalog[0]
+        let talkAgainTape = VoiceTape.catalog[1]
+        XCTAssertEqual(firstTape.id, VoiceTape.secondAskPair.0)
+        XCTAssertEqual(talkAgainTape.id, VoiceTape.secondAskPair.1)
+        guard
+            let firstTapePCM = Self.voiceTapePCM16(id: firstTape.id),
+            let talkAgainPCM = Self.voiceTapePCM16(id: talkAgainTape.id)
+        else {
+            throw XCTSkip("skip: mint WAVs on a Mac: ./scripts/mint-voice-tapes.sh")
+        }
+        let voice = GrokVoiceService(apiKey: apiKey!)
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command1 = Self.voiceTapeChunk(firstTapePCM, index: 0)
+        let command2 = Self.voiceTapeChunk(talkAgainPCM, index: 0)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(
+            session: session,
+            commands: [command1, command2],
+            noise: nil
+        )
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        voice.startListenLoopAudioForTests()
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0, "first arm is not a recover")
+
+        try await voice.connectListenLoopProductionForTests()
+        let opened = await voice.waitUntilListenLoopHasProductionSendTask()
+        XCTAssertTrue(
+            opened,
+            "real connect must leave opened && task before talking to Grok"
+        )
+        XCTAssertTrue(voice.listenLoopHasProductionSendTask)
+        XCTAssertFalse(voice.listenLoopUsesTestSendSink)
+        XCTAssertNotNil(voice.listenLoopProductionWebSocketTask)
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0, "connect is not recoverAfterDrop")
+        XCTAssertEqual(engine.startCount, 1)
+
+        let createdBeforeCommand1 = voice.listenLoopResponseCreatedCount
+        let doneBeforeCommand1 = voice.listenLoopResponseDoneCount
+        await Self.feedVoiceTapeThroughLiveTap(engine, pcm: firstTapePCM)
+        XCTAssertEqual(sink.turns, [command1], "command VoiceTape 1 through the live tap is a turn")
+        XCTAssertEqual(engine.startCount, 1)
+        let createdAfterCommand1 = await voice.waitUntilListenLoopResponseCreated(after: createdBeforeCommand1)
+        XCTAssertTrue(
+            createdAfterCommand1,
+            "first VoiceTape must produce response.created from live Grok"
+        )
+
+        let answerDone = await voice.waitUntilListenLoopResponseDone(after: doneBeforeCommand1)
+        XCTAssertTrue(answerDone, "live Grok answer must finish (response.done)")
+        let grokDrained = await voice.waitUntilListenLoopPlaybackDrained()
+        XCTAssertTrue(grokDrained, "live Grok speak must drain on the one-engine player")
+
+        await voice.speak(InboxGlance.spokenListAck())
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player desk answer must drain")
+        XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
+        XCTAssertTrue(voice.listenLoopArmed, "listen must stay armed after she talks — 415c955 went idle")
+        XCTAssertTrue(voice.listenLoopStayLive, "stayLive after the answer — 415c955 stayLive=false")
+        XCTAssertTrue(
+            voice.listenLoopHasProductionSendTask,
+            "opened && task must survive the answer — sendRaw no-op is 415c955 first-hear-then-deaf"
+        )
+        XCTAssertFalse(voice.listenLoopUsesTestSendSink)
+        let recoverCountAfterAnswer = voice.listenLoopRecoverCount
+        XCTAssertEqual(
+            recoverCountAfterAnswer,
+            0,
+            "recover is a crutch — the socket must not die after she talks"
+        )
+        XCTAssertTrue(engine.isRunning)
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        let createdBeforeCommand2 = voice.listenLoopResponseCreatedCount
+        await Self.feedVoiceTapeThroughLiveTap(engine, pcm: talkAgainPCM)
+        XCTAssertEqual(
+            sink.turns,
+            [command1, command2],
+            "command VoiceTape 2 after the answer is the next turn — 415c955 required a repeat"
+        )
+        XCTAssertEqual(engine.startCount, 1, "talk again must not audio.start")
+        let createdAfterCommand2 = await voice.waitUntilListenLoopResponseCreated(after: createdBeforeCommand2)
+        XCTAssertTrue(
+            createdAfterCommand2,
+            "second VoiceTape after the answer must produce response.created — leftover created cannot green this"
+        )
+        XCTAssertGreaterThan(voice.listenLoopResponseCreatedCount, createdBeforeCommand2)
+        XCTAssertTrue(voice.listenLoopHasProductionSendTask)
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(engine.isRunning)
+        let liveUserTurns = model.turns.filter { $0.role == .user }
+        XCTAssertFalse(
+            liveUserTurns.contains(where: { $0.text == "what version are we on" || $0.text == "show me my emails" }),
+            "transcript injects do not count — those strings are not a hear; live Grok transcription of VoiceTape PCM is the real path"
+        )
+
+        voice.cancel()
+    }
+
     /// After drain + DidClose 1000, command PCM 2 through the same tap
     /// while the send task is still nil. 15dcc7d accepted that on the
     /// tap observer and `sendRaw` dropped it. Attach-send-task then
