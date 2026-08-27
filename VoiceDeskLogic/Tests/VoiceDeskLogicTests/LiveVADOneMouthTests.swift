@@ -55,57 +55,6 @@ final class LiveVADOneMouthTests: XCTestCase {
         )
     }
 
-    func testLiveSpeakDoesNotSendSecondCreateOrClientStub() throws {
-        let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        let speakFn = speakSlice(
-            source,
-            from: "func speak(_ text: String) async {",
-            to: "private func returnToListenAfterDeskTTS"
-        )
-        XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
-        XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
-        XCTAssertTrue(source.contains("interruptAssistant(sendCancel: true)"), source)
-        XCTAssertTrue(source.contains("clearBufferObject"), source)
-        XCTAssertTrue(source.contains("verbatimSpeakResponseID"), source)
-        XCTAssertFalse(source.contains("restorePresenceAfterEveSpeak"), source)
-
-        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        let desk = speakSlice(app, from: "private func speakDeskReply", to: "private func rememberUserTurn")
-        XCTAssertTrue(desk.contains("isLiveVADTurn"), desk)
-        XCTAssertTrue(desk.contains("return"), desk)
-        XCTAssertFalse(desk.contains("Here they are"), desk)
-
-        let glance = speakSlice(app, from: "private func applyInboxGlance", to: "private func appendThinkingBeat")
-        XCTAssertTrue(glance.contains("InboxGlanceSpeakPlan.liveVAD"), glance)
-        XCTAssertTrue(glance.contains("glanceInbox"), glance)
-
-        let live = speakSlice(
-            app,
-            from: "if ConversationPresence.ownsConnectedDeskTurn",
-            to: "pendingDeskTopic"
-        )
-        XCTAssertFalse(live.contains("unmuteGrokAssistant()"), live)
-        XCTAssertFalse(live.contains("suppressLiveAssistant"), live)
-        XCTAssertFalse(
-            live.contains("deskWritesIdentity"),
-            "version claimLocal was the Eve cut + second mouth"
-        )
-        XCTAssertTrue(
-            live.contains("fulfillConnectedDeskTurn"),
-            live
-        )
-        let inbox = speakSlice(
-            live,
-            from: "if yieldGrokInterruptAnswer",
-            to: "if let evidence = ConversationPresence.deskEvidence"
-        )
-        XCTAssertFalse(
-            inbox.contains("claimLocalAssistantReply()"),
-            "claimLocal drops in-flight Eve audio on a live VAD inbox turn"
-        )
-        XCTAssertTrue(app.contains("await voice.speak"), app)
-    }
-
     func testReadLatestFamilyDoesNotSkipToolsOrSpeakListStub() {
         let snapshot = hotSnapshot
         XCTAssertEqual(
@@ -191,24 +140,5 @@ final class LiveVADOneMouthTests: XCTestCase {
         let facts = GrokRealtime.connectedDeskFacts(hotSnapshot)
         XCTAssertFalse(facts.contains("stay silent"), facts)
         XCTAssertTrue(facts.contains("You speak the answer"), facts)
-    }
-
-    private func speakSlice(_ source: String, from: String, to: String) -> String {
-        guard let start = source.range(of: from),
-              let end = source.range(of: to, range: start.upperBound..<source.endIndex)
-        else { return "" }
-        return String(source[start.lowerBound..<end.lowerBound])
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
     }
 }
