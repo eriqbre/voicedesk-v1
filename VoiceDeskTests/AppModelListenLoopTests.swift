@@ -1046,11 +1046,33 @@ final class AppModelListenLoopTests: XCTestCase {
             createdAfterCommand1,
             "first VoiceTape must produce response.created from live Grok"
         )
+        let grokPlaying = await voice.waitUntilListenLoopPendingPlayback()
+        XCTAssertTrue(
+            grokPlaying,
+            "live Grok answer must schedule on the one-engine player — drain-without-rise is paper (415c955 / utterance speak API / second engine)"
+        )
+        XCTAssertGreaterThan(
+            engine.pendingPlaybackCount,
+            0,
+            "pendingPlayback must rise — Grok PCM on the same AVAudioPlayerNode"
+        )
+        XCTAssertTrue(engine.isPlayerPlaying, "same AVAudioPlayerNode must be playing")
+        XCTAssertTrue(engine.isTapInstalled, "Grok speak must keep the one tap")
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopArmed, "listen must stay armed while she talks")
+        XCTAssertTrue(voice.listenLoopStayLive, "stayLive while Grok audio is on the player")
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
 
         let answerDone = await voice.waitUntilListenLoopResponseDone(after: doneBeforeCommand1)
         XCTAssertTrue(answerDone, "live Grok answer must finish (response.done)")
         let grokDrained = await voice.waitUntilListenLoopPlaybackDrained()
         XCTAssertTrue(grokDrained, "live Grok speak must drain on the one-engine player")
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "Grok answer must drain to 0")
+        XCTAssertTrue(engine.isTapInstalled, "drain must keep the one tap")
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopArmed)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0)
 
         await voice.speak(InboxGlance.spokenListAck())
         XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player desk answer must drain")

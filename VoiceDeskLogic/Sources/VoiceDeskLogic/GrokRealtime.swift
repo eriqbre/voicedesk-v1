@@ -343,7 +343,8 @@ public enum GrokRealtime {
         case "response.output_audio_transcript.done", "response.audio_transcript.done":
             return .assistantTranscriptDone
         case "response.output_audio.delta", "response.audio.delta":
-            return .outputAudioDelta((json["delta"] as? String) ?? "")
+            let delta = (json["delta"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return .outputAudioDelta(delta ?? (json["audio"] as? String) ?? "")
         case "response.output_audio.done", "response.audio.done":
             return .outputAudioDone
         case "response.done":

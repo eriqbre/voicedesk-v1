@@ -159,6 +159,13 @@ final class GrokRealtimeTests: XCTestCase {
         )
         XCTAssertEqual(
             GrokRealtime.parse(
+                type: "response.output_audio.delta",
+                json: ["audio": "BBBB", "delta": ""]
+            ),
+            .outputAudioDelta("BBBB")
+        )
+        XCTAssertEqual(
+            GrokRealtime.parse(
                 type: "error",
                 json: ["code": "timeout", "message": "idle"]
             ),

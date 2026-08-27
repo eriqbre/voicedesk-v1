@@ -352,7 +352,18 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopResponseDoneCount"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopResponseDone"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopPlaybackDrained"), service)
+        XCTAssertTrue(service.contains("func waitUntilListenLoopPendingPlayback"), service)
         XCTAssertTrue(service.contains("func connectListenLoopProductionForTests"), service)
+        let outputAudio = speakSlice(service, from: "case .outputAudioDelta", to: "case .outputAudioDone")
+        XCTAssertTrue(outputAudio.contains("playAudioDelta"), outputAudio)
+        XCTAssertFalse(
+            outputAudio.contains("currentResponseID"),
+            "leftover response_id skip leaves pending at 0"
+        )
+        XCTAssertFalse(
+            outputAudio.contains("dropAssistantAudio"),
+            "Grok PCM must hit the one-engine player"
+        )
         let waitUntil = speakSlice(
             service,
             from: "func waitUntilListenLoopQueuedTurnClosed() async {",
@@ -1245,8 +1256,16 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(stayArmed.contains("listenLoopRecoverCount"), stayArmed)
         XCTAssertTrue(stayArmed.contains("recoverCountAfterAnswer"), stayArmed)
         XCTAssertTrue(stayArmed.contains("waitUntilListenLoopResponseCreated"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("waitUntilListenLoopPendingPlayback"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("pendingPlaybackCount"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("isPlayerPlaying"), stayArmed)
+        XCTAssertTrue(stayArmed.contains("isTapInstalled"), stayArmed)
         XCTAssertTrue(stayArmed.contains("waitUntilListenLoopResponseDone"), stayArmed)
         XCTAssertTrue(stayArmed.contains("waitUntilListenLoopPlaybackDrained"), stayArmed)
+        XCTAssertTrue(
+            stayArmed.contains("drain-without-rise is paper"),
+            stayArmed
+        )
         XCTAssertTrue(stayArmed.contains("InboxGlance.spokenListAck"), stayArmed)
         XCTAssertTrue(stayArmed.contains("createdBeforeCommand2"), stayArmed)
         XCTAssertTrue(stayArmed.contains("createdAfterCommand2"), stayArmed)
@@ -1293,10 +1312,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
            let openAt = stayArmed.range(of: "waitUntilListenLoopHasProductionSendTask"),
            let tape1At = stayArmed.range(of: "pcm: firstTapePCM"),
            let created1At = stayArmed.range(of: "createdAfterCommand1"),
+           let pendingAt = stayArmed.range(of: "waitUntilListenLoopPendingPlayback"),
            let doneAt = stayArmed.range(of: "waitUntilListenLoopResponseDone"),
            let drainAt = stayArmed.range(of: "waitUntilListenLoopPlaybackDrained"),
            let speakAt = stayArmed.range(of: "InboxGlance.spokenListAck"),
-           let armedAt = stayArmed.range(of: "listenLoopArmed"),
+           let armedAt = stayArmed.range(of: "listen must stay armed after she talks"),
            let recoverAt = stayArmed.range(of: "recoverCountAfterAnswer"),
            let before2At = stayArmed.range(of: "createdBeforeCommand2"),
            let tape2At = stayArmed.range(of: "pcm: talkAgainPCM"),
@@ -1318,8 +1338,13 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
             XCTAssertLessThan(
                 created1At.lowerBound,
+                pendingAt.lowerBound,
+                "pendingPlayback must rise after response.created — drain-without-rise is paper"
+            )
+            XCTAssertLessThan(
+                pendingAt.lowerBound,
                 doneAt.lowerBound,
-                "live Grok answer must finish after response.created"
+                "live Grok answer must finish after audio hits the one-engine player"
             )
             XCTAssertLessThan(
                 doneAt.lowerBound,
@@ -1357,7 +1382,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
                 "talk again must produce another response.created"
             )
         } else {
-            XCTFail("stay-armed gate must connect live, talk, drain both answers, stay armed with no recover, then talk again")
+            XCTFail("stay-armed gate must connect live, prove Grok pending rises, drain, stay armed with no recover, then talk again")
         }
         let deadSocket = speakSlice(
             live,

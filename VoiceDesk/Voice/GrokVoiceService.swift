@@ -31,7 +31,6 @@ final class GrokVoiceService: VoiceServicing {
     /// auto `startListening` until the next Tap to talk.
     private var userWantsVoiceOff = false
     private var dropAssistantTranscript = false
-    private var dropAssistantAudio = false
     private var instructions = GrokRealtime.presenceInstructions
     /// In-flight `connectAndConfigure` so warmup and first tap share one handshake.
     private var connectingTask: Task<Void, Error>?
@@ -201,12 +200,10 @@ final class GrokVoiceService: VoiceServicing {
     func suppressAssistantOutput(_ suppress: Bool) {
         if suppress {
             dropAssistantTranscript = true
-            dropAssistantAudio = true
             interruptAssistant(sendCancel: true)
             return
         }
         dropAssistantTranscript = false
-        dropAssistantAudio = false
     }
 
     func cancel() {
@@ -506,7 +503,6 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
-        guard !dropAssistantAudio else { return }
         audio.playPCM16(data)
     }
 
@@ -544,11 +540,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .assistantTranscriptDone:
             break
         case .outputAudioDelta(let delta):
-            guard !dropAssistantAudio else { break }
-            if json["response_id"] as? String == currentResponseID || currentResponseID == nil {
-                audio.playAudioDelta(base64: delta)
-                audioDeltaCount += 1
-            }
+            // Live Grok PCM on the one-engine player. A leftover
+            // id-match / suppress skip left pending at 0 — drain
+            // without a rise is paper (415c955 / second engine).
+            audio.playAudioDelta(base64: delta)
+            audioDeltaCount += 1
         case .outputAudioDone:
             break
         case .responseDone:
@@ -726,6 +722,17 @@ extension GrokVoiceService {
             try? await Task.sleep(for: .milliseconds(50))
         }
         return listenLoopResponseDoneCount > after
+    }
+
+    /// Live Grok (or write→player) scheduled buffers on the one engine.
+    /// `isPlayerPlaying` is true from `audio.start` — pending must rise.
+    func waitUntilListenLoopPendingPlayback(timeoutSeconds: Double = 45) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while ContinuousClock.now < deadline {
+            if audio.hasPendingPlayback { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return audio.hasPendingPlayback
     }
 
     /// Same one-engine player `speak()` drains. Not `synthesizer.speak()`.
