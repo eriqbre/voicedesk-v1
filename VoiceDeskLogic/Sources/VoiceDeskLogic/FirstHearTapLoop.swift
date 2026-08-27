@@ -44,9 +44,11 @@ public struct FirstHearTapLoop: Equatable, Sendable {
     }
 
     /// Zero-notification HAL yank. Reinstall if the Swift tap object
-    /// is gone *or* the object is still there and HAL is gone.
+    /// is gone *or* HAL released the installTap block (object stays).
     /// `tapObjectMissing` only is 453bda8 — that misses the phone.
-    /// A healthy HAL tap must not be torn down. Not a timer.
+    /// `halTapMissing` is install-block released, not an inject
+    /// storage bit (771f6f9). A healthy HAL tap must not be torn
+    /// down. Not a timer.
     public static func shouldApplyDelayedSilentTapRepair(
         engineRunning: Bool,
         wantsCapture: Bool,
@@ -411,9 +413,10 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         )
     }
 
-    /// Phone HAL yank: object stays, HAL is gone, flag still true.
-    /// 453bda8 tap==nil repair no-ops. Demand-driven HAL-missing
-    /// repair lands the third. Not a 400ms Task.
+    /// Phone HAL yank: object stays, HAL released the install block.
+    /// 453bda8 tap==nil repair no-ops. 771f6f9 inject-bit-only no-ops.
+    /// Demand-driven install-block-released repair lands the third.
+    /// Not a 400ms Task.
     public static func objectLeftInPlaceSilentYankThenDemandRepairLandsThird(
         first: Data = commandPCM(1),
         second: Data = commandPCM(2),
