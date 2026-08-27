@@ -594,6 +594,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live
         )
         XCTAssertTrue(
+            live.contains("testLiveConversationLoopBargeInOnlyOnCommandNotAmbientRadio"),
+            live
+        )
+        XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"),
             live
         )
@@ -934,7 +938,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let grokCreates = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSGrokCreatesResponse",
-            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+            to: "func testLiveConversationLoopBargeInOnlyOnCommandNotAmbientRadio"
         )
         XCTAssertTrue(grokCreates.contains("GrokVoiceService("), grokCreates)
         XCTAssertTrue(grokCreates.contains("AppModel("), grokCreates)
@@ -1085,6 +1089,120 @@ final class ListenLoopSourceContractTests: XCTestCase {
             to: "var productionWebSocketTaskForTests"
         )
         XCTAssertTrue(sendTask.contains("opened && task != nil && !testSendSink"), sendTask)
+        let bargeIn = speakSlice(
+            live,
+            from: "func testLiveConversationLoopBargeInOnlyOnCommandNotAmbientRadio",
+            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+        )
+        XCTAssertTrue(bargeIn.contains("GrokVoiceService("), bargeIn)
+        XCTAssertTrue(bargeIn.contains("AppModel("), bargeIn)
+        XCTAssertTrue(bargeIn.contains("startListenLoopAudioForTests"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("VoiceTape.shouldSkipLive"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("VoiceDeskSecrets.xaiAPIKey"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("voiceTapePCM16"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("mint-voice-tapes.sh"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("feedVoiceTapeThroughLiveTap"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("speechShapedPCM(hertz: 90)"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("simulateListenLoopSocketClose1000"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("waitUntilListenLoopHasProductionSendTask"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("listenLoopHasProductionSendTask"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("waitUntilPending"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("pendingPlaybackCount"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("feedTapPCM16(noise)"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("createdBeforeAmbient"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("createdBeforeCommand"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("waitUntilListenLoopResponseCreated"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("ListenInterrupt.isCommand"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("bargeInDeskReply"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("waitUntilPlaybackZero"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("engine.startCount"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("isTapInstalled"), bargeIn)
+        XCTAssertTrue(bargeIn.contains("transcript injects do not count"), bargeIn)
+        XCTAssertFalse(
+            bargeIn.contains("interruptResponse"),
+            "paper tests call interruptResponse — Eve / the model must decide command vs not"
+        )
+        XCTAssertFalse(
+            bargeIn.contains("simulateListenLoopSocketDidOpenThenSessionReady"),
+            "paper DidOpen is not live Grok"
+        )
+        XCTAssertFalse(bargeIn.contains("attachTestSendRecorder"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("attachListenLoopSendTaskForTests"), bargeIn)
+        XCTAssertFalse(
+            bargeIn.contains("ListenLoopWebSocketLoopback"),
+            "loopback is not live Grok"
+        )
+        XCTAssertFalse(bargeIn.contains("setListenLoopRealtimeURLOverrideForTests"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("listenLoopDeliveredAudioPCM"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("applyUserTurn"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("emitUser"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("FakeLiveVoiceService"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("role == .user }.count"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("quietCommitMaxPostponeMs"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("leftover-echo"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("TapSpeechEnergy"), bargeIn)
+        XCTAssertFalse(bargeIn.contains("synthesizer.speak"), bargeIn)
+        XCTAssertFalse(
+            bargeIn.contains("XCTAssertTrue(\n            await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        XCTAssertFalse(
+            bargeIn.contains("XCTAssertTrue(await "),
+            "XCTAssertTrue is an autoclosure — await the Bool first"
+        )
+        if let recoverAt = bargeIn.range(of: "simulateListenLoopSocketClose1000"),
+           let taskAt = bargeIn.range(of: "waitUntilListenLoopHasProductionSendTask"),
+           let pendingAt = bargeIn.range(of: "waitUntilPending"),
+           let ambientAt = bargeIn.range(of: "feedTapPCM16(noise)"),
+           let beforeAmbientAt = bargeIn.range(of: "createdBeforeAmbient"),
+           let beforeCmdAt = bargeIn.range(of: "createdBeforeCommand"),
+           let tapeAt = bargeIn.range(of: "feedVoiceTapeThroughLiveTap"),
+           let cancelAt = bargeIn.range(of: "waitUntilPlaybackZero"),
+           let createdAt = bargeIn.range(of: "waitUntilListenLoopResponseCreated") {
+            XCTAssertLessThan(
+                recoverAt.lowerBound,
+                taskAt.lowerBound,
+                "recover must prove opened && task before the live barge-in"
+            )
+            XCTAssertLessThan(
+                taskAt.lowerBound,
+                pendingAt.lowerBound,
+                "write→player must start after the live socket is up"
+            )
+            XCTAssertLessThan(
+                pendingAt.lowerBound,
+                ambientAt.lowerBound,
+                "ambient must be fed while write→player is actually playing"
+            )
+            XCTAssertLessThan(
+                beforeAmbientAt.lowerBound,
+                ambientAt.lowerBound,
+                "snapshot response.created before ambient — radio must not increment it"
+            )
+            XCTAssertLessThan(
+                ambientAt.lowerBound,
+                beforeCmdAt.lowerBound,
+                "snapshot the command response.created after ambient"
+            )
+            XCTAssertLessThan(
+                beforeCmdAt.lowerBound,
+                tapeAt.lowerBound,
+                "command VoiceTape must follow the ambient tap"
+            )
+            XCTAssertLessThan(
+                tapeAt.lowerBound,
+                cancelAt.lowerBound,
+                "command must cancel player buffers after the tape, not by calling interruptResponse"
+            )
+            XCTAssertLessThan(
+                tapeAt.lowerBound,
+                createdAt.lowerBound,
+                "response.created must be asserted after the command VoiceTape"
+            )
+        } else {
+            XCTFail("live barge-in gate must recover, play, keep ambient, then cancel only on a VoiceTape command")
+        }
         let deadSocket = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand",
