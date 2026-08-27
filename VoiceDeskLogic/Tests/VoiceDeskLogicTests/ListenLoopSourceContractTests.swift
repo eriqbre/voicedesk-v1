@@ -457,6 +457,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
             responseDone.contains("cancelledPlaybackResponseID = nil"),
             "do not nil the cancelled id on response.done — leftover inject needs it"
         )
+        XCTAssertTrue(
+            responseDone.contains("keepScheduledLatchAfterResponseDone"),
+            "first-answer done must keep lastScheduled — command barge after drain arms leftover from it"
+        )
+        XCTAssertFalse(
+            responseDone.contains("lastScheduledResponseID = nil"),
+            "niling lastScheduled on !bargeConsumed done leaves 1488 with nothing"
+        )
         let bargeDoneReset = speakSlice(
             service,
             from: "if GrokRealtime.shouldResetBargeAfterResponseDone",
@@ -562,6 +570,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func shouldKeepInterruptAnswerOnPlayer"), realtime)
         XCTAssertTrue(realtime.contains("func shouldScheduleAfterBarge"), realtime)
         XCTAssertTrue(realtime.contains("func shouldArmCommandBargeLatch"), realtime)
+        XCTAssertTrue(realtime.contains("func keepScheduledLatchAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func shouldResetBargeAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)

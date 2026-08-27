@@ -760,7 +760,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                     }
                 } else {
                     interruptTargetID = nil
-                    lastScheduledResponseID = nil
+                    lastScheduledResponseID = GrokRealtime.keepScheduledLatchAfterResponseDone(
+                        existingScheduledID: lastScheduledResponseID
+                    )
                     createdCountAtBarge = 0
                     speechStartedBarge = false
                 }

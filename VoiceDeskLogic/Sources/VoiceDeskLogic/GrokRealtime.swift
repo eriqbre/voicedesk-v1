@@ -337,6 +337,17 @@ public enum GrokRealtime {
             || nonemptyID(playingResponseID) != nil
     }
 
+    /// lastScheduled means an answer actually hit the player.
+    /// First-answer `response.done` is the leftover window — keep
+    /// the id so command barge after drain can arm leftover.
+    /// Only a different id in `noteScheduledResponse` (or teardown)
+    /// replaces it.
+    public static func keepScheduledLatchAfterResponseDone(
+        existingScheduledID: String?
+    ) -> String? {
+        nonemptyID(existingScheduledID)
+    }
+
     /// First-answer id that barge dropped. Leftover deltas with this
     /// id must not raise pending after `interruptPlayback`.
     /// `lastCreated` is the first `response.created` when Grok PCM

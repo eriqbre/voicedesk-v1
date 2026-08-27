@@ -548,6 +548,23 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             "lastCreated-only at pending 0 is first-answer audio about to arrive — do not arm leftover reject"
         )
+        XCTAssertEqual(
+            GrokRealtime.keepScheduledLatchAfterResponseDone(existingScheduledID: "resp_1"),
+            "resp_1",
+            "first-answer done must keep lastScheduled — command barge after drain arms leftover from it"
+        )
+        XCTAssertNil(GrokRealtime.keepScheduledLatchAfterResponseDone(existingScheduledID: nil))
+        XCTAssertTrue(
+            GrokRealtime.shouldArmCommandBargeLatch(
+                alreadyBarged: false,
+                hasPendingPlayback: false,
+                lastScheduledResponseID: GrokRealtime.keepScheduledLatchAfterResponseDone(
+                    existingScheduledID: "resp_1"
+                ),
+                playingResponseID: nil
+            ),
+            "kept lastScheduled after done arms leftover without treating lastCreated as a barge"
+        )
         XCTAssertTrue(
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: false,
