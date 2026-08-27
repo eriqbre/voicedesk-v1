@@ -3,7 +3,7 @@ import Foundation
 import Network
 
 /// In-process WebSocket the real `URLSessionWebSocketTask` can open.
-/// xAI is unreachable in XCTest. This is still a socket, not `testSendSink`.
+/// xAI is unreachable in XCTest. This is still a socket, not a send recorder.
 final class ListenLoopWebSocketLoopback: @unchecked Sendable {
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "listen-loop-ws-loopback")
