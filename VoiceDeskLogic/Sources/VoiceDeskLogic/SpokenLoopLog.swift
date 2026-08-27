@@ -140,20 +140,6 @@ public enum SpokenLoopLog: Sendable {
         return .absent
     }
 
-    public static func parse(_ entry: VoiceInteractionEntry) -> [String: String] {
-        parseNote(entry.routingNotes.first ?? "")
-    }
-
-    public static func parseNote(_ note: String) -> [String: String] {
-        var fields: [String: String] = [:]
-        for token in note.split(whereSeparator: \.isWhitespace) {
-            let parts = token.split(separator: "=", maxSplits: 1)
-            guard parts.count == 2 else { continue }
-            fields[String(parts[0])] = String(parts[1])
-        }
-        return fields
-    }
-
     public static func note(fields: [String: String]) -> String {
         let order = ["event", "session", "intent", "mouth", "first_audio", "listenArmed", "stayLive", "state", "code", "stayIdle", "response", "reason"]
         var seen = Set<String>()
