@@ -425,24 +425,34 @@ public enum GrokRealtime {
         return true
     }
 
-    /// After barge, reject only leftover that carries the cancelled
+    /// After barge, reject leftover that carries the cancelled
     /// first-answer id. A nil latch or a delta without `response_id`
     /// must still schedule — that is R2. Do not eat the interrupt answer.
+    /// Command barge `interruptResponse` may lag drain (Grok
+    /// transcribes after pending is 0). Leftover of lastScheduled
+    /// after drain must still reject — 1488 can pass on lastScheduled
+    /// while cancelled/bargeConsumed are still unset.
     public static func shouldScheduleAfterBarge(
         bargeConsumed: Bool,
         deltaResponseID: String?,
         cancelledResponseID: String?,
         interruptAnswerID: String? = nil,
-        playingResponseID: String? = nil
+        playingResponseID: String? = nil,
+        lastScheduledResponseID: String? = nil,
+        hasPendingPlayback: Bool = true
     ) -> Bool {
         _ = interruptAnswerID
         _ = playingResponseID
-        guard bargeConsumed else { return true }
         let delta = nonemptyID(deltaResponseID)
         let cancelled = nonemptyID(cancelledResponseID)
+        let scheduled = nonemptyID(lastScheduledResponseID)
         if let delta, let cancelled, delta == cancelled {
             return false
         }
+        if !hasPendingPlayback, let delta, let scheduled, delta == scheduled {
+            return false
+        }
+        _ = bargeConsumed
         return true
     }
 

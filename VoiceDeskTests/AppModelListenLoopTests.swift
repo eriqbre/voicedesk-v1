@@ -1516,7 +1516,9 @@ final class AppModelListenLoopTests: XCTestCase {
             "command VoiceTape during Grok playback must produce response.created from live Grok"
         )
         XCTAssertGreaterThan(voice.listenLoopResponseCreatedCount, createdBeforeBarge)
-        let grokPlayingAfterBarge = await voice.waitUntilListenLoopPendingPlayback()
+        let grokPlayingAfterBarge = await voice.waitUntilListenLoopPendingPlayback(
+            notScheduled: cancelledAnswerID
+        )
         XCTAssertTrue(
             grokPlayingAfterBarge,
             "interrupt answer must schedule on the one-engine player — leftover created cannot green this \(voice.listenLoopBargeProof)"

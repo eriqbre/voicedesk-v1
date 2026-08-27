@@ -258,7 +258,8 @@ final class GrokVoiceService: VoiceServicing {
         )
         bargeConsumed = true
         lastBargeCancelSentID = decision.cancelResponseID
-        cancelledPlaybackResponseID = knownCancelled
+        cancelledPlaybackResponseID = GrokRealtime.nonemptyID(lastScheduledResponseID)
+            ?? knownCancelled
             ?? GrokRealtime.playbackEpochLatch(audio.playbackEpoch)
         if decision.dropLocal {
             interruptAssistant(sendCancel: false)
@@ -435,11 +436,11 @@ final class GrokVoiceService: VoiceServicing {
             deltaResponseID: deltaResponseID,
             cancelledResponseID: cancelledPlaybackResponseID,
             interruptAnswerID: answerID,
-            playingResponseID: playingResponseID
+            playingResponseID: playingResponseID,
+            lastScheduledResponseID: lastScheduledResponseID,
+            hasPendingPlayback: audio.hasPendingPlayback
         )
-        if !allow,
-           GrokRealtime.nonemptyID(deltaResponseID) != nil,
-           GrokRealtime.nonemptyID(deltaResponseID) == cancelledPlaybackResponseID {
+        if !allow, GrokRealtime.nonemptyID(deltaResponseID) != nil {
             rejectedCancelledDeltaCount += 1
         }
         return allow
@@ -978,11 +979,26 @@ extension GrokVoiceService {
 
     /// Live Grok (or write→player) scheduled buffers on the one engine.
     /// `isPlayerPlaying` is true from `audio.start` — pending must rise.
-    func waitUntilListenLoopPendingPlayback(timeoutSeconds: Double = 45) async -> Bool {
+    func waitUntilListenLoopPendingPlayback(
+        notScheduled cancelledID: String? = nil,
+        timeoutSeconds: Double = 45
+    ) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
         while ContinuousClock.now < deadline {
-            if audio.hasPendingPlayback { return true }
+            if audio.hasPendingPlayback {
+                if let cancelled = GrokRealtime.nonemptyID(cancelledID),
+                   lastScheduledResponseID == cancelled {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    continue
+                }
+                return true
+            }
             try? await Task.sleep(for: .milliseconds(50))
+        }
+        if audio.hasPendingPlayback,
+           let cancelled = GrokRealtime.nonemptyID(cancelledID),
+           lastScheduledResponseID == cancelled {
+            return false
         }
         return audio.hasPendingPlayback
     }

@@ -503,6 +503,36 @@ final class GrokRealtimeTests: XCTestCase {
             ),
             "after barge, wire no-id must schedule even when lastCreated is still the first answer — callers must not invent an id to reject"
         )
+        XCTAssertFalse(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: false,
+                deltaResponseID: "resp_1",
+                cancelledResponseID: nil,
+                lastScheduledResponseID: "resp_1",
+                hasPendingPlayback: false
+            ),
+            "1488 can pass on lastScheduled while cancelled is nil — drained leftover of that id must not raise pending"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: false,
+                deltaResponseID: "resp_1",
+                cancelledResponseID: nil,
+                lastScheduledResponseID: "resp_1",
+                hasPendingPlayback: true
+            ),
+            "first-answer deltas while pending > 0 are the answer, not leftover"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldScheduleAfterBarge(
+                bargeConsumed: false,
+                deltaResponseID: nil,
+                cancelledResponseID: nil,
+                lastScheduledResponseID: "resp_1",
+                hasPendingPlayback: false
+            ),
+            "no-id after drain is R2 — do not eat the interrupt answer"
+        )
         XCTAssertEqual(
             GrokRealtime.scheduledResponseID(
                 deltaResponseID: nil,

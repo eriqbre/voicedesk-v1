@@ -386,6 +386,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("func waitUntilListenLoopResponseDone"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopPlaybackDrained"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopPendingPlayback"), service)
+        XCTAssertTrue(
+            service.contains("notScheduled cancelledID"),
+            "1520 must wait for a new lastScheduled — leftover pending cannot green the interrupt"
+        )
         XCTAssertTrue(service.contains("var listenLoopBargeConsumed"), service)
         XCTAssertTrue(service.contains("var listenLoopBargeProof"), service)
         XCTAssertTrue(service.contains("listenLoopLastCreatedResponseID"), service)
@@ -396,6 +400,23 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("func playListenLoopOutputAudioDeltaForTests"), service)
         XCTAssertTrue(service.contains("cancelledPlaybackResponseID"), service)
         XCTAssertTrue(service.contains("func shouldPlayBargeAudio"), service)
+        let playGate = speakSlice(
+            service,
+            from: "private func shouldPlayBargeAudio",
+            to: "private func noteScheduledResponse"
+        )
+        XCTAssertTrue(
+            playGate.contains("lastScheduledResponseID: lastScheduledResponseID"),
+            "leftover inject uses lastScheduled when cancelled is nil"
+        )
+        XCTAssertTrue(
+            playGate.contains("hasPendingPlayback: audio.hasPendingPlayback"),
+            "drained leftover of lastScheduled must reject even if interruptResponse has not run"
+        )
+        XCTAssertFalse(
+            playGate.contains("== cancelledPlaybackResponseID"),
+            "reject count must rise for lastScheduled leftover — not only cancelled match"
+        )
         XCTAssertTrue(service.contains("func noteFirstAnswerPlaying"), service)
         XCTAssertTrue(service.contains("latchWhenFirstAnswerPlaying"), service)
         XCTAssertTrue(service.contains("playbackEpochLatch"), service)
@@ -506,6 +527,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(
             interruptLive.contains("guard audio.hasPendingPlayback else { return }"),
             "pending 0 must still latch cancelled/bargeConsumed — leftover inject uses that id"
+        )
+        XCTAssertTrue(
+            interruptLive.contains("nonemptyID(lastScheduledResponseID)"),
+            "command barge must set cancelled = lastScheduled so leftover inject matches the reject gate"
         )
         XCTAssertTrue(interruptLive.contains("shouldArmCommandBargeLatch"), interruptLive)
         XCTAssertTrue(
@@ -1832,6 +1857,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(composed.contains("createdAfterBarge"), composed)
         XCTAssertTrue(composed.contains("grokPlayingAfterTalk"), composed)
         XCTAssertTrue(composed.contains("grokPlayingAfterBarge"), composed)
+        XCTAssertTrue(
+            composed.contains("notScheduled: cancelledAnswerID"),
+            "leftover pending 1 must not green 1520 — wait for lastScheduled != cancelled"
+        )
         XCTAssertTrue(composed.contains("waitUntilListenLoopResponseCreated"), composed)
         XCTAssertTrue(composed.contains("waitUntilListenLoopResponseDone"), composed)
         XCTAssertTrue(composed.contains("waitUntilListenLoopPlaybackDrained"), composed)
