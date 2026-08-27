@@ -187,10 +187,7 @@ final class GrokVoiceService: VoiceServicing {
             liveSessionArmed: liveSessionArmed,
             captureRunning: audio.isRunning
         )
-        LiveVADPlayerKeep.returnToListenAfterDeskTTS(
-            dropAssistantOutput: &dropAssistantTranscript,
-            clientTTSInFlight: &clientTTSInFlight
-        )
+        clientTTSInFlight = false
         eventHandler?(.state(session.state))
         // One tap. Do not rearm after drain. 552ef0c's drain-time
         // reinstall left the live tap silent (no PCM, no sendRaw)
@@ -465,8 +462,6 @@ final class GrokVoiceService: VoiceServicing {
 
     private func shouldPlayBargeAudio(deltaResponseID: String?) -> Bool {
         let allow = LiveVADPlayerKeep.shouldPlayBargeAudio(
-            dropAssistantOutput: dropAssistantTranscript,
-            clientTTSInFlight: clientTTSInFlight,
             bargeConsumed: bargeConsumed,
             deltaResponseID: deltaResponseID,
             cancelledResponseID: cancelledPlaybackResponseID,

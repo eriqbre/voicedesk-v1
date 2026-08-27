@@ -69,7 +69,7 @@ final class FirstAskOneMouthTests: XCTestCase {
         )
     }
 
-    func testFirstAskDeskPlusEveIsTwoMouthsAndFixIsDeskOnly() {
+    func testFirstAskDeskPlusEveIsTwoMouthsAndFixIsEveOnly() {
         let hole = LiveTalkMouth.firstAskDeskIdentityPlusEve()
         XCTAssertTrue(hole.afterDeskTTSDrain)
         XCTAssertTrue(hole.liveVADResponse)
@@ -81,32 +81,22 @@ final class FirstAskOneMouthTests: XCTestCase {
             "desk TTS write + Eve realtime is two mouths"
         )
 
-        let keep = LiveTalkMouth.firstAskDeskIdentityOnly()
-        XCTAssertTrue(keep.afterDeskTTSDrain)
-        XCTAssertTrue(keep.clientVoiceSpeechWrite)
-        XCTAssertFalse(keep.eveVoicePath)
+        let keep = LiveTalkMouth.liveTalkEveOnly()
+        XCTAssertFalse(keep.afterDeskTTSDrain)
+        XCTAssertFalse(keep.clientVoiceSpeechWrite)
+        XCTAssertTrue(keep.eveVoicePath)
         XCTAssertFalse(keep.sentVerbatimCreate)
         XCTAssertFalse(keep.isDualMouth)
-        XCTAssertFalse(LiveTalkMouth.liveTalkEveOnly().isDualMouth)
         XCTAssertFalse(GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: true))
     }
 
-    func testVersionAskDropsEveSoDeskIdentityIsTheOnlyMouth() {
-        XCTAssertTrue(
-            LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
-                alreadyBarged: false,
-                hasPendingPlayback: true,
-                deskWritesIdentity: true
-            ),
-            "first-ask identity write must drop Eve or both mouths play"
-        )
+    func testVersionAskKeepsEveMouthAndDoesNotWriteDesk() {
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
                 alreadyBarged: false,
-                hasPendingPlayback: true,
-                deskWritesIdentity: false
+                hasPendingPlayback: true
             ),
-            "later Eve turns keep first-answer PCM"
+            "Eve must finish; version ask is not a barge cut"
         )
         XCTAssertTrue(
             ConversationPresence.wantsVersionAsk("Hey, good morning. What version are we on?")
@@ -116,97 +106,31 @@ final class FirstAskOneMouthTests: XCTestCase {
             for: "Hey, good morning. What version are we on?",
             identity: .fixture
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
                 liveVADTurn: true,
                 spoken: identity,
                 identityLine: identity
-            )
+            ),
+            "live VAD desk identity write is the second mouth"
         )
         XCTAssertFalse(
             LiveVADPlayerKeep.isEmptyEveSpeaksIdentityLie(
                 routingNotes: ["local build identity"],
                 assistantReply: identity,
-                wrotePlayerPCM: true
+                wrotePlayerPCM: false
             )
         )
     }
 
-    func testHandleLiveUserDoesNotUnmuteEveOnVersionWrite() throws {
-        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        let handle = speakSlice(
-            app,
-            from: "private func handleLiveUser",
-            to: "private func upsertLiveAssistant"
-        )
-        XCTAssertTrue(handle.contains("deskWritesIdentity"), handle)
-        XCTAssertTrue(handle.contains("wantsVersionAsk"), handle)
-        XCTAssertTrue(handle.contains("deskWritesIdentity: deskWritesIdentity"), handle)
-        XCTAssertTrue(handle.contains("claimLocalAssistantReply()"), handle)
-
-        let connected = speakSlice(
-            handle,
-            from: "if isLiveVADTurn, deskWritesIdentity",
-            to: "if yieldGrokInterruptAnswer"
-        )
-        XCTAssertTrue(connected.contains("claimLocalAssistantReply()"), connected)
-        XCTAssertTrue(connected.contains("fulfillConnectedDeskTurn"), connected)
-        XCTAssertFalse(
-            connected.contains("unmuteGrokAssistant()"),
-            "4f4f4da unmuted Eve then wrote identity — two mouths"
-        )
-
-        let evidence = speakSlice(
-            handle,
-            from: "if let evidence = ConversationPresence.deskEvidence",
-            to: "unmuteGrokAssistant()\n        pendingDeskTopic"
-        )
-        XCTAssertTrue(evidence.contains("deskWritesIdentity"), evidence)
-        XCTAssertTrue(evidence.contains("claimLocalAssistantReply()"), evidence)
-        let versionEvidence = speakSlice(
-            evidence,
-            from: "if isLiveVADTurn, deskWritesIdentity",
-            to: "if yieldGrokInterruptAnswer"
-        )
-        XCTAssertFalse(
-            versionEvidence.contains("unmuteGrokAssistant()"),
-            versionEvidence
-        )
-
-        XCTAssertFalse(handle.contains("Here they are"), handle)
-        XCTAssertFalse(handle.contains("speakLiveReplyViaEve"), handle)
-    }
-
-    /// a2727b1 was green on unmute/claimLocal paper and still two
-    /// mouths: desk write→player AND Eve live VAD PCM. Suppress
-    /// dropped the transcript only. This is the device path.
+    /// a2727b1: desk write→player AND Eve live VAD PCM. Mute flags
+    /// tried to hide Eve and stuck. Live Talk is Eve only.
     func testIdentityWriteAndEveDeltasBothReachPlayerIsTheHole() throws {
-        XCTAssertFalse(
-            LiveVADPlayerKeep.shouldPlayEveAudio(
-                dropAssistantOutput: true,
-                clientTTSInFlight: false
-            ),
-            "claimLocal suppress must drop Eve PCM, not only the transcript"
-        )
-        XCTAssertFalse(
-            LiveVADPlayerKeep.shouldPlayEveAudio(
-                dropAssistantOutput: false,
-                clientTTSInFlight: true
-            ),
-            "identity write→player must not mix Eve deltas"
-        )
-        XCTAssertTrue(
-            LiveVADPlayerKeep.shouldPlayEveAudio(
-                dropAssistantOutput: false,
-                clientTTSInFlight: false
-            ),
-            "later Eve turns still play"
-        )
         XCTAssertTrue(
             LiveTalkMouth.firstAskDeskIdentityPlusEve().isDualMouth
         )
         XCTAssertFalse(
-            LiveTalkMouth.firstAskDeskIdentityOnly().isDualMouth
+            LiveTalkMouth.liveTalkEveOnly().isDualMouth
         )
 
         let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))

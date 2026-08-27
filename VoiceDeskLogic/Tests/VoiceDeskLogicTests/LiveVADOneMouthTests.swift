@@ -99,9 +99,9 @@ final class LiveVADOneMouthTests: XCTestCase {
             to: "unmuteGrokAssistant()\n        pendingDeskTopic"
         )
         XCTAssertTrue(live.contains("unmuteGrokAssistant()"), live)
-        XCTAssertTrue(
+        XCTAssertFalse(
             live.contains("deskWritesIdentity"),
-            "version first-ask must claimLocal; inbox must not"
+            "version claimLocal was the Eve cut + second mouth"
         )
         let inbox = speakSlice(
             live,

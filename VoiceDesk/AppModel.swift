@@ -376,11 +376,12 @@ final class AppModel {
         // (playingResponseID already the next created).
         let bargeConsumedBefore = voice.listenLoopBargeConsumed
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
-        let deskWritesIdentity = ConversationPresence.wantsVersionAsk(text)
+        liveVersionAsk.liveVADTurn = isLiveVADTurn
+        liveVersionAsk.identity = buildIdentity
+        _ = liveVersionAsk.handleLiveUser(text)
         if LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
             alreadyBarged: voice.listenLoopBargeConsumed,
-            hasPendingPlayback: voice.hasPendingPlayback,
-            deskWritesIdentity: deskWritesIdentity
+            hasPendingPlayback: voice.hasPendingPlayback
         ) {
             voice.interruptResponse()
         }
@@ -427,16 +428,6 @@ final class AppModel {
                         awaitingClarify: awaitingClarify
                     )
                 }
-                if isLiveVADTurn, deskWritesIdentity {
-                    // Desk identity is the mouth. Do not unmute Eve.
-                    liveVersionAsk.liveVADTurn = true
-                    liveVersionAsk.identity = buildIdentity
-                    if liveVersionAsk.handleLiveUser(text) {
-                        claimLocalAssistantReply()
-                    }
-                    Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
-                    return
-                }
                 if yieldGrokInterruptAnswer {
                     unmuteGrokAssistant()
                     return
@@ -456,15 +447,6 @@ final class AppModel {
         ) {
             if isLiveVADTurn {
                 parkOrAttachLiveDeskCards(evidence.cards)
-            }
-            if isLiveVADTurn, deskWritesIdentity {
-                liveVersionAsk.liveVADTurn = true
-                liveVersionAsk.identity = buildIdentity
-                if liveVersionAsk.handleLiveUser(text) {
-                    claimLocalAssistantReply()
-                }
-                surfaceDeskEvidence(evidence)
-                return
             }
             if yieldGrokInterruptAnswer {
                 unmuteGrokAssistant()
@@ -922,13 +904,10 @@ final class AppModel {
                 for: lastUserUtterance,
                 identity: buildIdentity
             )
-            if isLiveVADTurn {
-                // Walk: empty identity reply, no PCM. 83a5c6a wrote
-                // this line → player. Drop A so that write is the mouth.
-                claimLocalAssistantReply()
+            if !isLiveVADTurn {
+                appendAssistant(line)
+                await speakDeskReply(line)
             }
-            appendAssistant(line)
-            await speakDeskReply(line)
             logVoiceTurn(
                 evidence: evidence,
                 intentHint: "version",
@@ -1171,8 +1150,6 @@ final class AppModel {
         lastSpokenDeskReply = liveVersionAsk.lastSpokenDeskReply
         guard let spoken = liveVersionAsk.lastSpokenDeskReply, !spoken.isEmpty else { return }
         await voice.speak(spoken)
-        liveVersionAsk.returnToListenAfterDeskTTS()
-        unmuteGrokAssistant()
     }
 
     private func rememberUserTurn(_ text: String, source: String) {

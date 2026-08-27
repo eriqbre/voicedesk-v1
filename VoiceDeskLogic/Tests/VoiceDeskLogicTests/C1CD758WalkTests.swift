@@ -44,12 +44,13 @@ final class C1CD758WalkTests: XCTestCase {
             identity: .fixture
         )
         XCTAssertEqual(identity, C1CD758Walk.spokenIdentity83a5c6a)
-        XCTAssertTrue(
+        XCTAssertFalse(
             LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
                 liveVADTurn: true,
                 spoken: identity,
                 identityLine: identity
-            )
+            ),
+            "live VAD desk write is a second mouth; Eve speaks identity"
         )
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
@@ -70,7 +71,7 @@ final class C1CD758WalkTests: XCTestCase {
             LiveVADPlayerKeep.isEmptyEveSpeaksIdentityLie(
                 routingNotes: ["local build identity", BuildIdentity.fixture.dogfoodLine],
                 assistantReply: identity,
-                wrotePlayerPCM: true
+                wrotePlayerPCM: false
             )
         )
         XCTAssertFalse(GrokRealtime.shouldSendVerbatimCreate(liveVADTurn: true))
@@ -123,9 +124,9 @@ final class C1CD758WalkTests: XCTestCase {
         XCTAssertTrue(version.contains("speakDeskReply(line)"), version)
         XCTAssertTrue(version.contains("appendAssistant(line)"), version)
         XCTAssertTrue(version.contains("local build identity"), version)
-        XCTAssertTrue(
+        XCTAssertFalse(
             version.contains("claimLocalAssistantReply()"),
-            "drop A so write→player is the one version mouth"
+            "claimLocal cuts Eve mid-answer — a2727b1 voice-cut"
         )
         XCTAssertFalse(
             version.contains("eve speaks identity"),

@@ -1,21 +1,18 @@
 import Foundation
 
-/// Production first-ask version path. AppModel.handleLiveUser and
-/// AppModel.speakDeskReply call these same functions. Eve PCM is
-/// `LiveVADPlayerKeep.shouldPlayBargeAudio` — the body
-/// GrokVoiceService.shouldPlayBargeAudio wraps. Mute during the
-/// identity write only. Drain is `returnToListenAfterDeskTTS()` —
-/// AppModel calls that one method; it forwards to
-/// `LiveVADPlayerKeep.returnToListenAfterDeskTTS` (same body
-/// `GrokVoiceService.returnToListenAfterDeskTTS` calls).
-/// Not flash-ready.
+/// Production spoken-loop seam. AppModel.handleLiveUser and
+/// AppModel.speakDeskReply call these same functions.
+///
+/// Live Talk: Eve is the mouth. handleLiveUser records a version ask;
+/// it does not mute Eve. speakDeskReply refuses desk PCM on live VAD
+/// (that write + Eve on the same turn is a2727b1 two-mouth). Offline /
+/// typed still writes identity. Mute flags and unmute-after-drain
+/// lived here and produced 8927c2d silence — they are gone.
 public struct LiveVersionAsk: Equatable, Sendable {
     public var identity: BuildIdentity
     public var liveVADTurn: Bool
     public var lastUserUtterance: String
     public var lastSpokenDeskReply: String?
-    public var dropAssistantOutput: Bool
-    public var clientTTSInFlight: Bool
     public var identityPCM: String?
     public var assistantReply: String
     public var voicePath: String
@@ -26,8 +23,6 @@ public struct LiveVersionAsk: Equatable, Sendable {
         liveVADTurn: Bool,
         lastUserUtterance: String = "",
         lastSpokenDeskReply: String? = nil,
-        dropAssistantOutput: Bool = false,
-        clientTTSInFlight: Bool = false,
         identityPCM: String? = nil,
         assistantReply: String = "",
         voicePath: String = "Eve realtime",
@@ -37,8 +32,6 @@ public struct LiveVersionAsk: Equatable, Sendable {
         self.liveVADTurn = liveVADTurn
         self.lastUserUtterance = lastUserUtterance
         self.lastSpokenDeskReply = lastSpokenDeskReply
-        self.dropAssistantOutput = dropAssistantOutput
-        self.clientTTSInFlight = clientTTSInFlight
         self.identityPCM = identityPCM
         self.assistantReply = assistantReply
         self.voicePath = voicePath
@@ -56,8 +49,7 @@ public struct LiveVersionAsk: Equatable, Sendable {
         !(identityPCM?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
-    /// AppModel.handleLiveUser version branch. `true` means claimLocal
-    /// — AppModel copies that to GrokVoiceService.suppressAssistantOutput.
+    /// AppModel.handleLiveUser version detect. Does not mute Eve.
     @discardableResult
     public mutating func handleLiveUser(_ raw: String, itemID: String? = nil) -> Bool {
         _ = itemID
@@ -65,7 +57,6 @@ public struct LiveVersionAsk: Equatable, Sendable {
         guard !text.isEmpty else { return false }
         guard ConversationPresence.wantsVersionAsk(text) else { return false }
         lastUserUtterance = text
-        dropAssistantOutput = true
         let line = ConversationPresence.spokenIdentityLine(for: text, identity: identity)
         assistantReply = line
         routingNotes = ["local build identity", identity.dogfoodLine]
@@ -73,39 +64,25 @@ public struct LiveVersionAsk: Equatable, Sendable {
         return true
     }
 
-    /// AppModel.speakDeskReply. Live VAD writes the identity line only.
+    /// AppModel.speakDeskReply. Live VAD returns false so Eve stays
+    /// the only mouth. Offline / typed writes identity PCM.
     @discardableResult
     public mutating func speakDeskReply(_ text: String) -> Bool {
         guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {
             return false
         }
-        if liveVADTurn {
-            let identityLine = ConversationPresence.spokenIdentityLine(
+        if !LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
+            liveVADTurn: liveVADTurn,
+            spoken: spoken,
+            identityLine: ConversationPresence.spokenIdentityLine(
                 for: lastUserUtterance,
                 identity: identity
             )
-            if !LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
-                liveVADTurn: true,
-                spoken: spoken,
-                identityLine: identityLine
-            ) {
-                return false
-            }
+        ) {
+            return false
         }
         lastSpokenDeskReply = spoken
-        clientTTSInFlight = true
         identityPCM = spoken
         return true
-    }
-
-    /// AppModel.speakDeskReply after `voice.speak`. Mutates this
-    /// session's flags — do not pass two `&liveVersionAsk` inouts
-    /// (Observation writeback aliases). 8927c2d leftover of the
-    /// inner call cleared clientTTS only; drop stayed stuck.
-    public mutating func returnToListenAfterDeskTTS() {
-        LiveVADPlayerKeep.returnToListenAfterDeskTTS(
-            dropAssistantOutput: &dropAssistantOutput,
-            clientTTSInFlight: &clientTTSInFlight
-        )
     }
 }

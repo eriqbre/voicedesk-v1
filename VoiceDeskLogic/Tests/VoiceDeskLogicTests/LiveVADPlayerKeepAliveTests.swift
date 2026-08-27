@@ -161,9 +161,9 @@ final class LiveVADPlayerKeepAliveTests: XCTestCase {
         } else {
             XCTFail("appendUser before fulfill")
         }
-        XCTAssertTrue(
+        XCTAssertFalse(
             handleUser.contains("deskWritesIdentity"),
-            "version claimLocal is the identity mouth; inbox still unmutes Eve"
+            "version claimLocal cut Eve; inbox and version both leave her the mouth"
         )
         XCTAssertFalse(handleUser.contains("Here they are"), handleUser)
 

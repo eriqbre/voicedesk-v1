@@ -81,15 +81,13 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
 
     /// First-answer PCM on the player is this turn's mouth. Do not
     /// latch it cancelled. speech_started already dropped leftover.
-    /// Version identity write is the exception: desk is the mouth,
-    /// so drop Eve or ask 1 is two voices.
+    /// Version ask is not a barge — Eve finishes; interrupt is the
+    /// next turn only on a real command.
     public static func shouldInterruptOnUserTranscript(
         alreadyBarged: Bool,
-        hasPendingPlayback: Bool,
-        deskWritesIdentity: Bool = false
+        hasPendingPlayback: Bool
     ) -> Bool {
         if alreadyBarged { return false }
-        if deskWritesIdentity { return true }
         if hasPendingPlayback { return false }
         return true
     }
@@ -121,27 +119,10 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
             && !wrotePlayerPCM
     }
 
-    /// a2727b1: claimLocal set `dropAssistantTranscript` only.
-    /// Eve `output_audio.delta` still hit the player while
-    /// `speak()` wrote identity. Two mouths. Suppress and the
-    /// identity write must both mute Eve PCM during the write.
-    /// After drain, `returnToListenAfterDeskTTS` clears both flags.
-    /// 8927c2d leftover cleared `clientTTSInFlight` only — drop
-    /// stayed true and later Eve was silent.
-    public static func shouldPlayEveAudio(
-        dropAssistantOutput: Bool,
-        clientTTSInFlight: Bool
-    ) -> Bool {
-        !dropAssistantOutput && !clientTTSInFlight
-    }
-
     /// Production `GrokVoiceService.shouldPlayBargeAudio` body.
-    /// a2727b1 leftover was `shouldScheduleAfterBarge` only — Eve
-    /// still played after identity write. The Eve mute is this
-    /// `shouldPlayEveAudio` guard. Wrapper only increments reject count.
+    /// Barge-only. Mute flags (`dropAssistantOutput` /
+    /// `clientTTSInFlight`) hid Eve and stuck (8927c2d silence).
     public static func shouldPlayBargeAudio(
-        dropAssistantOutput: Bool,
-        clientTTSInFlight: Bool,
         bargeConsumed: Bool,
         deltaResponseID: String?,
         cancelledResponseID: String?,
@@ -151,10 +132,6 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
         lastScheduledResponseID: String?,
         hasPendingPlayback: Bool
     ) -> Bool {
-        guard shouldPlayEveAudio(
-            dropAssistantOutput: dropAssistantOutput,
-            clientTTSInFlight: clientTTSInFlight
-        ) else { return false }
         let answerID = GrokRealtime.interruptAnswerID(
             createdAwaitingAudioID: createdAwaitingAudioID,
             lastCreatedResponseID: lastCreatedResponseID,
@@ -171,27 +148,15 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
         )
     }
 
-    /// Live VAD may write the identity line to the one player.
-    /// Inbox stubs stay silent — no client “Here they are.”
+    /// Live Talk: Eve is the mouth. Desk PCM on a live VAD turn is
+    /// the second mouth (a2727b1). Inbox stubs stay silent.
     public static func shouldWriteLiveDeskLineToPlayer(
         liveVADTurn: Bool,
         spoken: String,
         identityLine: String
     ) -> Bool {
-        guard liveVADTurn else { return true }
+        if liveVADTurn { return false }
         let line = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty, !identityLine.isEmpty else { return false }
-        return line == identityLine
-    }
-
-    /// Flag-clear body of `GrokVoiceService.returnToListenAfterDeskTTS`.
-    /// 8927c2d leftover: `clientTTSInFlight = false` only. Drop stayed
-    /// true — following Eve delta is `shouldPlayBargeAudio` false.
-    public static func returnToListenAfterDeskTTS(
-        dropAssistantOutput: inout Bool,
-        clientTTSInFlight: inout Bool
-    ) {
-        clientTTSInFlight = false
-        dropAssistantOutput = false
+        return !line.isEmpty && !identityLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
