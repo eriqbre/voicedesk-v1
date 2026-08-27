@@ -333,6 +333,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(loop.contains("delayedYankAfterReturnToListenThenDelayedRepairLandsThird"), loop)
         XCTAssertTrue(loop.contains("delayedSilentTapRepairMilliseconds"), loop)
         XCTAssertTrue(loop.contains("shouldScheduleDelayedSilentTapRepairAfterDrain"), loop)
+        XCTAssertTrue(loop.contains("shouldApplyDelayedSilentTapRepair"), loop)
         XCTAssertTrue(
             loopTests.contains("testDelayedYankAfterReturnToListenThenDelayedRepairLandsThird"),
             loopTests
@@ -380,7 +381,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(delayedRepair.contains("while "), delayedRepair)
         XCTAssertFalse(delayedRepair.contains("for _ in"), delayedRepair)
         XCTAssertTrue(delayedRepair.contains("Task.sleep"), delayedRepair)
-        XCTAssertTrue(delayedRepair.contains("reinstallTapIfSilentWhileRunning"), delayedRepair)
+        XCTAssertTrue(delayedRepair.contains("reinstallTapIfYankedWhileRunning"), delayedRepair)
+        XCTAssertFalse(
+            delayedRepair.contains("reinstallTapIfSilentWhileRunning"),
+            "delayed check must not tear down a live tap — drain-time reinstall is the always path"
+        )
         XCTAssertTrue(service.contains("var listenLoopEngine"), service)
         XCTAssertTrue(service.contains("onMicFrame"), service)
         XCTAssertTrue(service.contains("func startListenLoopAudioForTests()"), service)
@@ -822,6 +827,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("generation == stopped"), engine)
         XCTAssertTrue(engine.contains("reinstallTap"), engine)
         XCTAssertTrue(engine.contains("reinstallTapIfSilentWhileRunning"), engine)
+        XCTAssertTrue(engine.contains("reinstallTapIfYankedWhileRunning"), engine)
         XCTAssertTrue(engine.contains("simulateSystemTapDetachLeavingEngineRunning"), engine)
         XCTAssertTrue(engine.contains("simulateHALTapYankLeavingInstalledFlagTrue"), engine)
         XCTAssertTrue(engine.contains("AVAudioEngineConfigurationChange"), engine)

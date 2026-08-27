@@ -308,6 +308,22 @@ final class FirstHearTapLoopTests: XCTestCase {
             )
         )
         XCTAssertEqual(FirstHearTapLoop.delayedSilentTapRepairMilliseconds, 400)
+        XCTAssertFalse(
+            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
+                engineRunning: true,
+                wantsCapture: true,
+                tapObjectMissing: false
+            ),
+            "healthy tap must not be torn down — that raced leftover barge"
+        )
+        XCTAssertTrue(
+            FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
+                engineRunning: true,
+                wantsCapture: true,
+                tapObjectMissing: true
+            ),
+            "HAL yank leaves tap nil — delayed check puts it back"
+        )
         let first = FirstHearTapLoop.commandPCM(1)
         let second = FirstHearTapLoop.commandPCM(2)
         let third = FirstHearTapLoop.commandPCM(3)

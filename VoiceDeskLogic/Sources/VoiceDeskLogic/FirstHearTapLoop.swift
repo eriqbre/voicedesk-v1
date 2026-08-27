@@ -54,6 +54,17 @@ public struct FirstHearTapLoop: Equatable, Sendable {
         wantsCapture && engineRunning
     }
 
+    /// Delayed check after drain. Reinstall only if the HAL tap object
+    /// is gone. A healthy tap must not be torn down — that raced the
+    /// barge VoiceTape and leftover latch (ed0b5ef composed 53s).
+    public static func shouldApplyDelayedSilentTapRepair(
+        engineRunning: Bool,
+        wantsCapture: Bool,
+        tapObjectMissing: Bool
+    ) -> Bool {
+        wantsCapture && engineRunning && tapObjectMissing
+    }
+
     /// bf0af19 / 415c955: trusted `tapInstalled`. HAL yank left the
     /// flag true, so the repair no-oped and the third never landed.
     public static func bf0af19ShouldReinstallTapIfSilentWhileRunning(
@@ -614,13 +625,10 @@ public struct FirstHearTapLoop: Equatable, Sendable {
                 }
             }
             if afterDrain == .drainThenDelayedYankThenDelayedRepair,
-               shouldScheduleDelayedSilentTapRepairAfterDrain(
-                wantsCapture: true,
-                engineRunning: true
-               ),
-               shouldReinstallTapIfSilentWhileRunning(
+               shouldApplyDelayedSilentTapRepair(
                 engineRunning: true,
-                wantsCapture: true
+                wantsCapture: true,
+                tapObjectMissing: !tapLive
                ) {
                 tapLive = true
             }

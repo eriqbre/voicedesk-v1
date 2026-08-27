@@ -199,7 +199,7 @@ final class GrokVoiceService: VoiceServicing {
             let delay = FirstHearTapLoop.delayedSilentTapRepairMilliseconds
             try? await Task.sleep(for: .milliseconds(delay))
             guard !Task.isCancelled else { return }
-            self?.audio.reinstallTapIfSilentWhileRunning()
+            self?.audio.reinstallTapIfYankedWhileRunning()
         }
     }
 

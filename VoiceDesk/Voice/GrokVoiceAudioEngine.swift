@@ -101,6 +101,18 @@ final class GrokVoiceAudioEngine {
         reinstallTap()
     }
 
+    /// Delayed check after drain. HAL yank leaves `tap == nil` and the
+    /// installed flag true. Do not tear down a live tap — that raced
+    /// leftover barge. Do not increment `startCount`.
+    func reinstallTapIfYankedWhileRunning() {
+        guard FirstHearTapLoop.shouldApplyDelayedSilentTapRepair(
+            engineRunning: engine?.isRunning ?? false,
+            wantsCapture: wantsCapture,
+            tapObjectMissing: tap == nil
+        ) else { return }
+        reinstallTap()
+    }
+
     /// Sim HAL often leaves the tap up when we only post a session event.
     /// Real iOS (fe1ffc8 / fa72e1c / 18d5878 / 415c955) yanks the tap and
     /// leaves `engine.isRunning` true, so `startAudioIfNeeded` no-ops.
