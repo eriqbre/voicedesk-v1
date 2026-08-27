@@ -546,7 +546,7 @@ final class AppModelListenLoopTests: XCTestCase {
 
     /// Honesty: after first write→player desk TTS (version line),
     /// `engine.isRunning` + listenArmed/stayLive is not enough.
-    /// 552ef0c left the tap silent (rate zero) while those flags
+    /// 552ef0c left the tap silent (rate zero) and those flags
     /// stayed true. ~21s later DidClose 1000 stayIdle. This gate
     /// fails that lie. Do not restore resumeCapture / tap-rearm.
     /// Next spoken command PCM through the SAME live tap is the
