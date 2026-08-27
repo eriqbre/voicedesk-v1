@@ -331,6 +331,9 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(service.contains("listenLoopUsesTestSendSink"), service)
         XCTAssertTrue(service.contains("listenLoopHasProductionSendTask"), service)
         XCTAssertTrue(service.contains("func waitUntilListenLoopQueuedTurnClosed()"), service)
+        XCTAssertTrue(service.contains("listenLoopResponseCreatedCount"), service)
+        XCTAssertTrue(service.contains("func waitUntilListenLoopResponseCreated"), service)
+        XCTAssertTrue(service.contains("func waitUntilListenLoopHasProductionSendTask"), service)
         let waitUntil = speakSlice(
             service,
             from: "func waitUntilListenLoopQueuedTurnClosed() async {",
@@ -584,6 +587,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
             live
         )
         XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSGrokCreatesResponse"),
+            live
+        )
+        XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"),
             live
         )
@@ -828,7 +835,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let idleClose = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSRecoversNextCommand",
-            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+            to: "func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSGrokCreatesResponse"
         )
         XCTAssertTrue(idleClose.contains("GrokVoiceService("), idleClose)
         XCTAssertTrue(idleClose.contains("AppModel("), idleClose)
@@ -921,6 +928,111 @@ final class ListenLoopSourceContractTests: XCTestCase {
         } else {
             XCTFail("stayLive=false close must idle, DidClose, prove a real task, then feed PCM 2")
         }
+        let grokCreates = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSGrokCreatesResponse",
+            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+        )
+        XCTAssertTrue(grokCreates.contains("GrokVoiceService("), grokCreates)
+        XCTAssertTrue(grokCreates.contains("AppModel("), grokCreates)
+        XCTAssertTrue(grokCreates.contains("startListenLoopAudioForTests"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("VoiceTape.shouldSkipLive"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("VoiceDeskSecrets.xaiAPIKey"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("voiceTapePCM16"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("mint-voice-tapes.sh"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("feedVoiceTapeThroughLiveTap"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("listenLoopPhoneStayLive"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("simulateListenLoopSocketClose1000"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("listenLoopRecoverCount"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("listenLoopHasProductionSendTask"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("waitUntilListenLoopHasProductionSendTask"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("listenLoopResponseCreatedCount"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("waitUntilListenLoopResponseCreated"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("response.created"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("415c955"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("engine.startCount"), grokCreates)
+        XCTAssertTrue(grokCreates.contains("transcript injects do not count"), grokCreates)
+        XCTAssertFalse(
+            grokCreates.contains("simulateListenLoopSocketDidOpenThenSessionReady"),
+            "paper DidOpen is not live Grok"
+        )
+        XCTAssertFalse(grokCreates.contains("attachTestSendRecorder"), grokCreates)
+        XCTAssertFalse(grokCreates.contains("attachListenLoopSendTaskForTests"), grokCreates)
+        XCTAssertFalse(
+            grokCreates.contains("ListenLoopWebSocketLoopback"),
+            "f2fb4f5 loopback only proves we talk to ourselves"
+        )
+        XCTAssertFalse(
+            grokCreates.contains("setListenLoopRealtimeURLOverrideForTests"),
+            "do not point recover at a loopback we control"
+        )
+        XCTAssertFalse(
+            grokCreates.contains("listenLoopDeliveredAudioPCM"),
+            "delivered PCM is the testSendSink recorder — live Grok must create a response"
+        )
+        XCTAssertFalse(grokCreates.contains("applyUserTurn"), grokCreates)
+        XCTAssertFalse(grokCreates.contains("emitUser"), grokCreates)
+        XCTAssertFalse(grokCreates.contains("FakeLiveVoiceService"), grokCreates)
+        XCTAssertFalse(grokCreates.contains("quietCommitMaxPostponeMs"), grokCreates)
+        if let firstFeed = grokCreates.range(of: "feedTapPCM16(command1)"),
+           let speakAt = grokCreates.range(of: "InboxGlance.spokenListAck"),
+           let secondFeed = grokCreates.range(of: "feedTapPCM16(command2)"),
+           let idleAt = grokCreates.range(of: "simulateListenLoopIdleAfterDeskTTSPhoneLog"),
+           let closeAt = grokCreates.range(of: "simulateListenLoopSocketClose1000"),
+           let taskAt = grokCreates.range(of: "waitUntilListenLoopHasProductionSendTask"),
+           let beforeAt = grokCreates.range(of: "createdBeforeCommand3"),
+           let tapeAt = grokCreates.range(of: "feedVoiceTapeThroughLiveTap"),
+           let createdAt = grokCreates.range(of: "waitUntilListenLoopResponseCreated") {
+            XCTAssertLessThan(
+                firstFeed.lowerBound,
+                speakAt.lowerBound,
+                "command PCM 1 must be before write→player drain"
+            )
+            XCTAssertLessThan(
+                speakAt.lowerBound,
+                secondFeed.lowerBound,
+                "talk again must be after write→player drain"
+            )
+            XCTAssertLessThan(
+                secondFeed.lowerBound,
+                idleAt.lowerBound,
+                "two PCM turns must land before the phone-log idle"
+            )
+            XCTAssertLessThan(
+                idleAt.lowerBound,
+                closeAt.lowerBound,
+                "phone-log idle must come before DidClose 1000"
+            )
+            XCTAssertLessThan(
+                closeAt.lowerBound,
+                taskAt.lowerBound,
+                "recover must prove opened && task before the third command"
+            )
+            XCTAssertLessThan(
+                taskAt.lowerBound,
+                beforeAt.lowerBound,
+                "snapshot response.created after recover, not before"
+            )
+            XCTAssertLessThan(
+                beforeAt.lowerBound,
+                tapeAt.lowerBound,
+                "415c955 flushed leftovers must not count as the third-command response"
+            )
+            XCTAssertLessThan(
+                tapeAt.lowerBound,
+                createdAt.lowerBound,
+                "response.created must be asserted after the VoiceTape third command"
+            )
+        } else {
+            XCTFail("live Grok gate must talk, answer, talk again, idle, DidClose, recover, then require response.created")
+        }
+        let sendTask = speakSlice(
+            try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoice.swift")),
+            from: "var hasProductionSendTask: Bool {",
+            to: "var productionWebSocketTaskForTests"
+        )
+        XCTAssertTrue(sendTask.contains("opened && task != nil && !testSendSink"), sendTask)
         let deadSocket = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand",

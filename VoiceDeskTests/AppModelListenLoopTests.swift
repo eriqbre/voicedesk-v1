@@ -636,6 +636,136 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// f2fb4f5 proved recover can talk to OUR loopback. That is not
+    /// Grok answering. 415c955 first-hear-then-deaf: two spoken
+    /// commands land, write→player TTS, then idle + close 1000
+    /// stayLive=false stayIdle, and the next command is never heard
+    /// (`sendRaw` no-op unless opened && task).
+    ///
+    /// After that exact death, recover must open production send
+    /// (`opened && task && !testSendSink`) to live Grok — the existing
+    /// VoiceTape PCM path, not a loopback we control. The third
+    /// command through the same tap must produce `response.created`.
+    /// Transcript injects do not count. `startCount` stays 1.
+    /// No key / no minted tape → skip, never fail CI.
+    func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSGrokCreatesResponse() async throws {
+        let apiKey = VoiceDeskSecrets.xaiAPIKey
+        if VoiceTape.shouldSkipLive(hasAPIKey: apiKey != nil) {
+            throw XCTSkip("skip: no XAI_API_KEY. Live Grok loop not run.")
+        }
+        let tape = VoiceTape.catalog[0]
+        guard let tapePCM = Self.voiceTapePCM16(id: tape.id) else {
+            throw XCTSkip("skip: mint WAVs on a Mac: ./scripts/mint-voice-tapes.sh")
+        }
+        let voice = GrokVoiceService(apiKey: apiKey!)
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let command3 = Self.voiceTapeChunk(tapePCM, index: 0)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(
+            session: session,
+            commands: [command1, command2, command3],
+            noise: nil
+        )
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        voice.startListenLoopAudioForTests()
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command1)
+        XCTAssertEqual(sink.turns, [command1], "command PCM 1 through the live tap is a turn")
+        XCTAssertEqual(engine.startCount, 1)
+
+        await voice.speak(InboxGlance.spokenListAck())
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before the next tap turn")
+        XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
+        XCTAssertTrue(voice.listenLoopStayLive)
+
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink.turns, [command1, command2], "command PCM 2 after drain is the next turn — 415c955 required a repeat")
+        XCTAssertEqual(engine.startCount, 1, "talk again must not audio.start")
+
+        voice.simulateListenLoopIdleAfterDeskTTSPhoneLog()
+        XCTAssertFalse(voice.listenLoopArmed, "phone log: state=idle, listen not armed")
+        XCTAssertFalse(
+            voice.listenLoopPhoneStayLive,
+            "415c955 stayLive was listen-armed — idle after TTS is stayLive=false"
+        )
+        XCTAssertNotEqual(
+            voice.listenLoopClose1000,
+            .stayIdle,
+            "live conversation must reconnect on 1000 even if VoiceSession is idle"
+        )
+
+        await voice.simulateListenLoopSocketClose1000()
+        XCTAssertTrue(engine.isRunning, "DidClose 1000 after desk TTS must not audio.stop")
+        XCTAssertEqual(engine.startCount, 1, "reconnect must not audio.start")
+        XCTAssertGreaterThan(
+            voice.listenLoopRecoverCount,
+            0,
+            "415c955 stayLive=false stayIdle never recovered"
+        )
+        XCTAssertFalse(
+            voice.listenLoopUsesTestSendSink,
+            "do not re-arm testSendSink after recover — that is 415c955 first-hear-then-deaf"
+        )
+        XCTAssertTrue(
+            await voice.waitUntilListenLoopHasProductionSendTask(),
+            "phone sendRaw only sends when opened && task — recover must reach live Grok"
+        )
+        XCTAssertTrue(voice.listenLoopHasProductionSendTask)
+        XCTAssertNotNil(voice.listenLoopProductionWebSocketTask)
+        XCTAssertTrue(voice.listenLoopProductionWebSocketTask is URLSessionWebSocketTask)
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        try? await Task.sleep(for: .seconds(2))
+        let createdBeforeCommand3 = voice.listenLoopResponseCreatedCount
+
+        await Self.feedVoiceTapeThroughLiveTap(engine, pcm: tapePCM)
+        XCTAssertEqual(
+            sink.turns,
+            [command1, command2, command3],
+            "command PCM 3 after the phone-log close is the next turn"
+        )
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(
+            await voice.waitUntilListenLoopResponseCreated(after: createdBeforeCommand3),
+            "third command after 415c955 idle+1000 must produce response.created from live Grok — loopback bytes do not count"
+        )
+        XCTAssertGreaterThan(voice.listenLoopResponseCreatedCount, createdBeforeCommand3)
+        XCTAssertTrue(voice.listenLoopHasProductionSendTask)
+        XCTAssertFalse(voice.listenLoopUsesTestSendSink)
+        XCTAssertEqual(engine.startCount, 1, "live Grok turn must not audio.start")
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.count,
+            0,
+            "transcript injects do not count"
+        )
+
+        voice.cancel()
+    }
+
     /// After drain + DidClose 1000, command PCM 2 through the same tap
     /// while the send task is still nil. 15dcc7d accepted that on the
     /// tap observer and `sendRaw` dropped it. Attach-send-task then
@@ -2254,6 +2384,49 @@ final class AppModelListenLoopTests: XCTestCase {
 
     private static func speechShapedPCM(hertz: Double) -> Data {
         pcm16(seconds: 0.12, hertz: hertz)
+    }
+
+    /// Same 100 ms chunk the VoiceTape harness sends (`CHUNK_FRAMES = 2400`).
+    private static let voiceTapeChunkFrames = 2400
+
+    private static func voiceTapePCM16(id: String) -> Data? {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let wav = url
+                .appendingPathComponent("VoiceDeskLogic/Tests/VoiceDeskLogicTests/Fixtures/voice-tapes")
+                .appendingPathComponent("\(id).wav")
+            if let data = try? Data(contentsOf: wav) {
+                return VoiceTape.pcm16LE(fromWAV: data)
+            }
+        }
+        return nil
+    }
+
+    private static func voiceTapeChunk(_ pcm: Data, index: Int) -> Data {
+        let frameBytes = voiceTapeChunkFrames * MemoryLayout<Int16>.size
+        let start = index * frameBytes
+        guard start < pcm.count else { return pcm }
+        let end = min(start + frameBytes, pcm.count)
+        return Data(pcm[start..<end])
+    }
+
+    /// Existing tape harness path: PCM16 24 kHz chunks + 600 ms silence.
+    /// Do not invent a second live socket.
+    private static func feedVoiceTapeThroughLiveTap(
+        _ engine: GrokVoiceAudioEngine,
+        pcm: Data
+    ) async {
+        let frameBytes = voiceTapeChunkFrames * MemoryLayout<Int16>.size
+        var offset = 0
+        while offset < pcm.count {
+            let end = min(offset + frameBytes, pcm.count)
+            engine.feedTapPCM16(Data(pcm[offset..<end]))
+            offset = end
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        let silenceBytes = Int(GrokVoiceAudioEngine.sampleRate * 0.6) * MemoryLayout<Int16>.size
+        engine.feedTapPCM16(Data(count: silenceBytes))
     }
 
     /// Broadband command tail. Mixed formants + deterministic noise.

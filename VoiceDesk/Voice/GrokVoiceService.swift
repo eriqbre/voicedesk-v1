@@ -46,6 +46,8 @@ final class GrokVoiceService: VoiceServicing {
     private var clientTTSInFlight = false
     /// How many times socket recover ran. Tests only — not a second loop.
     private var recoverAfterDropCount = 0
+    /// Live `response.created` events. Tests only — not a second loop.
+    private var responseCreatedCountForTests = 0
     /// Same frames the live tap sends to Grok. Tests only — not a second loop.
     /// The HAL tap is Sendable; this box is captured like `socket`, not read
     /// off `self` inside that closure.
@@ -528,6 +530,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             clientTTSInFlight = false
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
+            responseCreatedCountForTests += 1
             currentResponseID = id
             assistantGate.reset()
             guard ListenResumePolicy.shouldApplyGrokSpeakStarted(
@@ -684,6 +687,27 @@ extension GrokVoiceService {
             }
             try? await Task.sleep(for: .milliseconds(20))
         }
+    }
+
+    /// Live Grok (or a protocol-complete peer) created a response.
+    var listenLoopResponseCreatedCount: Int { responseCreatedCountForTests }
+
+    func waitUntilListenLoopHasProductionSendTask(timeoutSeconds: Double = 12) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while ContinuousClock.now < deadline {
+            if listenLoopHasProductionSendTask { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return listenLoopHasProductionSendTask
+    }
+
+    func waitUntilListenLoopResponseCreated(after: Int, timeoutSeconds: Double = 45) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while ContinuousClock.now < deadline {
+            if listenLoopResponseCreatedCount > after { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return listenLoopResponseCreatedCount > after
     }
 }
 
