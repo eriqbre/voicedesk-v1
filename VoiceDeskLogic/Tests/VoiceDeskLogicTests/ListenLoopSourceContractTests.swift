@@ -121,7 +121,22 @@ final class ListenLoopSourceContractTests: XCTestCase {
     func testSpeechStartedAndTranscriptDoNotCancelPlayback() throws {
         let speak = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
         XCTAssertFalse(speak.contains("applyBargeInIfNeeded"), speak)
-        XCTAssertTrue(speak.contains("shouldApplyGrokSpeakStarted"), speak)
+        XCTAssertFalse(
+            speak.contains("shouldApplyGrokSpeakStarted"),
+            "Grok created leftover is deleted — do not re-arm speakStarted on response.created"
+        )
+        let created = speakSlice(speak, from: "case .responseCreated", to: "case .assistantTranscriptDelta")
+        XCTAssertFalse(
+            created.contains("apply(.speakStarted)"),
+            "Grok created must not park speaking — that disarms listen (415c955)"
+        )
+        let policy = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/ListenResumePolicy.swift"))
+        let speakStartedPolicy = speakSlice(
+            policy,
+            from: "public static func shouldApplyGrokSpeakStarted",
+            to: "public static func shouldApplyGrokTurnFinished"
+        )
+        XCTAssertTrue(speakStartedPolicy.contains("return false"), speakStartedPolicy)
         let speech = speakSlice(speak, from: "case .speechStarted:", to: "case .speechStopped:")
         XCTAssertFalse(speech.contains("interruptAssistant"), speech)
         XCTAssertFalse(speech.contains("interruptPlayback"), speech)
@@ -1238,6 +1253,14 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(stayArmed.contains("engine.startCount"), stayArmed)
         XCTAssertTrue(stayArmed.contains("transcript injects do not count"), stayArmed)
         XCTAssertTrue(stayArmed.contains("415c955"), stayArmed)
+        XCTAssertTrue(
+            stayArmed.contains("Grok response.created must not park .speaking and disarm listen"),
+            stayArmed
+        )
+        XCTAssertTrue(
+            stayArmed.contains("stayLive must survive VoiceTape 2"),
+            stayArmed
+        )
         XCTAssertFalse(
             stayArmed.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"),
             "do not simulate the 415c955 idle death — do not die"

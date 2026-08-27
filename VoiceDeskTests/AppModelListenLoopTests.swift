@@ -1088,8 +1088,14 @@ final class AppModelListenLoopTests: XCTestCase {
         XCTAssertGreaterThan(voice.listenLoopResponseCreatedCount, createdBeforeCommand2)
         XCTAssertTrue(voice.listenLoopHasProductionSendTask)
         XCTAssertEqual(voice.listenLoopRecoverCount, 0)
-        XCTAssertTrue(voice.listenLoopArmed)
-        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertTrue(
+            voice.listenLoopArmed,
+            "Grok response.created must not park .speaking and disarm listen — 415c955 first-hear-then-deaf on the next next turn"
+        )
+        XCTAssertTrue(
+            voice.listenLoopStayLive,
+            "stayLive must survive VoiceTape 2 — 415c955 stayLive=false after she talks"
+        )
         XCTAssertEqual(engine.startCount, 1)
         XCTAssertTrue(engine.isRunning)
         let liveUserTurns = model.turns.filter { $0.role == .user }

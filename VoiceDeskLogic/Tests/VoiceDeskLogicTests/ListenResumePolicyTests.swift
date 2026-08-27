@@ -83,7 +83,10 @@ final class ListenResumePolicyTests: XCTestCase {
         session.apply(.tapTalk)
         session.apply(.speakStarted)
         XCTAssertFalse(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: true))
-        XCTAssertTrue(ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: false))
+        XCTAssertFalse(
+            ListenResumePolicy.shouldApplyGrokSpeakStarted(clientTTSSpeaking: false),
+            "Grok created must not park .speaking — that disarms listen (415c955)"
+        )
         let after = ListenResumePolicy.afterClientTTSFinished(
             session: &session,
             userWantsVoiceOff: false,

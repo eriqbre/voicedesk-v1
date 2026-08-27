@@ -104,10 +104,12 @@ public enum ListenResumePolicy: Sendable {
         session.apply(sessionEventAfterDeskSpeak(state: session.state))
     }
 
-    /// Grok `response.created` during on-device TTS must not flip the
-    /// session to `.speaking`. Client TTS is listen-only.
+    /// Grok `response.created` must not flip the session to `.speaking`.
+    /// That leftover parked listen unarmed — 415c955 close 1000 stayIdle
+    /// after she talks. Grok audio plays through the one-engine player.
     public static func shouldApplyGrokSpeakStarted(clientTTSSpeaking: Bool) -> Bool {
-        !clientTTSSpeaking
+        _ = clientTTSSpeaking
+        return false
     }
 
     /// Leftover `response.done` during desk TTS must not leave listen.

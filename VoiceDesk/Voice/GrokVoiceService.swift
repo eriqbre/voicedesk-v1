@@ -535,10 +535,9 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             responseCreatedCountForTests += 1
             currentResponseID = id
             assistantGate.reset()
-            guard ListenResumePolicy.shouldApplyGrokSpeakStarted(
-                clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight
-            ) else { break }
-            apply(.speakStarted)
+            // Leftover Grok-created used to park VoiceSession speaking
+            // and disarm listen — 415c955 first-hear-then-deaf on the
+            // next close 1000. Audio plays on the one-engine player.
         case .assistantTranscriptDelta(let delta, let source):
             guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
             eventHandler?(.assistantTranscript(delta, isFinal: false))
