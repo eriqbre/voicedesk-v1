@@ -566,6 +566,34 @@ final class GrokRealtimeTests: XCTestCase {
             "kept lastScheduled after done arms leftover without treating lastCreated as a barge"
         )
         XCTAssertTrue(
+            GrokRealtime.shouldWriteScheduledLatchOnPlay(
+                existingScheduledID: nil,
+                bargeConsumed: false
+            ),
+            "first pending rise must write lastScheduled — nil != nil skips noteScheduled"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldWriteScheduledLatchOnPlay(
+                existingScheduledID: nil,
+                bargeConsumed: true
+            ),
+            "play after a pending-only barge must still latch — leftover inject needs the id"
+        )
+        XCTAssertTrue(
+            GrokRealtime.shouldWriteScheduledLatchOnPlay(
+                existingScheduledID: "resp_1",
+                bargeConsumed: false
+            ),
+            "first answer may refresh lastScheduled from created"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldWriteScheduledLatchOnPlay(
+                existingScheduledID: "resp_1",
+                bargeConsumed: true
+            ),
+            "after barge do not overwrite the cancelled first-answer latch with lastCreated"
+        )
+        XCTAssertTrue(
             GrokRealtime.shouldArmCommandBargeLatch(
                 alreadyBarged: false,
                 hasPendingPlayback: false,

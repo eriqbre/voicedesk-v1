@@ -337,6 +337,17 @@ public enum GrokRealtime {
             || nonemptyID(playingResponseID) != nil
     }
 
+    /// Any listen-loop player schedule must leave lastScheduled set.
+    /// Write when the latch is empty (binary/JSON `nil != nil` skipped
+    /// noteScheduled, or write→player). After barge, do not overwrite
+    /// a latch that already names the cancelled first answer.
+    public static func shouldWriteScheduledLatchOnPlay(
+        existingScheduledID: String?,
+        bargeConsumed: Bool
+    ) -> Bool {
+        nonemptyID(existingScheduledID) == nil || !bargeConsumed
+    }
+
     /// lastScheduled means an answer actually hit the player.
     /// First-answer `response.done` is the leftover window — keep
     /// the id so command barge after drain can arm leftover.

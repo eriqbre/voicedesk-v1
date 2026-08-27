@@ -156,7 +156,9 @@ final class GrokVoiceService: VoiceServicing {
         }
         clientTTSInFlight = true
         await ClientVoiceSpeech.shared.speak(trimmed) { [weak self] pcm in
-            self?.audio.playPCM16(pcm)
+            guard let self else { return }
+            self.audio.playPCM16(pcm)
+            self.noteFirstAnswerPlaying()
         }
         await waitUntilPlaybackDrained()
         returnToListenAfterDeskTTS()
@@ -463,9 +465,13 @@ final class GrokVoiceService: VoiceServicing {
 
     /// Grok PCM often omits `response_id`. Copy `response.created` (or
     /// the playback epoch) onto lastScheduled while the first answer
-    /// is on the player so barge can latch leftover.
+    /// is on the player so barge can latch leftover. If the play path
+    /// raised pending without a tag (`nil != nil` skip), still write.
     private func noteFirstAnswerPlaying() {
-        guard !bargeConsumed else { return }
+        guard GrokRealtime.shouldWriteScheduledLatchOnPlay(
+            existingScheduledID: lastScheduledResponseID,
+            bargeConsumed: bargeConsumed
+        ) else { return }
         let id = GrokRealtime.latchWhenFirstAnswerPlaying(
             existingScheduledID: lastScheduledResponseID,
             createdID: lastCreatedResponseID ?? createdAwaitingAudioID ?? currentResponseID,

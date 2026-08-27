@@ -29,6 +29,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertFalse(speak.contains("EarlyFinalHold"), speak)
         let speakFn = speakSlice(speak, from: "func speak(_ text: String) async {", to: "private func returnToListenAfterDeskTTS")
         XCTAssertFalse(speakFn.contains("echoGate.beginSpeaking"), speakFn)
+        XCTAssertTrue(speakFn.contains("playPCM16"), speakFn)
+        XCTAssertTrue(
+            speakFn.contains("noteFirstAnswerPlaying"),
+            "write→player must latch lastScheduled — pending rise without it leaves 1488 nil"
+        )
         XCTAssertTrue(speakFn.contains("waitUntilPlaybackDrained"), speakFn)
         XCTAssertTrue(speakFn.contains("returnToListenAfterDeskTTS"), speakFn)
         XCTAssertTrue(speak.contains("afterClientTTSFinished"), speak)
@@ -439,6 +444,25 @@ final class ListenLoopSourceContractTests: XCTestCase {
             binary.contains("noteFirstAnswerPlaying"),
             "first-answer binary must epoch-latch before barge when both tagged and cancelled are nil"
         )
+        if let playAt = binary.range(of: "playPCM16"),
+           let latchAt = binary.range(of: "noteFirstAnswerPlaying") {
+            XCTAssertLessThan(
+                playAt.lowerBound,
+                latchAt.lowerBound,
+                "pending rise must write lastScheduled on the same binary path"
+            )
+        } else {
+            XCTFail("binary path must play then noteFirstAnswerPlaying")
+        }
+        let noteFirst = speakSlice(
+            service,
+            from: "private func noteFirstAnswerPlaying",
+            to: "private func interruptAssistant"
+        )
+        XCTAssertTrue(
+            noteFirst.contains("shouldWriteScheduledLatchOnPlay"),
+            "empty lastScheduled after a play must still write — bargeConsumed must not skip the first latch"
+        )
         let noteScheduled = speakSlice(
             service,
             from: "private func noteScheduledResponse",
@@ -571,6 +595,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(realtime.contains("func shouldScheduleAfterBarge"), realtime)
         XCTAssertTrue(realtime.contains("func shouldArmCommandBargeLatch"), realtime)
         XCTAssertTrue(realtime.contains("func keepScheduledLatchAfterResponseDone"), realtime)
+        XCTAssertTrue(realtime.contains("func shouldWriteScheduledLatchOnPlay"), realtime)
         XCTAssertTrue(realtime.contains("func shouldResetBargeAfterResponseDone"), realtime)
         XCTAssertTrue(realtime.contains("func cancelledPlaybackResponseID"), realtime)
         XCTAssertTrue(realtime.contains("func scheduledResponseID"), realtime)
