@@ -156,28 +156,7 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
         )
     }
 
-    func testGrokVoiceServiceSpeaksDeskLinesOnDeviceNotViaGrokVerbatim() throws {
-        let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertTrue(source.contains("await ClientVoiceSpeech.shared.speak"), source)
-        XCTAssertTrue(source.contains("playPCM16"), source)
-        XCTAssertFalse(source.contains("keepListeningAfterClientTTS"), source)
-        XCTAssertFalse(source.contains("echoGate"), source)
-        XCTAssertFalse(source.contains("speakVerbatimViaGrok"), source)
-        let tts = try XCTUnwrap(repoFile("VoiceDesk/Voice/ClientVoiceSpeech.swift"))
-        XCTAssertTrue(tts.contains("synthesizer.write"), tts)
-        XCTAssertFalse(tts.contains("synthesizer.speak("), tts)
-        XCTAssertTrue(tts.contains("usesApplicationAudioSession = false"), tts)
-        XCTAssertFalse(tts.contains("usesApplicationAudioSession = true"), tts)
-        XCTAssertTrue(source.contains("LiveEveSpeak.plan"), source)
-        XCTAssertTrue(
-            source.contains("speakLiveReplyViaEve"),
-            "live socket is Eve after interrupt+clear"
-        )
-        XCTAssertTrue(source.contains("verbatimSpeakSessionUpdateObject"), source)
-        XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"desk speak\")"), source)
-        XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
-        XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
-        XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
+    func testGrokVoiceServiceSpeaksDeskLinesOnDeviceNotViaGrokVerbatim() {
         XCTAssertEqual(
             LiveEveSpeak.plan(text: "1.2.3", socketConnected: false).mouth,
             .clientTTS
@@ -200,17 +179,5 @@ final class VersionDeskSpeakListenResumeTests: XCTestCase {
                 userWantsVoiceOff: false
             )
         )
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
     }
 }

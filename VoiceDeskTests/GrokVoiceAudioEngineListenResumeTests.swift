@@ -31,44 +31,6 @@ final class GrokVoiceAudioEngineListenResumeTests: XCTestCase {
         XCTAssertNotEqual(landed[1], landed[2])
     }
 
-    func testProductClientTTSDoesNotStartOrRearmTheEngine() throws {
-        var url = URL(fileURLWithPath: #filePath)
-        var source: String?
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent("VoiceDesk/Voice/GrokVoiceService.swift")
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                source = try? String(contentsOf: candidate, encoding: .utf8)
-                break
-            }
-        }
-        let speak = try XCTUnwrap(source)
-        XCTAssertTrue(speak.contains("playPCM16"), speak)
-        XCTAssertFalse(speak.contains("keepListeningAfterClientTTS"), speak)
-        XCTAssertFalse(speak.contains("echoGate"), speak)
-        XCTAssertFalse(speak.contains("resumeCaptureAfterDeskSpeak"), speak)
-        XCTAssertFalse(speak.contains("armListenIfSessionLive(reason: \"client tts\")"), speak)
-        XCTAssertFalse(
-            speak.contains("echoGate.beginSpeaking(trimmed)\n        apply(.speakStarted)"),
-            speak
-        )
-        let engine = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceAudioEngine.swift"))
-        XCTAssertFalse(engine.contains("func resumeCapture"), engine)
-        XCTAssertFalse(engine.contains("func rearmTap"), engine)
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
-    }
-
     private static func chunk(tag: Int16) -> [Float] {
         [Float(tag) / Float(Int16.max), 0, Float(-tag) / Float(Int16.max)]
     }

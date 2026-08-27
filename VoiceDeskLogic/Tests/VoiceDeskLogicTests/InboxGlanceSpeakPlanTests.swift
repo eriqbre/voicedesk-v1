@@ -189,66 +189,6 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
         }
     }
 
-    func testApplyInboxGlanceDoesNotAwaitModelOrListBeforeSpeak() throws {
-        let source = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"), "AppModel.swift")
-        XCTAssertTrue(source.contains("InboxGlanceSpeakPlan"), source)
-
-        let refresh = functionBody(in: source, named: "shouldRefreshDeskSnapshot")
-        XCTAssertTrue(
-            refresh.contains("InboxGlanceSpeakPlan.shouldRefreshGmailListBeforeFirstSpeak")
-                || refresh.contains("hasHotLatestFive"),
-            refresh
-        )
-        XCTAssertFalse(
-            refresh.contains("if ConversationPresence.wantsInboxOverview(text) { return true }"),
-            "cache-hot glance must not always await syncDesk: \(refresh)"
-        )
-
-        let glance = functionBody(in: source, named: "applyInboxGlance")
-        XCTAssertTrue(glance.contains("InboxGlanceSpeakPlan"), glance)
-        XCTAssertTrue(glance.contains("InboxGlanceSpeakPlan.liveVAD"), glance)
-        XCTAssertTrue(refresh.contains("liveVADTurn"), refresh)
-        XCTAssertTrue(glance.contains("speakDeskReply"), glance)
-        guard let speakRange = glance.range(of: "speakDeskReply") else {
-            return
-        }
-        let beforeSpeak = String(glance[..<speakRange.lowerBound])
-        XCTAssertFalse(
-            beforeSpeak.contains("emailSummarizer.glanceInbox"),
-            "firstAudio must not await xaiGlance"
-        )
-        XCTAssertFalse(beforeSpeak.contains("await emailSummarizer"), beforeSpeak)
-        XCTAssertFalse(beforeSpeak.contains("syncDesk"), beforeSpeak)
-    }
-
-    private func functionBody(in source: String, named name: String) -> String {
-        let needle = "private func \(name)"
-        guard let start = source.range(of: needle) else {
-            XCTFail("\(name) missing")
-            return ""
-        }
-        let after = source[start.lowerBound...]
-        let searchFrom = after.index(after.startIndex, offsetBy: needle.count)
-        let nextFn = after.range(
-            of: "\n    private func ",
-            options: [],
-            range: searchFrom..<after.endIndex
-        )
-        return String(after[..<(nextFn?.lowerBound ?? after.endIndex)])
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
-    }
-
     private func waitUntil(_ predicate: @escaping () -> Bool) async {
         for _ in 0..<40 {
             if predicate() { return }

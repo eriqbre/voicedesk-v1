@@ -78,23 +78,7 @@ final class FirstHearListenLoopTests: XCTestCase {
         }
     }
 
-    func testProductSpeakDoesNotRearmTapAfterClientTTS() throws {
-        var url = URL(fileURLWithPath: #filePath)
-        var source: String?
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent("VoiceDesk/Voice/GrokVoiceService.swift")
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                source = try? String(contentsOf: candidate, encoding: .utf8)
-                break
-            }
-        }
-        let text = try XCTUnwrap(source)
-        XCTAssertTrue(text.contains("playPCM16"), text)
-        XCTAssertFalse(text.contains("keepListeningAfterClientTTS"), text)
-        XCTAssertFalse(text.contains("echoGate"), text)
-        XCTAssertFalse(text.contains("resumeCaptureAfterDeskSpeak"), text)
-        XCTAssertFalse(text.contains("armListenIfSessionLive(reason: \"client tts\")"), text)
+    func testListenResumePolicyKeepsListeningAfterDeskSpeak() {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,

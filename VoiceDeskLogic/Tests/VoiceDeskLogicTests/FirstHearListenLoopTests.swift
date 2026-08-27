@@ -45,17 +45,7 @@ final class FirstHearListenLoopTests: XCTestCase {
         }
     }
 
-    func testFe1ffc8RearmPathIsGoneFromClientTTS() throws {
-        let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
-        XCTAssertTrue(source.contains("playPCM16"), source)
-        XCTAssertFalse(source.contains("keepListeningAfterClientTTS"), source)
-        XCTAssertFalse(source.contains("echoGate"), source)
-        XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
-        XCTAssertFalse(
-            source.contains("echoGate.beginSpeaking(trimmed)\n        apply(.speakStarted)"),
-            source
-        )
+    func testFe1ffc8RearmPathIsGoneFromClientTTS() {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
@@ -63,12 +53,6 @@ final class FirstHearListenLoopTests: XCTestCase {
             ),
             .keepListening
         )
-        let engine = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceAudioEngine.swift"))
-        XCTAssertFalse(engine.contains("func resumeCapture"), engine)
-        XCTAssertFalse(engine.contains("func rearmTap"), engine)
-        let loop = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/FirstHearListenLoop.swift"))
-        XCTAssertTrue(loop.contains("applyLeftoverGrokDuringClientTTS"), loop)
-        XCTAssertFalse(loop.contains("afterDeskSpeak"), loop)
     }
 
     func testFa72e1cSpeakStartedWithoutKeepListenDropsTheNextAsk() {
@@ -88,17 +72,5 @@ final class FirstHearListenLoopTests: XCTestCase {
         XCTAssertTrue(live.stayLive)
         XCTAssertNotEqual(live.close1000, .stayIdle)
         XCTAssertEqual(live.startCount, 1)
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
     }
 }

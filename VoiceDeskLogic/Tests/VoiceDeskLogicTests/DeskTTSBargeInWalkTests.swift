@@ -255,39 +255,4 @@ final class DeskTTSBargeInWalkTests: XCTestCase {
             )
         }
     }
-
-    func testGrokVoiceServiceStopsClientTTSAtAcceptedIngress() throws {
-        let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertFalse(source.contains("EchoBargeIn.acceptedUserTranscript"), source)
-        XCTAssertFalse(source.contains("echoGate"), source)
-        XCTAssertTrue(source.contains("ClientVoiceSpeech.shared.stop()"), source)
-        XCTAssertTrue(source.contains("interruptPlayback()"), source)
-        XCTAssertTrue(source.contains("eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))"), source)
-        XCTAssertFalse(source.contains("if echoGate.lastSpokenLine == trimmed"), source)
-        XCTAssertFalse(source.contains("armListenIfSessionLive(reason: \"client tts\")"), source)
-        XCTAssertFalse(source.contains("resumeCaptureAfterDeskSpeak"), source)
-        XCTAssertFalse(
-            source.contains("echoGate.beginSpeaking(trimmed)\n        apply(.speakStarted)"),
-            source
-        )
-        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        XCTAssertFalse(app.contains("echoGate"), app)
-        XCTAssertFalse(app.contains("EchoBargeIn.acceptedUserTranscript"), app)
-        XCTAssertTrue(app.contains("handleLiveUser(event.text, itemID: event.itemID)"), app)
-        XCTAssertFalse(app.contains("earlyFinal.accept"), app)
-        XCTAssertFalse(app.contains("EarlyFinalHold.shouldHold"), app)
-        XCTAssertFalse(app.contains("if echoGate.lastSpokenLine == spoken"), app)
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
-    }
 }

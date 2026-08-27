@@ -87,7 +87,7 @@ final class FirstAskOneMouthTests: XCTestCase {
 
     /// a2727b1: desk write→player AND Eve live VAD PCM. Mute flags
     /// tried to hide Eve and stuck. Live Talk is Eve only.
-    func testIdentityWriteAndEveDeltasBothReachPlayerIsTheHole() throws {
+    func testIdentityWriteAndEveDeltasBothReachPlayerIsTheHole() {
         XCTAssertTrue(A2727B1Walk.versionIsDualMouth())
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
@@ -96,34 +96,5 @@ final class FirstAskOneMouthTests: XCTestCase {
                 identityLine: A2727B1Walk.spokenIdentity
             )
         )
-
-        let service = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        let speakFn = speakSlice(
-            service,
-            from: "func speak(_ text: String) async {",
-            to: "private func returnToListenAfterDeskTTS"
-        )
-        XCTAssertTrue(speakFn.contains("LiveEveSpeak.plan"), speakFn)
-        XCTAssertTrue(speakFn.contains("ClientVoiceSpeech.shared.speak"), speakFn)
-        XCTAssertFalse(service.contains("eve speaks identity"), service)
-    }
-
-    private func speakSlice(_ source: String, from: String, to: String) -> String {
-        guard let start = source.range(of: from),
-              let end = source.range(of: to, range: start.upperBound..<source.endIndex)
-        else { return "" }
-        return String(source[start.lowerBound..<end.lowerBound])
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
     }
 }

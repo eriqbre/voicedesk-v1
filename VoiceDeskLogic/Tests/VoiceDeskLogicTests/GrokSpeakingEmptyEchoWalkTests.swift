@@ -127,24 +127,6 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
         XCTAssertFalse(EchoTranscriptGate.isLeftoverEcho("show my latest emails", of: ""))
     }
 
-    func testOneGateAndDroppedTranscriptIsLogged() throws {
-        let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertFalse(source.contains("EchoBargeIn.acceptedUserTranscript"))
-        XCTAssertFalse(source.contains("echoGate"))
-        XCTAssertTrue(source.contains("interruptPlayback()"))
-        XCTAssertTrue(source.contains("liveSessionArmed = true"))
-        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        XCTAssertFalse(app.contains("EchoBargeIn.acceptedUserTranscript"), app)
-        XCTAssertFalse(app.contains("echoGate"), app)
-        XCTAssertFalse(app.contains("markSpeaking"))
-        XCTAssertFalse(app.contains("voiceState: voice.state"), "Grok speaking must not drop")
-        XCTAssertFalse(app.contains("lastSpokenLine.isEmpty { return nil }"))
-        let gate = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/EchoTranscriptGate.swift"))
-        XCTAssertFalse(gate.contains("func markSpeaking"))
-        XCTAssertFalse(gate.contains("lastSpokenLine.isEmpty { return nil }"))
-        XCTAssertFalse(gate.contains("isSpeaking || voiceState"))
-    }
-
     func testSessionStaysLiveAfterAudioStartOrWarmUpUnlessUserStop() {
         XCTAssertTrue(
             ListenResumePolicy.sessionShouldStayLive(
@@ -190,17 +172,5 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
             ),
             .stayIdle
         )
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
     }
 }

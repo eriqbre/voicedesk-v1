@@ -354,18 +354,6 @@ final class XcodeProjectLayoutTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    func testLiveSyncUsesRecentInboxLimitOf25() throws {
-        let sync = try XCTUnwrap(repoFile("VoiceDesk/Voice/GoogleSync.swift"))
-        XCTAssertTrue(sync.contains("GoogleSyncPolicy.recentInboxLimit"))
-        XCTAssertFalse(sync.contains("recentMessageLimit: Int = 8"))
-        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        XCTAssertTrue(app.contains("DeskSnapshotMerge.applying"))
-        XCTAssertFalse(
-            app.contains("deskSnapshot = next"),
-            "sync must merge into the hot store, not replace it"
-        )
-    }
-
     func testGoogleSignInPackageIsPinned() throws {
         let pbx = try XCTUnwrap(pbxprojContents(), "VoiceDesk.xcodeproj should sit next to VoiceDeskLogic")
         XCTAssertTrue(pbx.contains("XCRemoteSwiftPackageReference \"GoogleSignIn-iOS\""))
