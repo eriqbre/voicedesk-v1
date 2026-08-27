@@ -857,7 +857,11 @@ final class ListenLoopSourceContractTests: XCTestCase {
         XCTAssertTrue(engine.contains("isTapObjectPresent"), engine)
         XCTAssertTrue(engine.contains("isHALTapAttached"), engine)
         XCTAssertTrue(engine.contains("halTapAttached"), engine)
-        XCTAssertTrue(engine.contains("HALTapLease"), engine)
+        XCTAssertFalse(
+            engine.contains("HALTapLease"),
+            "lease deinit reinstall raced leftover created (9b3d42b 53s)"
+        )
+        XCTAssertFalse(engine.contains("invalidateHALTapLease"), engine)
         XCTAssertTrue(
             engine.contains("halTapAttached, let onMicAudio"),
             "feed must require HAL attach — object+flag is the phone lie"
