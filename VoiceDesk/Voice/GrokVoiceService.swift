@@ -450,12 +450,16 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
 
     func grokWebSocketDidClose(code: Int, reason: String?) {
         failReady(GrokVoiceError.connectFailed("closed \(code) \(reason ?? "")"))
-        let stayLive = sessionShouldStayLive
+        let stayLive = ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+            userWantsVoiceOff: userWantsVoiceOff,
+            listenArmed: ListenResumePolicy.isListenArmed(state: session.state)
+        )
         let decision = ListenResumePolicy.afterSocketClose(
             userWantsVoiceOff: userWantsVoiceOff,
             sessionShouldStayLive: stayLive,
             closeCode: code,
-            voiceState: session.state
+            voiceState: session.state,
+            liveSessionArmed: liveSessionArmed
         )
         logListenResume(
             note: "session close code=\(code) reason=\(reason ?? "") state=\(session.state.rawValue) stayLive=\(stayLive) \(decision)"
@@ -589,10 +593,28 @@ extension GrokVoiceService {
     var listenLoopClose1000: ListenResumeDecision {
         ListenResumePolicy.afterSocketClose(
             userWantsVoiceOff: userWantsVoiceOff,
-            sessionShouldStayLive: sessionShouldStayLive,
+            sessionShouldStayLive: ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+                userWantsVoiceOff: userWantsVoiceOff,
+                listenArmed: ListenResumePolicy.isListenArmed(state: session.state)
+            ),
             closeCode: 1000,
-            voiceState: session.state
+            voiceState: session.state,
+            liveSessionArmed: liveSessionArmed
         )
+    }
+
+    /// 415c955 / 18d5878 phone stayLive: listen-armed only.
+    var listenLoopPhoneStayLive: Bool {
+        ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+            userWantsVoiceOff: userWantsVoiceOff,
+            listenArmed: ListenResumePolicy.isListenArmed(state: session.state)
+        )
+    }
+
+    /// Phone log after version TTS: `state=idle`. User did not tap stop.
+    func simulateListenLoopIdleAfterDeskTTSPhoneLog() {
+        apply(.speakStarted)
+        apply(.speakFinished)
     }
 
     /// Same `startAudioIfNeeded` `speak()` uses. Not a second engine.

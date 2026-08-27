@@ -64,16 +64,21 @@ public enum ListenResumePolicy: Sendable {
 
     /// Socket closed. Reconnect when the live session is still supposed to hear.
     /// Code 1000 + idle/speaking after desk TTS is not user-stop.
+    /// 415c955 stayLive was listen-armed only — idle after TTS + 1000
+    /// skipped recover. A live conversation (`liveSessionArmed`, user
+    /// did not tap stop) must reconnect even if VoiceSession is idle.
     public static func afterSocketClose(
         userWantsVoiceOff: Bool,
         sessionShouldStayLive: Bool,
         closeCode: Int? = nil,
-        voiceState: VoiceState? = nil
+        voiceState: VoiceState? = nil,
+        liveSessionArmed: Bool = false
     ) -> ListenResumeDecision {
         _ = closeCode
         _ = voiceState
-        if userWantsVoiceOff || !sessionShouldStayLive { return .stayIdle }
-        return .reconnect
+        if userWantsVoiceOff { return .stayIdle }
+        if sessionShouldStayLive || liveSessionArmed { return .reconnect }
+        return .stayIdle
     }
 
     /// Server idle / max_duration. Stay live → reconnect.
@@ -144,7 +149,8 @@ public enum ListenResumePolicy: Sendable {
             userWantsVoiceOff: userWantsVoiceOff,
             sessionShouldStayLive: stayLive,
             closeCode: 1000,
-            voiceState: session.state
+            voiceState: session.state,
+            liveSessionArmed: liveSessionArmed
         )
         return ClientTTSListenResult(
             listenArmed: !userWantsVoiceOff && isListenArmed(state: session.state),

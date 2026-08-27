@@ -443,9 +443,21 @@ final class ListenLoopSourceContractTests: XCTestCase {
             to: "func grokWebSocketDidFail"
         )
         XCTAssertTrue(didClose.contains("recoverAfterDrop"), didClose)
+        XCTAssertTrue(didClose.contains("sha415c955StayLiveAfterClose1000"), didClose)
+        XCTAssertTrue(didClose.contains("liveSessionArmed"), didClose)
         XCTAssertFalse(
             didClose.contains("teardown"),
             "DidClose 1000 after desk TTS must not kill the one engine"
+        )
+        let policyClose = speakSlice(
+            try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/ListenResumePolicy.swift")),
+            from: "public static func afterSocketClose(",
+            to: "public static func afterRealtimeTimeout"
+        )
+        XCTAssertTrue(policyClose.contains("liveSessionArmed"), policyClose)
+        XCTAssertTrue(
+            policyClose.contains("sessionShouldStayLive || liveSessionArmed"),
+            "415c955 stayIdle skipped recover when listen was unarmed"
         )
         let recover = speakSlice(
             service,
@@ -547,6 +559,10 @@ final class ListenLoopSourceContractTests: XCTestCase {
         )
         XCTAssertTrue(
             live.contains("testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn"),
+            live
+        )
+        XCTAssertTrue(
+            live.contains("testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSRecoversNextCommand"),
             live
         )
         XCTAssertTrue(
@@ -757,7 +773,7 @@ final class ListenLoopSourceContractTests: XCTestCase {
         let close1000 = speakSlice(
             live,
             from: "func testLiveConversationLoopDidClose1000AfterDrainNextCommandIsATurn",
-            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+            to: "func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSRecoversNextCommand"
         )
         XCTAssertTrue(close1000.contains("GrokVoiceService("), close1000)
         XCTAssertTrue(close1000.contains("AppModel("), close1000)
@@ -790,6 +806,53 @@ final class ListenLoopSourceContractTests: XCTestCase {
             )
         } else {
             XCTFail("DidClose 1000 gate must drain, fire close, then take PCM 2")
+        }
+        let idleClose = speakSlice(
+            live,
+            from: "func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSRecoversNextCommand",
+            to: "func testLiveConversationLoopDidClose1000DeadSocketWindowSendsQueuedCommand"
+        )
+        XCTAssertTrue(idleClose.contains("GrokVoiceService("), idleClose)
+        XCTAssertTrue(idleClose.contains("AppModel("), idleClose)
+        XCTAssertTrue(idleClose.contains("startListenLoopAudioForTests"), idleClose)
+        XCTAssertTrue(idleClose.contains("simulateListenLoopIdleAfterDeskTTSPhoneLog"), idleClose)
+        XCTAssertTrue(idleClose.contains("listenLoopPhoneStayLive"), idleClose)
+        XCTAssertTrue(idleClose.contains("listenLoopArmed"), idleClose)
+        XCTAssertTrue(idleClose.contains("simulateListenLoopSocketClose1000"), idleClose)
+        XCTAssertTrue(idleClose.contains("listenLoopRecoverCount"), idleClose)
+        XCTAssertTrue(idleClose.contains("feedTapPCM16(command2)"), idleClose)
+        XCTAssertTrue(idleClose.contains("simulateListenLoopSocketDidOpenThenSessionReady"), idleClose)
+        XCTAssertTrue(idleClose.contains("createResponse(inSessionUpdate"), idleClose)
+        XCTAssertTrue(idleClose.contains("listenLoopDeliveredAudioPCM"), idleClose)
+        XCTAssertTrue(idleClose.contains("415c955"), idleClose)
+        XCTAssertTrue(idleClose.contains("interruptResponse"), idleClose)
+        XCTAssertTrue(idleClose.contains("engine.startCount"), idleClose)
+        XCTAssertFalse(idleClose.contains("attachListenLoopSendTaskForTests"), idleClose)
+        XCTAssertFalse(idleClose.contains("applyUserTurn"), idleClose)
+        XCTAssertFalse(idleClose.contains("emitUser"), idleClose)
+        XCTAssertFalse(idleClose.contains("FakeLiveVoiceService"), idleClose)
+        XCTAssertFalse(idleClose.contains("quietCommitMaxPostponeMs"), idleClose)
+        if let idleAt = idleClose.range(of: "simulateListenLoopIdleAfterDeskTTSPhoneLog"),
+           let closeAt = idleClose.range(of: "simulateListenLoopSocketClose1000"),
+           let secondFeed = idleClose.range(of: "feedTapPCM16(command2)"),
+           let openAt = idleClose.range(of: "simulateListenLoopSocketDidOpenThenSessionReady") {
+            XCTAssertLessThan(
+                idleAt.lowerBound,
+                closeAt.lowerBound,
+                "phone-log idle must come before DidClose 1000"
+            )
+            XCTAssertLessThan(
+                closeAt.lowerBound,
+                secondFeed.lowerBound,
+                "command PCM 2 must be after the stayLive=false close"
+            )
+            XCTAssertLessThan(
+                secondFeed.lowerBound,
+                openAt.lowerBound,
+                "command 2 is queued in the dead-socket window, then DidOpen requests a response"
+            )
+        } else {
+            XCTFail("stayLive=false close must idle, DidClose, feed PCM 2, then DidOpen")
         }
         let deadSocket = speakSlice(
             live,

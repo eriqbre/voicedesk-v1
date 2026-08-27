@@ -476,6 +476,139 @@ final class AppModelListenLoopTests: XCTestCase {
         voice.cancel()
     }
 
+    /// 415c955 / 18d5878 logged `session close code=1000 stayLive=false
+    /// stayIdle` after version TTS. Current DidClose gates fire while
+    /// stayLive is still true — they would not have failed that path.
+    /// After write→player, idle the session (phone log). User did not
+    /// tap stop. DidClose 1000 must recover. Command 2 must send and
+    /// request a response. `startCount` stays 1.
+    func testLiveConversationLoopDidClose1000StayLiveFalseIdleAfterDeskTTSRecoversNextCommand() async throws {
+        let voice = GrokVoiceService(apiKey: "test-listen-loop-close-1000-idle-phone-log")
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        let command1 = Self.speechShapedPCM(hertz: 140)
+        let command2 = Self.speechShapedPCM(hertz: 160)
+        let command3 = Self.speechShapedPCM(hertz: 180)
+        let noise = Self.speechShapedPCM(hertz: 90)
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        let sink = LiveTapSink(
+            session: session,
+            commands: [command1, command2, command3],
+            noise: noise
+        )
+        voice.onMicFrame = { pcm in
+            sink.onFrame(pcm)
+        }
+
+        voice.startListenLoopAudioForTests()
+        let engine = voice.listenLoopEngine
+        guard engine.isRunning else {
+            throw XCTSkip("Simulator HAL did not start the one live engine")
+        }
+        XCTAssertEqual(engine.startCount, 1)
+        sink.tapLive = true
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command1)
+        XCTAssertEqual(sink.turns, [command1], "command PCM 1 through the live tap is a turn")
+        XCTAssertEqual(engine.startCount, 1)
+
+        await voice.speak(InboxGlance.spokenListAck())
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "write→player must drain before the phone-log idle")
+        XCTAssertEqual(engine.startCount, 1, "answer must not audio.start")
+        XCTAssertTrue(voice.listenLoopStayLive)
+
+        voice.simulateListenLoopIdleAfterDeskTTSPhoneLog()
+        XCTAssertFalse(voice.listenLoopArmed, "phone log: state=idle, listen not armed")
+        XCTAssertFalse(
+            voice.listenLoopPhoneStayLive,
+            "415c955 stayLive was listen-armed — idle after TTS is stayLive=false"
+        )
+        XCTAssertNotEqual(
+            voice.listenLoopClose1000,
+            .stayIdle,
+            "live conversation must reconnect on 1000 even if VoiceSession is idle"
+        )
+        XCTAssertEqual(voice.listenLoopRecoverCount, 0, "idle is not a close")
+
+        await voice.simulateListenLoopSocketClose1000()
+        XCTAssertTrue(engine.isRunning, "DidClose 1000 after desk TTS must not audio.stop")
+        XCTAssertEqual(engine.startCount, 1, "reconnect must not audio.start")
+        XCTAssertGreaterThan(
+            voice.listenLoopRecoverCount,
+            0,
+            "415c955 stayLive=false stayIdle never recovered"
+        )
+        sink.startCount = engine.startCount
+        sink.stayLive = voice.listenLoopStayLive
+
+        engine.feedTapPCM16(command2)
+        XCTAssertEqual(sink.turns, [command1, command2], "command PCM 2 after the phone-log close is the next turn")
+        XCTAssertEqual(engine.startCount, 1)
+
+        voice.simulateListenLoopSocketDidOpenThenSessionReady()
+        XCTAssertTrue(
+            voice.listenLoopDeliveredAudioPCM.contains(command2),
+            "command 2 must send after recover — 415c955 sendRaw was a no-op"
+        )
+        let types = voice.listenLoopDeliveredSendTypes
+        let sends = voice.listenLoopDeliveredSends
+        guard let firstUpdate = sends.first(where: { LiveGrokVoiceClient.typeOfSend($0) == "session.update" })
+        else {
+            XCTFail("recover must send listen-resume session.update")
+            voice.cancel()
+            return
+        }
+        XCTAssertEqual(
+            GrokRealtime.createResponse(inSessionUpdate: firstUpdate),
+            true,
+            "recover must request a response"
+        )
+        XCTAssertTrue(types.contains("input_audio_buffer.append"))
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(engine.isRunning)
+
+        XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))
+        XCTAssertTrue(ListenInterrupt.isCommand("show me my emails"))
+
+        let speaking = Task { await voice.speak(Self.laterDeskReply) }
+        await waitUntilPending(engine)
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0)
+        engine.feedTapPCM16(noise)
+        XCTAssertEqual(sink.ambient.last, noise)
+        XCTAssertEqual(sink.turns, [command1, command2], "ambient / radio / other-room is not a turn")
+        XCTAssertGreaterThan(engine.pendingPlaybackCount, 0, "ambient must not cancel write→player")
+        XCTAssertTrue(engine.isPlayerPlaying)
+
+        model.voice.interruptResponse()
+        XCTAssertEqual(engine.pendingPlaybackCount, 0, "command intent drops playback")
+        XCTAssertTrue(engine.isRunning)
+        sink.startCount = engine.startCount
+        engine.feedTapPCM16(command3)
+        XCTAssertEqual(sink.turns.last, command3)
+        XCTAssertEqual(sink.turns, [command1, command2, command3])
+        XCTAssertEqual(engine.startCount, 1)
+        await speaking.value
+        XCTAssertEqual(engine.startCount, 1)
+        XCTAssertTrue(voice.listenLoopStayLive)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.count,
+            0,
+            "transcript injects do not count"
+        )
+
+        voice.cancel()
+    }
+
     /// After drain + DidClose 1000, command PCM 2 through the same tap
     /// while the send task is still nil. 15dcc7d accepted that on the
     /// tap observer and `sendRaw` dropped it. Attach-send-task then

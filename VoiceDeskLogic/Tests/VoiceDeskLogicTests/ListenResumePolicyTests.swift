@@ -55,7 +55,18 @@ final class ListenResumePolicyTests: XCTestCase {
                 voiceState: .speaking
             ),
             .stayIdle,
-            "415c955-class stayLive=false after TTS is stayIdle"
+            "415c955: stayLive=false and not armed is stayIdle"
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: false,
+                closeCode: 1000,
+                voiceState: .idle,
+                liveSessionArmed: true
+            ),
+            .reconnect,
+            "live conversation must reconnect on 1000 even if VoiceSession is idle"
         )
     }
 

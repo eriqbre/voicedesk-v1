@@ -624,7 +624,8 @@ public struct FirstHearTapLoop: Equatable, Sendable {
                 userWantsVoiceOff: false,
                 sessionShouldStayLive: stayLive,
                 closeCode: 1000,
-                voiceState: session.state
+                voiceState: session.state,
+                liveSessionArmed: true
             )
             if after.startAgain {
                 startCount += 1
