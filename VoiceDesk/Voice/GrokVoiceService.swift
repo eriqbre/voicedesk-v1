@@ -319,6 +319,7 @@ final class GrokVoiceService: VoiceServicing {
     func beginToolWaitCreate() {
         liveToolWait = true
         liveToolResultOnSession = false
+        createdThisUserTurn = false
         let callID = UUID().uuidString
         liveToolCallID = callID
         sendToolWaitSessionUpdate()

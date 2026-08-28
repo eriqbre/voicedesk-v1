@@ -1992,6 +1992,7 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func beginToolWaitCreate() {
         beginToolWaitCount += 1
+        createdThisUserTurn = false
         session.apply(.listenFinished)
         eventHandler?(.state(session.state))
         if session.state == .thinking {

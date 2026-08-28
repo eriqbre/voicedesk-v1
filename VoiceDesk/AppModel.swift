@@ -41,9 +41,6 @@ final class AppModel {
     /// Must attach on the stream — not after glanceInbox — or show-latest
     /// is a blob.
     private var pendingLiveDeskCards: [ContentCard] = []
-    /// Client loading bubble at tool start. Removed when cards / tool-done land.
-    /// Not a spoken mouth.
-    private var liveThinkingBeatID: UUID?
     /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
     private var lastFocusedEmail: EmailItem?
     private var pendingThreadSummary = false
@@ -451,7 +448,6 @@ final class AppModel {
                     isOnline: isOnline
                 ) {
                     voice.beginToolWaitCreate()
-                    liveThinkingBeatID = appendThinkingBeat()
                 }
                 Task {
                     await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
@@ -852,7 +848,6 @@ final class AppModel {
         ) {
             await applyDeskEvidence(evidence)
         } else {
-            clearLiveThinkingBeat()
             pendingSearchClarify = true
             appendAssistant(ConversationPresence.emailNeedMoreReply)
             await speakDeskReply(ConversationPresence.emailNeedMoreReply)
@@ -901,7 +896,6 @@ final class AppModel {
                 appendAssistant(line)
             }
             await speakDeskReply(line)
-            clearLiveThinkingBeat()
             logVoiceTurn(
                 evidence: evidence,
                 intentHint: "version",
@@ -911,8 +905,19 @@ final class AppModel {
             )
             return
         }
+        // Live VAD: cards + function_call_output. Do not speak a desk
+        // answer (Costco body, glance dump) before that report.
+        if isLiveVADTurn {
+            finishLiveTool(cards: evidence.cards)
+            refreshPresence()
+            logVoiceTurn(
+                evidence: evidence,
+                reply: InboxGlance.onScreenText(for: evidence),
+                cards: evidence.cards
+            )
+            return
+        }
         if evidence.shouldSearchGmail, let query = evidence.gmailQuery, !query.isEmpty {
-            clearLiveThinkingBeat()
             await searchGmail(query, plan: evidence.gmailPlan, ask: evidence.searchAsk)
             logVoiceTurn(
                 evidence: evidence,
@@ -922,7 +927,6 @@ final class AppModel {
             return
         }
         if evidence.shouldFetchBody, let email = evidence.focusedEmail {
-            clearLiveThinkingBeat()
             await revealEmailBody(email)
             logVoiceTurn(
                 evidence: evidence,
@@ -933,17 +937,6 @@ final class AppModel {
         }
         if evidence.shouldGlanceInbox {
             await applyInboxGlance(evidence)
-            return
-        }
-        // Live list/show: cards + tool done on Eve's wire. Not spokenCalendar.
-        if isLiveVADTurn {
-            finishLiveTool(cards: evidence.cards)
-            refreshPresence()
-            logVoiceTurn(
-                evidence: evidence,
-                reply: InboxGlance.onScreenText(for: evidence),
-                cards: evidence.cards
-            )
             return
         }
         appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
@@ -993,39 +986,21 @@ final class AppModel {
         )
     }
 
-    @discardableResult
-    private func appendThinkingBeat() -> UUID {
-        let turn = ConversationTurn(role: .assistant, text: ConversationPresence.thinkingStatusBeat)
-        turns.append(turn)
-        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
-        return turn.id
-    }
-
-    /// Loading false when cards / tool-done land. If start and done are
-    /// close, the beat never stays as a second mouth.
-    private func clearLiveThinkingBeat() {
-        guard let id = liveThinkingBeatID else { return }
-        liveThinkingBeatID = nil
-        removeTurn(id: id)
-    }
-
     /// Tool-done on Eve's wire, then the same rows draw. Not before.
-    /// Replace leftover prior-turn cards when this turn's done lands.
-    /// Do not write `onScreenText` (empty) onto the thinking beat —
-    /// 9cf53c4 leftover inbound then newest emails was empty + cards.
-    /// Chrome can stay. Cards land with function_call_output. One
-    /// done mouth after that report; do not force a looking-mouth.
+    /// Do not append a looking-mouth. Do not write empty `onScreenText`
+    /// onto a leftover assistant. Cards land on the last turn.
     private func finishLiveTool(cards: [ContentCard]) {
         let payload = LiveToolMouth.cardPayload(cards)
         voice.reportToolResult(payload)
         pendingLiveDeskCards = []
         guard !payload.isEmpty else { return }
-        if let id = liveThinkingBeatID, let index = turns.firstIndex(where: { $0.id == id }) {
+        if let index = turns.indices.last {
             turns[index].cards = cards
-            liveThinkingBeatID = nil
-            liveAssistantID = id
             requestScroll(
-                ConversationScrollPolicy.afterAssistant(turnID: id, hasCards: !cards.isEmpty)
+                ConversationScrollPolicy.afterAssistant(
+                    turnID: turns[index].id,
+                    hasCards: true
+                )
             )
             return
         }
@@ -1468,7 +1443,7 @@ final class AppModel {
     private func dropPriorIntentDeskCards() {
         pendingLiveDeskCards = []
         pendingDeskTopic = nil
-        for index in turns.indices where turns[index].role == .assistant {
+        for index in turns.indices {
             turns[index].cards.removeAll { $0.kind == .email || $0.kind == .calendar }
         }
     }
