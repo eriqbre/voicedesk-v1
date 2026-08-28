@@ -527,27 +527,6 @@ final class AppModel {
         }
     }
 
-    private func parkLiveVADDeskCards(for text: String, awaitingClarify: Bool) {
-        guard LiveVADPlayerKeep.shouldAttachCardsOnFirstTranscriptDelta(liveVADTurn: true) else {
-            return
-        }
-        if let evidence = ConversationPresence.deskEvidence(
-            for: text,
-            context: deskContext,
-            focusedEmail: lastFocusedEmail,
-            pendingSearchClarify: awaitingClarify,
-            clarifyMatches: lastSearchMatches,
-            pendingSenderRefine: pendingSenderRefine,
-            priorSearchAsk: lastSearchAsk
-        ) {
-            parkOrAttachLiveDeskCards(evidence.cards)
-            return
-        }
-        let topic = ConversationPresence.plan(for: text, context: deskContext).topic
-        let cards = ConversationPresence.cards(for: topic, context: deskContext)
-        parkOrAttachLiveDeskCards(cards)
-    }
-
     private func parkOrAttachLiveDeskCards(_ cards: [ContentCard]) {
         guard !cards.isEmpty else { return }
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
