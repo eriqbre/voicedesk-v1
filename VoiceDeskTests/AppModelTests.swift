@@ -1582,11 +1582,11 @@ final class AppModelTests: XCTestCase {
         _ = model
     }
 
-    /// 9cf53c4 9B23C3AA leftover inbound then a Massimo ask with no
-    /// “calendar” word. matchingCalendar already had the event;
-    /// wantsCalendarAsk required a calendar word — leftover VAD spoke
-    /// Massimo with no function_call. No appointments∩tonight table.
-    /// No planted leftover empty mouth.
+    /// 9cf53c4 9B23C3AA leftover inbound then the walk phrase
+    /// “Do I have any appointments tonight?” Event whenLabel already
+    /// had tonight; matchingCalendar required naming Massimo —
+    /// leftover VAD spoke Massimo with no function_call. No
+    /// appointments∩tonight table. No planted leftover empty mouth.
     func testLiveAppointmentsTonightDoesNotSpeakWithoutToolReport() async throws {
         let snapshot = DeskSnapshot(
             emails: [VoiceRegressionDesk.murray],
@@ -1609,7 +1609,7 @@ final class AppModelTests: XCTestCase {
         fake.emitLeftoverVADCreate()
         XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
         XCTAssertFalse(fake.createdThisUserTurn)
-        fake.emitUser("Do I have the Massimo showing?")
+        fake.emitUser("Do I have any appointments tonight?")
         let deadline = ContinuousClock.now + .milliseconds(2000)
         while ContinuousClock.now < deadline {
             if fake.endToolWaitCount > 0 { break }

@@ -267,8 +267,9 @@ final class LiveToolMouthTests: XCTestCase {
         )
     }
 
-    /// 9cf53c4 leftover VAD spoke Massimo — no tool. matchingCalendar
-    /// already had the event; wantsCalendarAsk required a calendar word.
+    /// 9cf53c4 leftover VAD spoke Massimo — no tool. Walk phrase is
+    /// “Do I have any appointments tonight?” Event whenLabel already
+    /// had tonight; matchingCalendar required naming the event.
     /// No appointments∩tonight table.
     func testLiveAppointmentsTonightDoesNotSpeakFromPresenceWithoutToolReport() {
         let snapshot = DeskSnapshot(
@@ -286,26 +287,30 @@ final class LiveToolMouthTests: XCTestCase {
             ConversationPresence.wantsCalendarAsk(walkAsk),
             "not an appointments∩tonight table"
         )
-        let ask = "Do I have the Massimo showing?"
-        XCTAssertFalse(
-            ConversationPresence.wantsCalendarAsk(ask),
-            "no calendar word — 9cf53c4 skipped matchingCalendar"
-        )
         XCTAssertEqual(
-            ConversationPresence.matchingCalendar(for: ask, in: snapshot.events)?.title,
-            "Massimo showing"
+            ConversationPresence.matchingCalendar(for: walkAsk, in: snapshot.events)?.title,
+            "Massimo showing",
+            "9cf53c4 required naming the event — leftover VAD spoke Massimo"
         )
         XCTAssertTrue(
-            ConversationPresence.ownsConnectedDeskTurn(ask, events: snapshot.events),
-            "9cf53c4 required a calendar word — leftover VAD spoke Massimo"
+            ConversationPresence.ownsConnectedDeskTurn(walkAsk, events: snapshot.events),
+            "9cf53c4 walk phrase never commanded a tool"
         )
         XCTAssertTrue(
             LiveToolMouth.needsClientTools(
-                ask: ask,
+                ask: walkAsk,
                 snapshot: snapshot,
                 isConnected: true,
                 isOnline: true
             )
+        )
+        let named = "Do I have the Massimo showing?"
+        XCTAssertFalse(
+            ConversationPresence.wantsCalendarAsk(named),
+            "no calendar word — named event is matchingCalendar"
+        )
+        XCTAssertTrue(
+            ConversationPresence.ownsConnectedDeskTurn(named, events: snapshot.events)
         )
         XCTAssertFalse(
             ConversationPresence.wantsCalendarAsk("What's for dinner tonight?"),

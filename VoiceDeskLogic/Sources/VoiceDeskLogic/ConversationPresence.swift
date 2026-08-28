@@ -1837,6 +1837,15 @@ public enum ConversationPresence {
             "latest", "recent", "calendar", "schedule", "today", "week",
             "upcoming", "what", "whats", "this", "that", "your"
         ]
+        // whenLabel is already on the event (calendar from-phrase time).
+        // Do not also require naming the event — that skip let leftover
+        // VAD speak Massimo for “appointments tonight” with no tool.
+        // Not an appointments∩tonight table. Overview asks keep their
+        // own path. Dinner / weather stay out of this time match.
+        let matchWhenLabel = !wantsCalendarAsk(raw)
+            && !looksLikeMailAsk(raw)
+            && !wantsTaskAsk(raw)
+            && !contains(lower, ["weather", "dinner"])
         for event in events {
             let titleWords = event.title.lowercased()
                 .split { !$0.isLetter }
@@ -1853,6 +1862,14 @@ public enum ConversationPresence {
                 if nameWords.contains(where: { lower.contains($0) }) {
                     return event
                 }
+            }
+            guard matchWhenLabel else { continue }
+            let whenWords = event.whenLabel.lowercased()
+                .split { !$0.isLetter }
+                .map(String.init)
+                .filter { $0.count >= 4 && !stop.contains($0) }
+            if whenWords.contains(where: { lower.contains($0) }) {
+                return event
             }
         }
         return nil
