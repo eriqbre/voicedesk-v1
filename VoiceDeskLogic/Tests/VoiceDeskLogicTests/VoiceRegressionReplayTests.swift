@@ -271,6 +271,47 @@ final class VoiceRegressionReplayTests: XCTestCase {
         )
     }
 
+    /// 65C7B25F c42cadc tape: named Murray last-email cache hit must
+    /// fetch newest, then “summarize his” / “yes” stay on Murray.
+    func testMurrayLastEmailTapeStaysOnPersonNotInboxOrLiveGrok() {
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: VoiceRegressionDesk.murraySeveralSnapshot
+        )
+        let find = VoiceTurnReplay.play(
+            utterance: "Can you find the last email from Murray?",
+            context: context
+        )
+        XCTAssertTrue(find.ownsDeskTurn)
+        XCTAssertNotEqual(find.reply, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertEqual(find.evidence?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(find.evidence?.shouldFetchBody, true)
+        XCTAssertFalse(find.notes.contains("live Grok"))
+
+        let summarize = VoiceTurnReplay.play(
+            utterance: "Can you summarize his email?",
+            context: context,
+            focusedEmail: VoiceRegressionDesk.murrayNewest
+        )
+        XCTAssertTrue(summarize.ownsDeskTurn)
+        XCTAssertNotEqual(summarize.intent, "inbox-overview")
+        XCTAssertEqual(summarize.evidence?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(summarize.evidence?.shouldFetchBody, true)
+        XCTAssertFalse(summarize.stickyCleared)
+        XCTAssertFalse(summarize.notes.contains("live Grok"))
+
+        let yes = VoiceTurnReplay.play(
+            utterance: "Yes, please.",
+            context: context,
+            focusedEmail: VoiceRegressionDesk.murrayNewest
+        )
+        XCTAssertTrue(yes.ownsDeskTurn)
+        XCTAssertNotEqual(yes.intent, "general")
+        XCTAssertEqual(yes.evidence?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(yes.evidence?.shouldFetchBody, true)
+        XCTAssertFalse(yes.notes.contains("live Grok"))
+    }
+
     func testNamedMurrayWithNoCacheHitSearchesAndDoesNotAttachGreenacre() {
         let ask = "Give me a summary of Murray's last email."
         let replay = VoiceTurnReplay.play(

@@ -252,6 +252,28 @@ final class LiveToolMouthTests: XCTestCase {
         XCTAssertFalse(
             ConversationPresence.ownsConnectedDeskTurn("What year did John Wick get released")
         )
+        XCTAssertFalse(
+            LiveToolMouth.needsClientTools(
+                ask: "Yes, please.",
+                snapshot: snapshot,
+                isConnected: true,
+                isOnline: true
+            ),
+            "yes without leftover person is not a tool turn"
+        )
+        XCTAssertTrue(
+            ConversationPresence.ownsConnectedDeskTurn("Yes, please.", hasFocusedEmail: true)
+        )
+        XCTAssertTrue(
+            LiveToolMouth.needsClientTools(
+                ask: "Yes, please.",
+                snapshot: snapshot,
+                isConnected: true,
+                isOnline: true,
+                hasFocusedEmail: true
+            ),
+            "c42cadc leftover: yes after Murray hit had no function_call"
+        )
         let text = GrokRealtime.presenceInstructions(
             for: DeskContext(isConnected: true, snapshot: snapshot)
         )

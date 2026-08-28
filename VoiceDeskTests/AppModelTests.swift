@@ -630,12 +630,19 @@ final class AppModelTests: XCTestCase {
         )
 
         await model.applyUserTurn("Give me a summary of Murray's last email.")
-        XCTAssertTrue(fake.sentTurns.isEmpty, "named-sender clarify is on-device TTS")
-        XCTAssertEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
-        XCTAssertEqual(model.turns.last?.cards.filter { $0.kind == .email }.count, 3)
+        XCTAssertTrue(fake.sentTurns.isEmpty, "named-sender last email stays on-device fetch")
+        XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertEqual(model.turns.last?.cards.filter { $0.kind == .email }.count, 1)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertEqual(item.subject, "Walk-through today")
+            XCTAssertEqual(item.providerID, "msg-murray-new")
+        } else {
+            XCTFail("expected newest Murray card, not canned which-one")
+        }
 
         await model.applyUserTurn("The last one.")
-        XCTAssertTrue(fake.sentTurns.isEmpty, "clarify pick must not inject a Grok user turn")
+        XCTAssertTrue(fake.sentTurns.isEmpty, "leftover person must not inject a Grok user turn")
         XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
         XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("stay quiet"))
         XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("ios app handles"))
@@ -659,6 +666,84 @@ final class AppModelTests: XCTestCase {
             spoken
         )
         XCTAssertNotEqual(fake.spoken.last, ConversationPresence.gmailSearchSeveralReply)
+    }
+
+    /// 65C7B25F c42cadc live tape: Murray hit must command fetch, not
+    /// canned which-one. “summarize his” / “yes” stay on Murray with tools.
+    func testLiveMurrayLastEmailStaysOnPersonThroughSummarizeHisAndYes() async throws {
+        let snapshot = VoiceRegressionDesk.murraySeveralSnapshot
+        let sync = MockGoogleSync(result: snapshot)
+        for email in VoiceRegressionDesk.murraySeveralMatches {
+            if let id = email.providerID, let body = email.body {
+                sync.bodies[id] = body
+            }
+        }
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        _ = await fake.startListening()
+
+        fake.emitUser("Can you find the last email from Murray?")
+        let firstDeadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < firstDeadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "Murray last-email must command the existing tool")
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "c42cadc tape had zero function_call: \(fake.wireItems)"
+        )
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" }
+        )
+        XCTAssertFalse(
+            fake.spoken.contains(ConversationPresence.gmailSearchSeveralReply),
+            "delete canned which-one as the product mouth: \(fake.spoken)"
+        )
+        XCTAssertFalse(
+            (model.turns.last?.text ?? "") == ConversationPresence.gmailSearchSeveralReply
+        )
+        let murrayCards = model.turns.flatMap(\.cards).compactMap { card -> EmailItem? in
+            if case .email(let item) = card { return item }
+            return nil
+        }
+        XCTAssertTrue(murrayCards.contains { $0.fromName == "Murray Mitchell" })
+        XCTAssertFalse(murrayCards.contains { $0.fromName == "Costco" || $0.fromName == "Paul" })
+
+        let toolsAfterFind = fake.beginToolWaitCount
+        fake.emitUser("Can you summarize his email?")
+        let secondDeadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < secondDeadline {
+            if fake.beginToolWaitCount > toolsAfterFind { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, toolsAfterFind, "summarize-his must stay on Murray and command fetch")
+        let afterHis = model.turns.flatMap(\.cards).compactMap { card -> String? in
+            if case .email(let item) = card { return item.fromName }
+            return nil
+        }
+        XCTAssertTrue(afterHis.contains("Murray Mitchell"))
+        XCTAssertFalse(afterHis.contains("Costco"))
+
+        let toolsAfterHis = fake.beginToolWaitCount
+        fake.emitUser("Yes, please.")
+        let thirdDeadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < thirdDeadline {
+            if fake.beginToolWaitCount > toolsAfterHis { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.beginToolWaitCount,
+            toolsAfterHis,
+            "c42cadc leftover: yes was live Grok wait-for-full-note with no tool"
+        )
+        XCTAssertTrue(fake.sentTurns.isEmpty, "yes must not inject a Grok user turn")
+        XCTAssertFalse(fake.spoken.contains { $0.localizedCaseInsensitiveContains("full note comes through") })
     }
 
     func testMarieLastEmailDoesNotAndLastToken() async {

@@ -445,7 +445,10 @@ final class AppModel {
                     ask: text,
                     snapshot: deskSnapshot,
                     isConnected: true,
-                    isOnline: isOnline
+                    isOnline: isOnline,
+                    hasFocusedEmail: lastFocusedEmail != nil,
+                    pendingSearchClarify: awaitingClarify,
+                    hasClarifyMatches: !lastSearchMatches.isEmpty
                 ) {
                     voice.beginToolWaitCreate()
                 }

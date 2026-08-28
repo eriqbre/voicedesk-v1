@@ -7,13 +7,20 @@ public enum LiveToolMouth: Sendable {
         ask: String,
         snapshot: DeskSnapshot,
         isConnected: Bool,
-        isOnline: Bool
+        isOnline: Bool,
+        hasFocusedEmail: Bool = false,
+        pendingSearchClarify: Bool = false,
+        hasClarifyMatches: Bool = false
     ) -> Bool {
         guard isConnected, isOnline else { return false }
         if ConversationPresence.looksLikeMailAsk(ask)
             || ConversationPresence.wantsInboxOverview(ask)
             || ConversationPresence.wantsCalendarAsk(ask)
             || ConversationPresence.matchingCalendar(for: ask, in: snapshot.events) != nil {
+            return true
+        }
+        if (hasFocusedEmail || pendingSearchClarify || hasClarifyMatches),
+           ConversationPresence.isLeftoverPersonContinue(ask) {
             return true
         }
         return false

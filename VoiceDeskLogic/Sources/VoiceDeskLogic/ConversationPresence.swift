@@ -319,6 +319,11 @@ public enum ConversationPresence {
         if (pendingSearchClarify || hasClarifyMatches), isClarifyPick(raw) {
             return true
         }
+        // Leftover named-sender person: “yes” / newest / ordinal stays desk.
+        // Topic leftover is for offered cards, not trivia (“did John Wick…”).
+        if hasFocusedEmail, isLeftoverPersonContinue(raw) {
+            return true
+        }
         // “Who’s it from?” — next utterance is a brand. Not after multi-match cards.
         if pendingSearchClarify, !hasClarifyMatches,
            GmailSearchQuery.plan(from: raw, treatAsBrand: true) != nil {
@@ -374,6 +379,17 @@ public enum ConversationPresence {
     ///   are never a pick.
     public static func isClarifyPick(_ raw: String) -> Bool {
         clarifyPickKind(raw) != nil
+    }
+
+    /// Leftover named-sender continue: short “yes” / newest / ordinal.
+    /// Not topic — “did John Wick get released” is trivia, not a pick.
+    public static func isLeftoverPersonContinue(_ raw: String) -> Bool {
+        switch clarifyPickKind(raw) {
+        case .newest, .ordinal:
+            return true
+        case .topic, nil:
+            return false
+        }
     }
 
     public enum ClarifyPickKind: Equatable, Sendable {
@@ -836,6 +852,7 @@ public enum ConversationPresence {
 
         // Inbox / today / everything wins over leftover clarify or sticky.
         // Named sender is excluded inside wantsInboxOverview.
+        // “summarize his” is not overview — leftover person stays.
         if wantsInboxOverview(raw) {
             return inboxOverviewEvidence(context: context, ask: raw)
         }
@@ -915,6 +932,15 @@ public enum ConversationPresence {
                let plan = GmailSearchQuery.plan(from: raw, treatAsBrand: true) {
                 return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
             }
+        }
+
+        // Leftover named-sender person: “yes” / newest / ordinal fetches that
+        // thread. Not live Grok wait-for-full-note. Not John Wick trivia.
+        if let focusedEmail, isLeftoverPersonContinue(raw) {
+            if wantsFullThread(raw) {
+                return threadEvidence(focusedEmail)
+            }
+            return emailEvidence(focusedEmail)
         }
 
         if wantsFullThread(raw) {
@@ -1064,6 +1090,11 @@ public enum ConversationPresence {
     public static func wantsInboxSummary(_ raw: String) -> Bool {
         if GmailSearchQuery.hasSenderPattern(raw) { return false }
         let lower = raw.lowercased()
+        // “summarize his email” is leftover-person, not inbox digest.
+        // “summarize my emails” still overview.
+        if contains(lower, ["his", "her", "their"]), !contains(lower, ["my"]) {
+            return false
+        }
         let mail = contains(lower, ["email", "emails", "mail", "mails", "inbox"])
         guard mail else { return false }
         return contains(lower, [

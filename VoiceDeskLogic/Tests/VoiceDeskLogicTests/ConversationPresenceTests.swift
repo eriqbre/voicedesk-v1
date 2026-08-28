@@ -524,16 +524,78 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse((evidence?.text ?? "").contains("Greenacre"))
     }
 
-    func testMurraySeveralInCacheAsksWhichOne() {
+    func testMurraySeveralInCacheAttachesNewestNotCannedWhichOne() {
         let ask = "Give me a summary of Murray's last email."
         let evidence = ConversationPresence.deskEvidence(
             for: ask,
             context: DeskContext(isConnected: true, snapshot: VoiceRegressionDesk.murraySeveralSnapshot)
         )
-        XCTAssertEqual(evidence?.text, ConversationPresence.gmailSearchSeveralReply)
-        XCTAssertEqual(evidence?.cards.filter { $0.kind == .email }.count, 3)
-        XCTAssertTrue(evidence?.awaitsSearchClarify == true)
-        XCTAssertNil(evidence?.focusedEmail, "must not silently attach newest Murray")
+        XCTAssertNotEqual(evidence?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertFalse(evidence?.awaitsSearchClarify == true)
+        XCTAssertEqual(evidence?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(evidence?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(evidence?.shouldFetchBody, true)
+        XCTAssertEqual(evidence?.cards.filter { $0.kind == .email }.count, 1)
+    }
+
+    /// 65C7B25F c42cadc: Murray cache hit spoke canned which-one; “summarize
+    /// his” became inbox-overview; “yes” was live Grok wait-for-full-note.
+    func testMurrayLastEmailStaysOnPersonThroughSummarizeHisAndYes() {
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: VoiceRegressionDesk.murraySeveralSnapshot
+        )
+        let find = "Can you find the last email from Murray?"
+        let hit = ConversationPresence.deskEvidence(for: find, context: context)
+        XCTAssertNotEqual(hit?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertEqual(hit?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(hit?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(hit?.shouldFetchBody, true)
+        XCTAssertFalse(hit?.awaitsSearchClarify == true)
+
+        let summarizeHis = "Can you summarize his email?"
+        XCTAssertFalse(
+            ConversationPresence.wantsInboxOverview(summarizeHis),
+            "c42cadc leftover: summarize-his was inbox-overview and cleared Murray"
+        )
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(summarizeHis))
+        let follow = ConversationPresence.deskEvidence(
+            for: summarizeHis,
+            context: context,
+            focusedEmail: hit?.focusedEmail
+        )
+        XCTAssertEqual(follow?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(follow?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(follow?.shouldFetchBody, true)
+        XCTAssertNotEqual(follow?.shouldGlanceInbox, true)
+        XCTAssertFalse(follow?.resetsFocusedEmail == true)
+        XCTAssertNotEqual(follow?.text, ConversationPresence.gmailSearchSeveralReply)
+
+        let yes = "Yes, please."
+        XCTAssertTrue(
+            ConversationPresence.ownsConnectedDeskTurn(yes, hasFocusedEmail: true),
+            "c42cadc leftover: yes after Murray hit was live Grok"
+        )
+        XCTAssertTrue(ConversationPresence.isLeftoverPersonContinue(yes))
+        XCTAssertFalse(
+            ConversationPresence.isLeftoverPersonContinue("did John Wick get released"),
+            "do not stack John Wick calendar bleed"
+        )
+        XCTAssertFalse(
+            ConversationPresence.ownsConnectedDeskTurn(
+                "did John Wick get released",
+                hasFocusedEmail: true
+            )
+        )
+        let stay = ConversationPresence.deskEvidence(
+            for: yes,
+            context: context,
+            focusedEmail: hit?.focusedEmail
+        )
+        XCTAssertEqual(stay?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(stay?.shouldFetchBody, true)
+        XCTAssertFalse((stay?.text ?? "").localizedCaseInsensitiveContains("full note"))
+        XCTAssertFalse((stay?.text ?? "").localizedCaseInsensitiveContains("comes through"))
     }
 
     func testNamedMurrayMissDoesNotSubstituteGreenacre() {
