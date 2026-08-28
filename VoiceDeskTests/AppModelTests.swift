@@ -1583,10 +1583,10 @@ final class AppModelTests: XCTestCase {
     }
 
     /// 9cf53c4 9B23C3AA leftover inbound then the walk phrase
-    /// “Do I have any appointments tonight?” Event whenLabel already
-    /// had tonight; matchingCalendar required naming Massimo —
-    /// leftover VAD spoke Massimo with no function_call. No
-    /// appointments∩tonight table. No planted leftover empty mouth.
+    /// “Do I have any appointments tonight?” matchingCalendar already
+    /// had the event and ignored whenLabel. Reading whenLabel also
+    /// matches dinner tonight — leftover does not earn keep. STOP.
+    /// No appointments∩tonight table. No planted leftover empty mouth.
     func testLiveAppointmentsTonightDoesNotSpeakWithoutToolReport() async throws {
         let snapshot = DeskSnapshot(
             emails: [VoiceRegressionDesk.murray],
@@ -1610,23 +1610,15 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
         XCTAssertFalse(fake.createdThisUserTurn)
         fake.emitUser("Do I have any appointments tonight?")
-        let deadline = ContinuousClock.now + .milliseconds(2000)
-        while ContinuousClock.now < deadline {
-            if fake.endToolWaitCount > 0 { break }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertGreaterThan(
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(
             fake.beginToolWaitCount,
             0,
-            "9cf53c4 appointments-tonight never commanded a tool"
+            "STOP: no skip-delete without new whenLabel surface"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
-            "tonight must be on the existing wire: \(fake.wireItems)"
-        )
-        XCTAssertTrue(
-            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
-            "tool-done missing: \(fake.wireItems)"
+            "walk phrase still no-tool: \(fake.wireItems)"
         )
         XCTAssertTrue(fake.spoken.isEmpty, "do not force a looking-mouth: \(fake.spoken)")
         XCTAssertFalse(

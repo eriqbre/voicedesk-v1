@@ -268,9 +268,11 @@ final class LiveToolMouthTests: XCTestCase {
     }
 
     /// 9cf53c4 leftover VAD spoke Massimo — no tool. Walk phrase is
-    /// “Do I have any appointments tonight?” Event whenLabel already
-    /// had tonight; matchingCalendar required naming the event.
-    /// No appointments∩tonight table.
+    /// “Do I have any appointments tonight?” matchingCalendar already
+    /// had the event (title / relatedPeople) and ignored whenLabel.
+    /// Reading whenLabel “Tonight” also matches dinner tonight — that
+    /// leftover does not earn keep. No appointments∩tonight table.
+    /// No whenLabel add. No exclusion list. STOP.
     func testLiveAppointmentsTonightDoesNotSpeakFromPresenceWithoutToolReport() {
         let snapshot = DeskSnapshot(
             emails: [VoiceRegressionDesk.murray],
@@ -287,16 +289,15 @@ final class LiveToolMouthTests: XCTestCase {
             ConversationPresence.wantsCalendarAsk(walkAsk),
             "not an appointments∩tonight table"
         )
-        XCTAssertEqual(
-            ConversationPresence.matchingCalendar(for: walkAsk, in: snapshot.events)?.title,
-            "Massimo showing",
-            "9cf53c4 required naming the event — leftover VAD spoke Massimo"
+        XCTAssertNil(
+            ConversationPresence.matchingCalendar(for: walkAsk, in: snapshot.events),
+            "title/people have no appointments; whenLabel leftover does not earn keep"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             ConversationPresence.ownsConnectedDeskTurn(walkAsk, events: snapshot.events),
-            "9cf53c4 walk phrase never commanded a tool"
+            "honest leftover: walk phrase still no-tool without new surface"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             LiveToolMouth.needsClientTools(
                 ask: walkAsk,
                 snapshot: snapshot,
