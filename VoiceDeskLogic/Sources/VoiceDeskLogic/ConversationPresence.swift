@@ -392,6 +392,25 @@ public enum ConversationPresence {
         }
     }
 
+    /// After a named-sender hit, “summarize his” / “yes” stay on that person.
+    /// Inbox-overview / calendar / a new named sender still leave.
+    public static func staysOnLeftoverNamedPerson(
+        _ raw: String,
+        focused: EmailItem?
+    ) -> Bool {
+        guard let focused else { return false }
+        if wantsInboxOverview(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) || wantsVersionAsk(raw) {
+            return false
+        }
+        if GmailSearchQuery.namedSenderMismatches(focused, ask: raw) {
+            return false
+        }
+        return wantsFullThread(raw)
+            || wantsEmailFollowUp(raw)
+            || wantsLastDeskEmail(raw)
+            || isLeftoverPersonContinue(raw)
+    }
+
     public enum ClarifyPickKind: Equatable, Sendable {
         case newest
         case ordinal(Int)

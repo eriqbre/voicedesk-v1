@@ -868,6 +868,10 @@ final class AppModel {
 
     private func shouldRefreshDeskSnapshot(for text: String) -> Bool {
         guard google.isConnected, isOnline else { return false }
+        // Leftover-person follow-up is fetch+summarize, not an inbox list refresh.
+        if ConversationPresence.staysOnLeftoverNamedPerson(text, focused: lastFocusedEmail) {
+            return false
+        }
         if ConversationPresence.wantsInboxOverview(text)
             || (isLiveVADTurn && ConversationPresence.looksLikeMailAsk(text)) {
             return InboxGlanceSpeakPlan.shouldRefreshGmailListBeforeFirstSpeak(
@@ -1432,7 +1436,9 @@ final class AppModel {
     // MARK: - Mutations
 
     private func appendUser(_ text: String) {
-        dropPriorIntentDeskCards()
+        if !ConversationPresence.staysOnLeftoverNamedPerson(text, focused: lastFocusedEmail) {
+            dropPriorIntentDeskCards()
+        }
         userOwnsConversationScroll = false
         let turn = ConversationTurn(role: .user, text: text)
         turns.append(turn)
@@ -1441,6 +1447,7 @@ final class AppModel {
 
     /// 14B69B95: calendar user bubble drew, Authentisign cards stayed.
     /// A new user-visible turn drops prior-intent email/calendar rows now.
+    /// Leftover-person “summarize his” / “yes” keep that person’s cards.
     /// Tools later replace with this turn's cardPayload. Not a log-only write.
     /// Not waiting on Eve. Draft / connect cards stay.
     private func dropPriorIntentDeskCards() {

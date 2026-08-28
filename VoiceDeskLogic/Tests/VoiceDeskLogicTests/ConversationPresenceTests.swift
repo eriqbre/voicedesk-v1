@@ -587,6 +587,42 @@ final class ConversationPresenceTests: XCTestCase {
                 hasFocusedEmail: true
             )
         )
+        XCTAssertTrue(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                summarizeHis,
+                focused: hit?.focusedEmail
+            ),
+            "live AppModel must not drop Murray cards on summarize-his"
+        )
+        XCTAssertTrue(
+            ConversationPresence.staysOnLeftoverNamedPerson(yes, focused: hit?.focusedEmail)
+        )
+        XCTAssertFalse(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                "see my latest emails",
+                focused: hit?.focusedEmail
+            ),
+            "inbox-overview still leaves the person"
+        )
+        XCTAssertFalse(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                "what's on my calendar",
+                focused: hit?.focusedEmail
+            )
+        )
+        XCTAssertFalse(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                "did John Wick get released",
+                focused: hit?.focusedEmail
+            )
+        )
+        XCTAssertFalse(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                "Give me a summary of Lauren's latest email.",
+                focused: hit?.focusedEmail
+            ),
+            "new named sender yields Murray"
+        )
         let stay = ConversationPresence.deskEvidence(
             for: yes,
             context: context,
