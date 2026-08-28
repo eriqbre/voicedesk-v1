@@ -55,10 +55,9 @@ final class GmailSearchQueryTests: XCTestCase {
     func testJohnWickTriviaDoesNotInventFromJohn() {
         let ask = "What year did John Wick get released"
         XCTAssertFalse(GmailSearchQuery.hasSenderPattern(ask))
-        let plan = GmailSearchQuery.plan(from: ask)
-        XCTAssertNil(plan)
-        XCTAssertFalse(plan?.variants.contains(where: { $0.contains("from:john") }) == true)
-        XCTAssertFalse(plan?.senders.contains("john") == true)
+        XCTAssertNil(GmailSearchQuery.plan(from: ask))
+        // Trivia must produce no Gmail search at all, not merely no "from:john".
+        XCTAssertNil(GmailSearchQuery.query(from: ask))
 
         XCTAssertTrue(GmailSearchQuery.hasSenderPattern("show me John's latest email"))
         XCTAssertTrue(GmailSearchQuery.query(from: "did Murray email me?")?.contains("from:murray") == true)
