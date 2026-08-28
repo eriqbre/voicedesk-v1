@@ -78,6 +78,12 @@ final class GrokVoiceService: VoiceServicing {
     /// `session.update` mid-reply — that cut c1cd758 after the first
     /// delta and stalled transcripts. Flush when idle.
     private var pendingPresenceSessionUpdate = false
+    /// 12:14: live desk-tool turn holds first VAD audio until tools land.
+    private var liveTurnAwaitingIntent = false
+    private var liveTurnNeedsTools = false
+    private var liveTurnToolsLanded = true
+    private var liveTurnWaitFinished = true
+    private var playedLiveFirstAudio = false
     /// Bound to the speak's `response.created`. Foreign `response.done`
     /// must not restore listen / clear verbatim mode.
     private var awaitingVerbatimSpeakID = false
@@ -308,6 +314,38 @@ final class GrokVoiceService: VoiceServicing {
         ) else { return }
         pendingPresenceSessionUpdate = false
         sendSessionUpdate()
+    }
+
+    func markLiveTurnNeedsTools(_ needs: Bool) {
+        liveTurnAwaitingIntent = false
+        liveTurnNeedsTools = needs
+        liveTurnToolsLanded = !needs
+        liveTurnWaitFinished = !needs
+        playedLiveFirstAudio = false
+    }
+
+    func markLiveTurnToolsLanded() {
+        guard !liveTurnWaitFinished else { return }
+        liveTurnWaitFinished = true
+        liveTurnToolsLanded = true
+        finishWaitedToolMouthIfNeeded()
+    }
+
+    /// Unheard early VAD create is leftover I-don’t-know. Cancel it
+    /// without barge-in; one `response.create` after tools is the mouth.
+    private func finishWaitedToolMouthIfNeeded() {
+        guard LiveToolMouth.shouldCreateAfterTools(
+            needsTools: liveTurnNeedsTools,
+            toolsLanded: liveTurnToolsLanded,
+            playedFirstAudio: playedLiveFirstAudio
+        ) else { return }
+        guard client.isConnected, !userWantsVoiceOff else { return }
+        if let id = currentResponseID ?? createdAwaitingAudioID ?? lastCreatedResponseID {
+            client.sendJSON(GrokRealtime.responseCancelObject(responseID: id))
+            currentResponseID = nil
+            createdAwaitingAudioID = nil
+        }
+        client.sendJSON(GrokRealtime.responseCreateObject())
     }
 
     func interruptResponse() {
@@ -804,6 +842,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             guard !trimmed.isEmpty else { break }
             clientTTSInFlight = false
             spokenLoopLoggedFirstAudio = false
+            liveTurnAwaitingIntent = false
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
         case .responseCreated(let id):
             responseCreatedCountForTests += 1
@@ -823,6 +862,13 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
                 )
             }
             assistantGate.reset()
+            if !bargeConsumed, !awaitingVerbatimSpeakID, verbatimSpeakResponseID == nil {
+                liveTurnAwaitingIntent = true
+                liveTurnNeedsTools = false
+                liveTurnToolsLanded = false
+                liveTurnWaitFinished = false
+                playedLiveFirstAudio = false
+            }
             if audio.hasPendingPlayback {
                 // First-answer PCM already scheduled without response_id.
                 noteFirstAnswerPlaying()
@@ -843,6 +889,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             // id. Deltas without response_id are R2 — do not eat them.
             let deltaID = GrokRealtime.responseID(in: json)
             guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { break }
+            guard LiveToolMouth.shouldPlayFirstAudio(
+                awaitingIntent: liveTurnAwaitingIntent,
+                needsTools: liveTurnNeedsTools,
+                toolsLanded: liveTurnToolsLanded
+            ) else { break }
             if playingResponseID == nil {
                 let tagged = GrokRealtime.scheduledResponseID(
                     deltaResponseID: deltaID,
@@ -861,6 +912,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             }
             audio.playAudioDelta(base64: delta)
             audioDeltaCount += 1
+            playedLiveFirstAudio = true
             noteFirstAnswerPlaying()
         case .outputAudioDone:
             break

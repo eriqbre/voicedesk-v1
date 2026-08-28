@@ -41,6 +41,9 @@ protocol VoiceServicing: AnyObject {
     func sendTextTurn(_ text: String) async
     func updatePresenceInstructions(_ text: String)
     func interruptResponse()
+    /// Live desk-tool turn: hold first VAD audio until client tools land.
+    func markLiveTurnNeedsTools(_ needs: Bool)
+    func markLiveTurnToolsLanded()
     func cancel()
     /// Open live Grok + audio session after first paint so the first tap can hear.
     func warmUp() async
@@ -53,6 +56,8 @@ extension VoiceServicing {
     func warmUp() async {}
     var hasPendingPlayback: Bool { false }
     var listenLoopBargeConsumed: Bool { false }
+    func markLiveTurnNeedsTools(_ needs: Bool) { _ = needs }
+    func markLiveTurnToolsLanded() {}
 }
 
 enum VoiceRuntime {
@@ -122,6 +127,14 @@ final class VoiceBox {
 
     func interruptResponse() {
         service.interruptResponse()
+    }
+
+    func markLiveTurnNeedsTools(_ needs: Bool) {
+        service.markLiveTurnNeedsTools(needs)
+    }
+
+    func markLiveTurnToolsLanded() {
+        service.markLiveTurnToolsLanded()
     }
 
     func cancel() {
