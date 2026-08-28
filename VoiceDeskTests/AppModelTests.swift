@@ -1224,6 +1224,38 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
     }
 
+    /// fd4a772 8:27 calendar tomorrow: live VAD empty assistantReply + cards.
+    /// Same handleLiveUser walk as latest emails. Calendar is applyDeskEvidence,
+    /// not applyInboxGlance. Speak the short line after tools. Not Here they are.
+    func testLiveCalendarTomorrowSpeaksAfterToolsNotEmptyReply() async {
+        let snapshot = DeskSnapshot(events: [
+            CalendarItem(title: "Walk the lot", whenLabel: "Tomorrow 9:00 AM"),
+            CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
+        ])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        _ = await fake.startListening()
+        fake.emitUser("what's on my calendar tomorrow")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.spoken.contains(where: { InboxGlance.isShortSpokenSummary($0) }) {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(
+            fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) },
+            "fd4a772 live calendar tomorrow spoke empty then cards: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+    }
+
     /// Live service path after version + glance write→player. Same loop
     /// as `FirstHearTapLoop.versionThenGlanceWritePlayerThenThird`.
     func testVersionThenGlanceWritePlayerStayLiveThirdCommandIsATurn() async {
