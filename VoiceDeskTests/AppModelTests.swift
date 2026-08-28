@@ -102,6 +102,7 @@ final class AppModelTests: XCTestCase {
         fake.emitUser("What’s in my inbox?", itemID: "item_echo")
         fake.emitAssistant("Jordan wrote this morning about Saturday.", isFinal: false)
         fake.emitAssistant("", isFinal: true)
+        await model.finishPendingDeskWork()
 
         XCTAssertEqual(model.turns.filter { $0.role == .user }.count, 1)
         XCTAssertEqual(model.turns[1].text, "What’s in my inbox?")
@@ -244,7 +245,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.conversationScrollReason, .cardsPeek)
     }
 
-    func testLiveCalendarReplyAttachesCardsAndScrolls() {
+    func testLiveCalendarReplyAttachesCardsAndScrolls() async {
         let event = CalendarItem(
             title: "Dinner reservation",
             whenLabel: "Tonight 7:00 PM",
@@ -261,6 +262,7 @@ final class AppModelTests: XCTestCase {
         fake.emitUser("What's on my calendar?", itemID: "cal-1")
         let epoch = model.conversationScrollEpoch
         fake.emitAssistant("Next up: Dinner reservation, Tonight 7:00 PM.", isFinal: true)
+        await model.finishPendingDeskWork()
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.notes, "Window table, party of 4.")
@@ -661,7 +663,12 @@ final class AppModelTests: XCTestCase {
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: sync
         )
-        fake.emitAssistant("I can’t pull the full email — that’s not in my last sync.", isFinal: true)
+        // Streamed deltas: no single delta reads as a refusal, so the front gate
+        // in upsertLiveAssistant passes it through and the assembled turn lands.
+        // That is the case scrubbing exists for.
+        fake.emitAssistant("I can’t", isFinal: false)
+        fake.emitAssistant(" pull the full email.", isFinal: false)
+        fake.emitAssistant("", isFinal: true)
         XCTAssertTrue(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
         await model.applyUserTurn("full summary of Murray’s latest email")
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskRefusal($0.text) })
@@ -683,7 +690,10 @@ final class AppModelTests: XCTestCase {
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: MockGoogleSync(result: snapshot)
         )
-        fake.emitAssistant("I’ll let the app handle that.", isFinal: true)
+        // Streamed deltas assemble into handoff meta the per-delta gate cannot catch.
+        fake.emitAssistant("I’ll let the", isFinal: false)
+        fake.emitAssistant(" app handle that.", isFinal: false)
+        fake.emitAssistant("", isFinal: true)
         XCTAssertTrue(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })
         await model.applyUserTurn("summarize the Murray email")
         XCTAssertFalse(model.turns.contains { ConversationPresence.isGrokDeskHandoff($0.text) })

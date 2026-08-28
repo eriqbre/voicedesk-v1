@@ -39,7 +39,8 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertEqual(google.topic, .google)
         XCTAssertEqual(google.text, ConversationPresence.connectHowToReply)
         XCTAssertEqual(ConversationPresence.connectHowToReply, "Tap Connect Google on the card below.")
-        XCTAssertEqual(ConversationPresence.connectCoach, ConversationPresence.connectHowToReply)
+        assertDoesNotContradictConnectCard(ConversationPresence.connectCoach)
+        XCTAssertFalse(ConversationPresence.replyMentionsCard(ConversationPresence.connectCoach))
     }
 
     func testHowDoIConnectGoogleMapsToConnectCard() {

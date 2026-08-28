@@ -508,7 +508,7 @@ struct ConnectGoogleCardView: View {
                         .buttonStyle(SecondaryCardButton())
                         .accessibilityIdentifier("google.disconnect")
                 } else {
-                    Button("Connect Google") { model.connectGoogle() }
+                    Button("Connect Google") { Task { await model.connectGoogle() } }
                         .buttonStyle(PrimaryCardButton())
                         .accessibilityIdentifier("google.connect")
                 }

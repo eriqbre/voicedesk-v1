@@ -52,6 +52,10 @@ final class AppModel {
     var expandEarlierEpoch: Int = 0
     /// Last known listening visual — used for the off earcon, not Grok.
     private var voiceListeningVisual = false
+    /// Live voice delivers transcripts through a synchronous callback, so desk
+    /// evidence has to be applied in a task. Held so a caller can await the turn
+    /// settling rather than guess how many yields it takes.
+    private var deskWork: Task<Void, Never>?
 
     var showsTalkCoach: Bool {
         !hasCompletedPlaybook && voice.state == .idle && !voice.needsCredentials
@@ -247,35 +251,33 @@ final class AppModel {
         }
     }
 
-    func connectGoogle() {
-        Task {
-            await google.connect()
-            refreshGoogleCards()
-            if google.setupNeeded || !google.isConnected {
-                let copy = google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy
-                activity.append(
-                    ActivityEntry(
-                        title: "Google connect",
-                        detail: "Gmail, Calendar, Tasks",
-                        outcome: google.setupNeeded ? "Setup required. Not connected." : (google.snapshot.message ?? "Failed. Not connected.")
-                    )
-                )
-                appendAssistant(copy)
-                return
-            }
-            await syncDesk()
+    func connectGoogle() async {
+        await google.connect()
+        refreshGoogleCards()
+        if google.setupNeeded || !google.isConnected {
+            let copy = google.snapshot.message ?? GoogleAuthSnapshot.missingClientIDCopy
             activity.append(
                 ActivityEntry(
                     title: "Google connect",
-                    detail: google.snapshot.email ?? "Gmail, Calendar, Tasks",
-                    outcome: "Connected. Last-synced reads are cached offline."
+                    detail: "Gmail, Calendar, Tasks",
+                    outcome: google.setupNeeded ? "Setup required. Not connected." : (google.snapshot.message ?? "Failed. Not connected.")
                 )
             )
-            appendAssistant(
-                "Google is connected as \(google.snapshot.email ?? "your account"). Ask what’s in your inbox — I’ll only show synced mail."
-            )
-            await voice.speak("Google is connected.")
+            appendAssistant(copy)
+            return
         }
+        await syncDesk()
+        activity.append(
+            ActivityEntry(
+                title: "Google connect",
+                detail: google.snapshot.email ?? "Gmail, Calendar, Tasks",
+                outcome: "Connected. Last-synced reads are cached offline."
+            )
+        )
+        appendAssistant(
+            "Google is connected as \(google.snapshot.email ?? "your account"). Ask what’s in your inbox — I’ll only show synced mail."
+        )
+        await voice.speak("Google is connected.")
     }
 
     func disconnectGoogle() {
@@ -720,8 +722,13 @@ final class AppModel {
         return turns.last(where: { $0.role == .assistant })?.text == ConversationPresence.emailNeedMoreReply
     }
 
+    /// Awaits the desk work the last live-voice turn started.
+    func finishPendingDeskWork() async {
+        await deskWork?.value
+    }
+
     private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
-        Task { await applyDeskEvidence(evidence) }
+        deskWork = Task { await applyDeskEvidence(evidence) }
     }
 
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
@@ -868,7 +875,7 @@ final class AppModel {
     }
 
     private func speakDeskReplyLater(_ text: String) {
-        Task { await speakDeskReply(text) }
+        deskWork = Task { await speakDeskReply(text) }
     }
 
     private func speakDeskReply(_ text: String) async {

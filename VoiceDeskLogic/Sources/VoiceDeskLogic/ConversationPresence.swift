@@ -28,9 +28,10 @@ public enum ConversationPresence {
 
     public static let starterChips = [justTalk, deskPreview, draftStarter]
     public static let connectGoogleChip = "Connect Google"
-    /// Shown with the Connect Google card. Never contradicts the button.
+    /// Answer to "how do I connect?". Points at the button, never at a Settings screen.
     public static let connectHowToReply = "Tap Connect Google on the card below."
-    public static let connectCoach = connectHowToReply
+    /// Unprompted first-run offer. Names the payoff instead of repeating the button.
+    public static let connectCoach = "Connect Google so I can see your inbox, calendar, and tasks."
     public static let returningConnectChipHint = "Connect Google when you’re ready — no rush."
 
     public enum Topic: String, Sendable, Equatable {
