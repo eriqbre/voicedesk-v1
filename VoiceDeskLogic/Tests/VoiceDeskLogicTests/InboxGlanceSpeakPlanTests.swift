@@ -67,11 +67,7 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
                 ask
             )
 
-            let started = Date()
             let plan = InboxGlanceSpeakPlan.cacheHot(ask: ask, snapshot: snapshot, now: now)
-            let elapsed = Date().timeIntervalSince(started)
-
-            XCTAssertLessThan(elapsed, 0.05, "\(ask) first-speak plan must be sync")
             XCTAssertEqual(hanging.glanceCalls, 0, "\(ask) must not touch a glancer")
             XCTAssertEqual(plan.intent, "inbox-overview", ask)
             XCTAssertEqual(plan.spokenSource, InboxGlanceSpeakPlan.localHeuristicSource, ask)

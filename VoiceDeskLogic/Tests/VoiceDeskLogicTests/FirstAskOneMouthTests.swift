@@ -56,7 +56,8 @@ final class FirstAskOneMouthTests: XCTestCase {
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
                 alreadyBarged: false,
-                hasPendingPlayback: true
+                hasPendingPlayback: true,
+                ask: "Hey, good morning. What version are we on?"
             ),
             "Eve must finish; version ask is not a barge cut"
         )

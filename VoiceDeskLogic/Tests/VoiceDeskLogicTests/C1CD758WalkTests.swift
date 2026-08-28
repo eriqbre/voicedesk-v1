@@ -76,9 +76,11 @@ final class C1CD758WalkTests: XCTestCase {
         )
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
-                alreadyBarged: false,
-                hasPendingPlayback: true
-            )
+                alreadyBarged: true,
+                hasPendingPlayback: true,
+                ask: "show me my latest emails"
+            ),
+            "c1cd758 leftover is alreadyBarged, not pending-never-interrupt"
         )
         let cards = LiveVADPlayerKeep.oneMouthFullReply(cardCount: 5)
         XCTAssertFalse(cards.isCardlessBlob)

@@ -79,16 +79,18 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
         )
     }
 
-    /// First-answer PCM on the player is this turn's mouth. Do not
-    /// latch it cancelled. speech_started already dropped leftover.
-    /// Version ask is not a barge — Eve finishes; interrupt is the
-    /// next turn only on a real command.
+    /// First-answer leftover is `alreadyBarged` (speech_started).
+    /// Version ask is not a barge — Eve finishes.
+    /// Next accepted command with PCM on the player drops playback.
+    /// Ambient never reaches this — `shouldTakeLiveTurn` already filtered it.
     public static func shouldInterruptOnUserTranscript(
         alreadyBarged: Bool,
-        hasPendingPlayback: Bool
+        hasPendingPlayback: Bool,
+        ask: String = ""
     ) -> Bool {
         if alreadyBarged { return false }
-        if hasPendingPlayback { return false }
+        if !hasPendingPlayback { return false }
+        if ConversationPresence.wantsVersionAsk(ask) { return false }
         return true
     }
 

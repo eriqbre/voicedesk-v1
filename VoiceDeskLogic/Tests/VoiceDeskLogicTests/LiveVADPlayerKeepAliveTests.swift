@@ -61,23 +61,35 @@ final class LiveVADPlayerKeepAliveTests: XCTestCase {
     func testSameTurnFirstAnswerMustNotBeInterrupted() {
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
-                alreadyBarged: false,
-                hasPendingPlayback: true
+                alreadyBarged: true,
+                hasPendingPlayback: true,
+                ask: "show me my latest emails"
             ),
-            "first-answer PCM on the player is the one mouth"
+            "speech_started already dropped leftover"
         )
         XCTAssertFalse(
             LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
-                alreadyBarged: true,
-                hasPendingPlayback: true
+                alreadyBarged: false,
+                hasPendingPlayback: true,
+                ask: "what version are we on"
             ),
-            "speech_started already dropped leftover"
+            "version ask is not a barge"
+        )
+        XCTAssertFalse(
+            LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
+                alreadyBarged: false,
+                hasPendingPlayback: false,
+                ask: "show me Murray's latest email"
+            ),
+            "nothing on the player"
         )
         XCTAssertTrue(
             LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
                 alreadyBarged: false,
-                hasPendingPlayback: false
-            )
+                hasPendingPlayback: true,
+                ask: "show me Murray's latest email"
+            ),
+            "next command drops playback"
         )
     }
 

@@ -41,6 +41,9 @@ final class AppModel {
     /// Must attach on the stream — not after glanceInbox — or show-latest
     /// is a blob.
     private var pendingLiveDeskCards: [ContentCard] = []
+    /// Client loading bubble at tool start. Removed when cards / tool-done land.
+    /// Not a spoken mouth.
+    private var liveThinkingBeatID: UUID?
     /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
     private var lastFocusedEmail: EmailItem?
     private var pendingThreadSummary = false
@@ -383,13 +386,14 @@ final class AppModel {
             : (ConversationPresence.looksLikeMailAsk(text)
                 || ConversationPresence.wantsInboxOverview(text) ? "mail" : "live")
         if isLiveVADTurn {
-            for event in liveVersionAsk.spokenLoopTurnEvents(intent: loopIntent) {
+            for event in liveVersionAsk.spokenLoopTurnEvents(intent: loopIntent, ask: text) {
                 enqueueSpokenLoop(event)
             }
         }
         if LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
             alreadyBarged: voice.listenLoopBargeConsumed,
-            hasPendingPlayback: voice.hasPendingPlayback
+            hasPendingPlayback: voice.hasPendingPlayback,
+            ask: text
         ) {
             voice.interruptResponse()
         }
@@ -449,6 +453,7 @@ final class AppModel {
                     isOnline: isOnline
                 ) {
                     voice.beginToolWaitCreate()
+                    liveThinkingBeatID = appendThinkingBeat()
                 }
                 Task {
                     await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
@@ -483,7 +488,8 @@ final class AppModel {
     }
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
-        if ConversationPresence.isGrokDeskMeta(text) {
+        if ConversationPresence.isGrokDeskMeta(text)
+            || ConversationPresence.replyMentionsCard(text) {
             return
         }
         if text.isEmpty, isFinal {
@@ -869,6 +875,7 @@ final class AppModel {
         ) {
             await applyDeskEvidence(evidence)
         } else {
+            clearLiveThinkingBeat()
             pendingSearchClarify = true
             appendAssistant(ConversationPresence.emailNeedMoreReply)
             await speakDeskReply(ConversationPresence.emailNeedMoreReply)
@@ -907,6 +914,7 @@ final class AppModel {
     }
 
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
+        clearLiveThinkingBeat()
         rememberEvidence(evidence)
         if evidence.topic == .version {
             let line = ConversationPresence.spokenIdentityLine(
@@ -989,10 +997,12 @@ final class AppModel {
             ? spoken
             : InboxGlance.onScreenText(compactCardCount: emails.count)
         appendAssistant(onScreen, cards: evidence.cards)
-        await speakDeskReply(spoken)
+        if !InboxGlance.isFromSubjectGlanceDump(spoken) {
+            await speakDeskReply(spoken)
+        }
         logVoiceTurn(
             evidence: evidence,
-            reply: spoken,
+            reply: InboxGlance.isFromSubjectGlanceDump(spoken) ? onScreen : spoken,
             cards: evidence.cards,
             notes: plan.voiceLogNotes
         )
@@ -1004,6 +1014,14 @@ final class AppModel {
         turns.append(turn)
         requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
         return turn.id
+    }
+
+    /// Loading false when cards / tool-done land. If start and done are
+    /// close, the beat never stays as a second mouth.
+    private func clearLiveThinkingBeat() {
+        guard let id = liveThinkingBeatID else { return }
+        liveThinkingBeatID = nil
+        removeTurn(id: id)
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {

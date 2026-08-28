@@ -95,7 +95,7 @@ public struct LiveVersionAsk: Equatable, Sendable {
 
     /// Events AppModel emits after handleLiveUser + speakDeskReply.
     /// Intent only — no transcript.
-    public func spokenLoopTurnEvents(intent: String = "version") -> [VoiceInteractionEntry] {
+    public func spokenLoopTurnEvents(intent: String = "version", ask: String = "") -> [VoiceInteractionEntry] {
         let evePlays = LiveVADPlayerKeep.shouldPlayBargeAudio(
             bargeConsumed: false,
             deltaResponseID: "eve",
@@ -107,8 +107,9 @@ public struct LiveVersionAsk: Equatable, Sendable {
             hasPendingPlayback: true
         )
         let interrupted = LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
-            alreadyBarged: false,
-            hasPendingPlayback: true
+            alreadyBarged: true,
+            hasPendingPlayback: true,
+            ask: ask.isEmpty ? lastUserUtterance : ask
         )
         return [
             SpokenLoopLog.turnStart(sessionID: sessionID, intent: intent),

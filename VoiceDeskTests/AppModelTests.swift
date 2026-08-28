@@ -1112,28 +1112,25 @@ final class AppModelTests: XCTestCase {
         )
 
         await model.applyUserTurn("see my latest emails")
-        XCTAssertEqual(fake.spoken.count, 1, "inbox-overview digest must Eve-speak")
-        let glance = fake.spoken.last ?? ""
-        XCTAssertTrue(InboxGlance.isShortSpokenSummary(glance), glance)
-        XCTAssertFalse(InboxGlance.isShortSpokenAck(glance), glance)
-        XCTAssertFalse(InboxGlance.isMultiline(glance), glance)
-        XCTAssertFalse(glance.contains("Murray Mitchell"), glance)
-        XCTAssertFalse(glance.localizedCaseInsensitiveContains("please do not reply"), glance)
-        XCTAssertFalse(glance.contains("Need you to notarize the closing package"), glance)
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 typed glance dump: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { $0.contains("Murray Mitchell") }, "\(fake.spoken)")
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
         let onScreen = model.turns.last?.text ?? ""
         XCTAssertTrue(
             InboxGlance.isShortOnScreenLeadIn(onScreen),
             "cards are the list; bubble must not reprint the glance: \(onScreen)"
         )
         XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), onScreen)
-        XCTAssertNotEqual(onScreen, glance, "TTS is fed the glance; the bubble is not")
         XCTAssertTrue(model.turns.last?.cards.allSatisfy { card in
             if case .email(let item) = card { return item.isCompactListRow }
             return false
         } == true)
 
         await model.applyUserTurn("summarize that email from John Madison")
-        XCTAssertEqual(fake.spoken.count, 2, "desk-person follow-up must Eve-speak")
+        XCTAssertEqual(fake.spoken.count, 1, "Madison follow-up speaks; glance dump does not")
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
         XCTAssertTrue((fake.spoken.last ?? "").contains("John Madison")
                       || (fake.spoken.last ?? "").contains("Beach Drive")
@@ -1169,7 +1166,10 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("see my latest emails")
         let afterGlance = model.turns.count
-        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) })
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 typed glance dump: \(fake.spoken)"
+        )
         XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
 
         fake.hasPendingPlayback = true
@@ -1256,6 +1256,10 @@ final class AppModelTests: XCTestCase {
         )
         XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
         XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertFalse(
+            model.turns.contains { ConversationPresence.isThinkingBeat($0.text) },
+            "thinking beat must clear when cards / tool-done land"
+        )
         _ = model
     }
 
@@ -1302,6 +1306,10 @@ final class AppModelTests: XCTestCase {
             "677abb9 spoke spokenCalendar then cards: \(fake.spoken)"
         )
         XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertFalse(
+            model.turns.contains { ConversationPresence.isThinkingBeat($0.text) },
+            "thinking beat must clear when cards land"
+        )
         _ = model
     }
 
@@ -1327,7 +1335,11 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(fake.startCount, 0)
 
         await model.applyUserTurn("show me my emails")
-        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) })
+        XCTAssertTrue(fake.spoken.contains { $0.contains("VoiceDesk") })
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 glance dump after version: \(fake.spoken)"
+        )
         XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertTrue(fake.stayLiveAfterSpeak, "glance write→player must stayLive")
         XCTAssertTrue(fake.listenArmedAfterSpeak)
