@@ -726,6 +726,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(
             fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" }
         )
+        fake.emitAssistant("Murray on the walk-through.", isFinal: true)
         XCTAssertFalse(
             fake.spoken.contains(ConversationPresence.gmailSearchSeveralReply),
             "delete canned which-one as the product mouth: \(fake.spoken)"
@@ -817,6 +818,7 @@ final class AppModelTests: XCTestCase {
             fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
             "mouth only after function_call_output: \(fake.wireItems)"
         )
+        fake.emitAssistant("Murray wants the lot walked today.", isFinal: true)
         XCTAssertTrue(
             model.deskSnapshot.emails.contains {
                 $0.fromName == "Murray Mitchell" && $0.hasFullBody
@@ -1585,6 +1587,7 @@ final class AppModelTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertGreaterThan(fake.endToolWaitCount, 0)
+        fake.emitAssistant("Murray on the walk-through, and more.", isFinal: true)
         let afterMail = model.turns.last?.cards ?? []
         XCTAssertTrue(afterMail.contains { $0.kind == .email }, "\(afterMail)")
 
@@ -1601,6 +1604,7 @@ final class AppModelTests: XCTestCase {
             creates,
             "bdbace4 yield returned before fulfill — calendar never parked"
         )
+        fake.emitAssistant("Anniversary tomorrow at 5:30, and more.", isFinal: true)
         XCTAssertEqual(fake.interruptCount, 1, "command barge still drops leftover playback")
         XCTAssertTrue(fake.sentResponseCreate, "fd4a772 create-without-words")
         let visible = model.turns.last?.cards ?? []
@@ -1637,6 +1641,97 @@ final class AppModelTests: XCTestCase {
             "\(fake.spoken)"
         )
         XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        _ = model
+        VoiceInteractionLog.resetForTests()
+    }
+
+    /// 65C7B25F / AEEAB5CC 1:41:53: “latest emails” on the live path
+    /// painted 5 cards and logged empty assistantReply. Walk
+    /// handleLiveUser → needsClientTools → beginToolWaitCreate →
+    /// fulfillConnectedDeskTurn / applyDeskEvidence. deskGlance must be
+    /// on the session. Cards land on Eve’s mouth after
+    /// function_call_output. Not leftover inbound. Not a planted empty
+    /// turn. Not Here they are.
+    func testLiveLatestEmailsCommandsGlanceToolAndDoesNotPaintEmptyMouth() async throws {
+        VoiceInteractionLog.resetForTests()
+        let inbox = [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre,
+            VoiceRegressionDesk.laren,
+            VoiceRegressionDesk.ericGross
+        ]
+        XCTAssertEqual(inbox.count, 5)
+        XCTAssertTrue(InboxGlance.onScreenText(compactCardCount: 5).isEmpty)
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: inbox)),
+            sync: MockGoogleSync(result: DeskSnapshot(emails: inbox))
+        )
+        _ = await fake.startListening()
+        fake.emitUser("latest emails")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.beginToolWaitCount,
+            0,
+            "AEEAB5CC 1:41:53 tape had zero function_call"
+        )
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "65C7B25F start report missing: \(fake.wireItems)"
+        )
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
+            "tool-done missing: \(fake.wireItems)"
+        )
+        XCTAssertTrue(fake.sentResponseCreate, "one Eve create after function_call_output")
+        XCTAssertTrue(fake.spoken.isEmpty, "do not force a looking-mouth: \(fake.spoken)")
+
+        let emptyMouthCards = model.turns.filter {
+            $0.role == .assistant
+                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !$0.cards.isEmpty
+        }
+        XCTAssertTrue(
+            emptyMouthCards.isEmpty,
+            "65C7B25F empty mouth + 5 cards: \(model.turns.map { "\($0.text) cards=\($0.cards.count)" })"
+        )
+        XCTAssertTrue(
+            model.turns.filter { $0.role == .user && !$0.cards.isEmpty }.isEmpty,
+            "cd4a8b1 finishLiveTool painted the user bubble: \(model.turns.map { "\($0.role) \($0.text) cards=\($0.cards.count)" })"
+        )
+        let tapeBeforeEve = VoiceInteractionLog.snapshot().filter {
+            $0.userTranscript == "latest emails"
+        }
+        XCTAssertFalse(
+            tapeBeforeEve.contains {
+                $0.assistantReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && $0.cardsAttached.count == 5
+            },
+            "AEEAB5CC 1:41:53 empty assistantReply + 5 cards: \(tapeBeforeEve.map { "reply=\($0.assistantReply) cards=\($0.cardsAttached)" })"
+        )
+
+        fake.emitAssistant("Murray on the walk-through, and Steve on inspection.", isFinal: true)
+        let eve = try XCTUnwrap(model.turns.last)
+        XCTAssertEqual(eve.role, .assistant)
+        XCTAssertFalse(eve.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertEqual(eve.cards.filter { $0.kind == .email }.count, 5)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(eve.text), eve.text)
+        XCTAssertNotEqual(eve.text, "Here they are.")
+        let tape = VoiceInteractionLog.snapshot().filter { $0.userTranscript == "latest emails" }
+        XCTAssertTrue(
+            tape.contains {
+                !$0.assistantReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && $0.cardsAttached.count == 5
+            },
+            "Eve’s words + cards after function_call_output: \(tape.map { "reply=\($0.assistantReply) cards=\($0.cardsAttached)" })"
+        )
         _ = model
         VoiceInteractionLog.resetForTests()
     }
@@ -1700,9 +1795,10 @@ final class AppModelTests: XCTestCase {
             emptyMouthCards.isEmpty,
             "9B23C3AA leftover inbound + empty + 5 cards: \(model.turns.map { "\($0.text) cards=\($0.cards.count)" })"
         )
+        fake.emitAssistant("Murray on the walk-through, and more.", isFinal: true)
         XCTAssertTrue(
             model.turns.flatMap(\.cards).contains { $0.kind == .email },
-            "cards land with tool-done, not onto an empty leftover mouth"
+            "cards land with Eve after function_call_output, not onto an empty leftover mouth"
         )
         _ = model
     }

@@ -43,6 +43,20 @@ public enum LiveToolMouth: Sendable {
         hasToolResult
     }
 
+    /// 65C7B25F / AEEAB5CC 1:41:53: finishLiveTool painted the last turn
+    /// (user bubble or empty leftover assistant) and logged empty
+    /// onScreenText as assistantReply. Cards land on Eve’s mouth after
+    /// function_call_output. Not a user bubble. Not an empty mouth.
+    public static func shouldAttachCardsOntoTurn(
+        role: Role,
+        text: String,
+        hasToolResult: Bool
+    ) -> Bool {
+        guard shouldParkLiveDeskCards(hasToolResult: hasToolResult) else { return false }
+        guard role == .assistant else { return false }
+        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// bdbace4 walk 14B69B95: calendar was spoken, prior Authentisign
     /// email cards stayed up. Visible cards after tool-done must be this
     /// turn's rows, not leftover. Empty current still replaces leftover.
