@@ -350,6 +350,19 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         }
         XCTAssertTrue(sawCreate, "one Eve mouth after tools")
         let delivered = Array(loopback.receivedTexts.dropFirst(afterSpeech))
+        XCTAssertTrue(
+            delivered.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "tool start must land before Eve audio: \(delivered)"
+        )
+        let done = delivered.first { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" }
+        let output = GrokRealtime.functionCallOutput(inCreate: done ?? "")
+        XCTAssertNotNil(done, "tool done with card payload missing: \(delivered)")
+        XCTAssertFalse(
+            InboxGlance.isFromSubjectGlanceDump(output ?? ""),
+            "677abb9 dump as tool done: \(output ?? "")"
+        )
+        XCTAssertNotEqual(output, dump)
+        XCTAssertTrue(output?.contains(VoiceRegressionDesk.murray.fromName) == true, output ?? "")
         XCTAssertFalse(
             delivered.contains { $0.contains("SPEAK_VERBATIM") && $0.contains(dump) },
             "677abb9 glance-then-cards verbatim dump: \(delivered)"

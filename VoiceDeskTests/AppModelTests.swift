@@ -1232,6 +1232,16 @@ final class AppModelTests: XCTestCase {
             0,
             "fd4a772 empty-reply-then-cards: no Eve create after tools"
         )
+        XCTAssertTrue(fake.sawThinkingDuringTools, "client loading at tool start")
+        XCTAssertNotEqual(fake.state, .thinking, "loading false when cards/tool done land")
+        let payload = try XCTUnwrap(fake.toolDoneOutputs.first)
+        XCTAssertFalse(
+            InboxGlance.isFromSubjectGlanceDump(payload),
+            "677abb9 dump on tool done: \(payload)"
+        )
+        XCTAssertNotEqual(payload, dump)
+        XCTAssertTrue(payload.contains(VoiceRegressionDesk.murray.fromName), payload)
+        XCTAssertTrue(payload.contains(VoiceRegressionDesk.murray.subject), payload)
         XCTAssertFalse(
             fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
             "677abb9 glance-then-cards mouth: \(fake.spoken)"
@@ -1242,10 +1252,6 @@ final class AppModelTests: XCTestCase {
         )
         XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
         XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
-        XCTAssertTrue(
-            fake.spoken.allSatisfy { !InboxGlance.isFromSubjectGlanceDump($0) },
-            "\(fake.spoken)"
-        )
         _ = model
     }
 
@@ -1278,6 +1284,11 @@ final class AppModelTests: XCTestCase {
             0,
             "fd4a772 empty-reply-then-cards: no Eve create after tools"
         )
+        XCTAssertTrue(fake.sawThinkingDuringTools, "client loading at tool start")
+        XCTAssertNotEqual(fake.state, .thinking, "loading false when cards land")
+        let payload = try XCTUnwrap(fake.toolDoneOutputs.first)
+        XCTAssertNotEqual(payload, dump)
+        XCTAssertTrue(payload.contains("Walk the lot"), payload)
         XCTAssertFalse(
             fake.spoken.contains(dump),
             "677abb9 spoke spokenCalendar then cards: \(fake.spoken)"
@@ -1542,9 +1553,24 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     var beginToolWaitCount = 0
     var endToolWaitCount = 0
+    var toolDoneOutputs: [String] = []
+    var sawThinkingDuringTools = false
 
     func beginToolWaitCreate() {
         beginToolWaitCount += 1
+        session.apply(.listenFinished)
+        eventHandler?(.state(session.state))
+        if session.state == .thinking {
+            sawThinkingDuringTools = true
+        }
+    }
+
+    func reportToolResult(_ output: String) {
+        toolDoneOutputs.append(output)
+        if session.state == .thinking {
+            session.apply(.turnFinished)
+            eventHandler?(.state(session.state))
+        }
     }
 
     func endToolWaitCreate() {

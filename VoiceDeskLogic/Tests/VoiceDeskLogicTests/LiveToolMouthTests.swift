@@ -77,6 +77,46 @@ final class LiveToolMouthTests: XCTestCase {
         XCTAssertTrue(A2727B1Walk.versionIsDualMouth())
     }
 
+    func testCardPayloadIsTheCardRowsNotSpokenInboxDump() {
+        let cards = EmailItem.listCards([
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve
+        ])
+        let payload = LiveToolMouth.cardPayload(cards)
+        let dump = InboxGlance.spokenInbox(
+            ask: "Show me my latest emails.",
+            emails: [VoiceRegressionDesk.murray, VoiceRegressionDesk.steve]
+        )
+        XCTAssertFalse(payload.isEmpty)
+        XCTAssertNotEqual(payload, dump)
+        XCTAssertFalse(InboxGlance.isFromSubjectGlanceDump(payload), payload)
+        XCTAssertTrue(payload.contains(VoiceRegressionDesk.murray.fromName), payload)
+        XCTAssertTrue(payload.contains(VoiceRegressionDesk.murray.subject), payload)
+        XCTAssertFalse(payload.contains(", and more"), payload)
+    }
+
+    func testToolStartAndDoneItemsAreOnTheWire() throws {
+        let start = GrokRealtime.functionCallItemObject(
+            name: LiveToolMouth.deskGlanceToolName,
+            callID: "call-1"
+        )
+        let startData = try JSONSerialization.data(withJSONObject: start)
+        let startRaw = try XCTUnwrap(String(data: startData, encoding: .utf8))
+        XCTAssertEqual(GrokRealtime.conversationItemType(inCreate: startRaw), "function_call")
+
+        let cards = EmailItem.listCards([VoiceRegressionDesk.murray])
+        let done = GrokRealtime.functionCallOutputItemObject(
+            callID: "call-1",
+            output: LiveToolMouth.cardPayload(cards)
+        )
+        let doneData = try JSONSerialization.data(withJSONObject: done)
+        let doneRaw = try XCTUnwrap(String(data: doneData, encoding: .utf8))
+        XCTAssertEqual(GrokRealtime.conversationItemType(inCreate: doneRaw), "function_call_output")
+        let output = try XCTUnwrap(GrokRealtime.functionCallOutput(inCreate: doneRaw))
+        XCTAssertFalse(InboxGlance.isFromSubjectGlanceDump(output), output)
+        XCTAssertTrue(output.contains(VoiceRegressionDesk.murray.fromName), output)
+    }
+
     func testPresenceStillTeachesWaitNotPlaceholder() {
         let text = GrokRealtime.presenceInstructions(
             for: DeskContext(isConnected: true, snapshot: DeskSnapshot(

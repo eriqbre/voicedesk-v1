@@ -635,6 +635,56 @@ public enum GrokRealtime {
         raw.contains(speakVerbatimMarker)
     }
 
+    /// Client tool start on Eve's session. No audio. She is the translator.
+    public static func functionCallItemObject(
+        name: String,
+        callID: String,
+        arguments: String = "{}"
+    ) -> [String: Any] {
+        [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "function_call",
+                "name": name,
+                "call_id": callID,
+                "arguments": arguments
+            ] as [String: Any]
+        ]
+    }
+
+    /// Tool done. Output is the same card payload the UI draws.
+    public static func functionCallOutputItemObject(
+        callID: String,
+        output: String
+    ) -> [String: Any] {
+        [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "function_call_output",
+                "call_id": callID,
+                "output": output
+            ] as [String: Any]
+        ]
+    }
+
+    public static func conversationItemType(inCreate raw: String) -> String? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "conversation.item.create",
+              let item = object["item"] as? [String: Any]
+        else { return nil }
+        return item["type"] as? String
+    }
+
+    public static func functionCallOutput(inCreate raw: String) -> String? {
+        guard conversationItemType(inCreate: raw) == "function_call_output",
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let item = object["item"] as? [String: Any]
+        else { return nil }
+        return item["output"] as? String
+    }
+
     public static func textItemObject(_ text: String) -> [String: Any] {
         [
             "type": "conversation.item.create",

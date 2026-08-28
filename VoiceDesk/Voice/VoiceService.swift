@@ -44,6 +44,8 @@ protocol VoiceServicing: AnyObject {
     /// 12:14: `create_response` false while tools run; one create after.
     func beginToolWaitCreate()
     func endToolWaitCreate()
+    /// Tool done on Eve's wire. Same payload as the cards. Then create.
+    func reportToolResult(_ output: String)
     func cancel()
     /// Open live Grok + audio session after first paint so the first tap can hear.
     func warmUp() async
@@ -58,6 +60,7 @@ extension VoiceServicing {
     var listenLoopBargeConsumed: Bool { false }
     func beginToolWaitCreate() {}
     func endToolWaitCreate() {}
+    func reportToolResult(_ output: String) { _ = output }
 }
 
 enum VoiceRuntime {
@@ -135,6 +138,10 @@ final class VoiceBox {
 
     func endToolWaitCreate() {
         service.endToolWaitCreate()
+    }
+
+    func reportToolResult(_ output: String) {
+        service.reportToolResult(output)
     }
 
     func cancel() {

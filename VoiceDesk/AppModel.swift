@@ -948,11 +948,11 @@ final class AppModel {
             await applyInboxGlance(evidence)
             return
         }
-        // Live list/show: cards + tools. Eve's mouth is endToolWaitCreate.
-        // 677abb9 spoke spokenCalendar via speakLiveReplyViaEve — the dump.
+        // Live list/show: cards + tool done on Eve's wire. Not spokenCalendar.
         if isLiveVADTurn {
             parkOrAttachLiveDeskCards(evidence.cards)
             refreshPresence()
+            voice.reportToolResult(LiveToolMouth.cardPayload(evidence.cards))
             pendingGeneralVoiceLog = true
             return
         }
@@ -967,12 +967,13 @@ final class AppModel {
             return nil
         }
         if isLiveVADTurn {
-            // 677abb9 DD56F6A9: speakDeskReply(spokenInbox) then cards.
-            // That from/subject dump was the mouth. Wait for xaiGlance,
-            // park cards, refresh facts. Eve speaks after endToolWaitCreate.
+            // 677abb9 spoke spokenInbox. Delete that mouth. Tool start is
+            // already on the wire. Done carries the same rows as the cards.
+            // Eve translates once. Client thinking indicator, not spoken.
             _ = await emailSummarizer.glanceInbox(emails)
             parkOrAttachLiveDeskCards(evidence.cards)
             refreshPresence()
+            voice.reportToolResult(LiveToolMouth.cardPayload(evidence.cards))
             pendingGeneralVoiceLog = true
             return
         }
