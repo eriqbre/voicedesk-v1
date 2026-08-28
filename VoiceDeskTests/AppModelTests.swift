@@ -102,6 +102,7 @@ final class AppModelTests: XCTestCase {
         fake.emitUser("What’s in my inbox?", itemID: "item_echo")
         fake.emitAssistant("Jordan wrote this morning about Saturday.", isFinal: false)
         fake.emitAssistant("", isFinal: true)
+        await model.finishPendingDeskWork()
 
         XCTAssertEqual(model.turns.filter { $0.role == .user }.count, 1)
         XCTAssertEqual(model.turns[1].text, "What’s in my inbox?")
@@ -244,7 +245,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.conversationScrollReason, .cardsPeek)
     }
 
-    func testLiveCalendarReplyAttachesCardsAndScrolls() {
+    func testLiveCalendarReplyAttachesCardsAndScrolls() async {
         let event = CalendarItem(
             title: "Dinner reservation",
             whenLabel: "Tonight 7:00 PM",
@@ -261,6 +262,7 @@ final class AppModelTests: XCTestCase {
         fake.emitUser("What's on my calendar?", itemID: "cal-1")
         let epoch = model.conversationScrollEpoch
         fake.emitAssistant("Next up: Dinner reservation, Tonight 7:00 PM.", isFinal: true)
+        await model.finishPendingDeskWork()
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.notes, "Window table, party of 4.")
