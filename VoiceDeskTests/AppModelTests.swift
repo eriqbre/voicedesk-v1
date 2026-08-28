@@ -1582,11 +1582,10 @@ final class AppModelTests: XCTestCase {
         _ = model
     }
 
-    /// 9cf53c4 9B23C3AA leftover inbound then the walk phrase
-    /// “Do I have any appointments tonight?” matchingCalendar already
-    /// had the event and ignored whenLabel. Reading whenLabel also
-    /// matches dinner tonight — leftover does not earn keep. STOP.
-    /// No appointments∩tonight table. No planted leftover empty mouth.
+    /// 9cf53c4 9B23C3AA leftover inbound then the walk phrase.
+    /// Presence used to list Massimo on the session so leftover VAD
+    /// could speak him with no function_call. Delete that injection.
+    /// Do not invent a command. No planted leftover empty mouth.
     func testLiveAppointmentsTonightDoesNotSpeakWithoutToolReport() async throws {
         let snapshot = DeskSnapshot(
             emails: [VoiceRegressionDesk.murray],
@@ -1606,6 +1605,10 @@ final class AppModelTests: XCTestCase {
             sync: MockGoogleSync(result: snapshot)
         )
         _ = await fake.startListening()
+        XCTAssertFalse(
+            fake.lastPresenceInstructions.contains("Massimo showing"),
+            "9cf53c4 calendar leak: \(fake.lastPresenceInstructions)"
+        )
         fake.emitLeftoverVADCreate()
         XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
         XCTAssertFalse(fake.createdThisUserTurn)
@@ -1614,13 +1617,16 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(
             fake.beginToolWaitCount,
             0,
-            "STOP: no skip-delete without new whenLabel surface"
+            "do not invent a command for the walk phrase"
         )
         XCTAssertFalse(
             fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
             "walk phrase still no-tool: \(fake.wireItems)"
         )
         XCTAssertTrue(fake.spoken.isEmpty, "do not force a looking-mouth: \(fake.spoken)")
+        XCTAssertFalse(
+            fake.spoken.contains { $0.localizedCaseInsensitiveContains("Massimo") }
+        )
         XCTAssertFalse(
             model.turns.contains {
                 $0.role == .assistant && $0.text.localizedCaseInsensitiveContains("Massimo")
@@ -1962,8 +1968,10 @@ final class FakeLiveVoiceService: VoiceServicing {
         eventHandler?(.assistantTranscript(text, isFinal: isFinal))
     }
 
+    var lastPresenceInstructions = ""
+
     func updatePresenceInstructions(_ text: String) {
-        _ = text
+        lastPresenceInstructions = text
     }
 
     func interruptResponse() {

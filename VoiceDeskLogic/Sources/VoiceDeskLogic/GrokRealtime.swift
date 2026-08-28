@@ -120,14 +120,10 @@ public enum GrokRealtime {
                 lines.append(line)
             }
         }
-        if snapshot.events.isEmpty {
-            lines.append("Calendar: nothing upcoming in the last sync.")
-        } else {
-            lines.append("Calendar (only these):")
-            for event in snapshot.events.prefix(8) {
-                lines.append("- \(event.title) — \(event.whenLabel)")
-            }
-        }
+        // Calendar rows used to be injected here so leftover VAD could
+        // speak Massimo without a function_call (9B23C3AA appointments
+        // tonight). Those rows land on function_call_output after she
+        // commands. Do not restack a second facts channel.
         if snapshot.tasks.isEmpty {
             lines.append("Tasks: no open tasks in the last sync.")
         } else {

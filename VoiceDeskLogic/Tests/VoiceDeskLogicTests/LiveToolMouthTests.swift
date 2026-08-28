@@ -267,12 +267,10 @@ final class LiveToolMouthTests: XCTestCase {
         )
     }
 
-    /// 9cf53c4 leftover VAD spoke Massimo — no tool. Walk phrase is
-    /// “Do I have any appointments tonight?” matchingCalendar already
-    /// had the event (title / relatedPeople) and ignored whenLabel.
-    /// Reading whenLabel “Tonight” also matches dinner tonight — that
-    /// leftover does not earn keep. No appointments∩tonight table.
-    /// No whenLabel add. No exclusion list. STOP.
+    /// 9cf53c4 leftover VAD spoke Massimo — no tool. Walk phrase does
+    /// not enter tool-wait. Presence used to list “Massimo showing —
+    /// Tonight 5:30 PM”. Delete that injection. No appointments∩tonight
+    /// table. No whenLabel. Named Massimo still owns.
     func testLiveAppointmentsTonightDoesNotSpeakFromPresenceWithoutToolReport() {
         let snapshot = DeskSnapshot(
             emails: [VoiceRegressionDesk.murray],
@@ -295,7 +293,7 @@ final class LiveToolMouthTests: XCTestCase {
         )
         XCTAssertFalse(
             ConversationPresence.ownsConnectedDeskTurn(walkAsk, events: snapshot.events),
-            "honest leftover: walk phrase still no-tool without new surface"
+            "do not invent a command — walk phrase is not matchingCalendar"
         )
         XCTAssertFalse(
             LiveToolMouth.needsClientTools(
@@ -338,6 +336,11 @@ final class LiveToolMouthTests: XCTestCase {
         let text = GrokRealtime.presenceInstructions(
             for: DeskContext(isConnected: true, snapshot: snapshot)
         )
+        XCTAssertFalse(
+            text.contains("Massimo showing"),
+            "9cf53c4 stuffed the calendar line onto the session: \(text)"
+        )
+        XCTAssertFalse(text.contains("Tonight 5:30 PM"), text)
         XCTAssertFalse(text.contains("you speak the answer"), text)
         XCTAssertFalse(text.contains("answer from the facts"), text)
         XCTAssertFalse(

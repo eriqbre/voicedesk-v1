@@ -500,6 +500,81 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         voice.cancel()
     }
 
+    /// 9cf53c4 9B23C3AA leftover inbound then appointments tonight.
+    /// Session instructions listed Massimo so leftover VAD spoke him
+    /// with no function_call. Production path — leftover inbound
+    /// create, not a planted empty transcript.
+    func testLeftoverInboundAppointmentsTonightDoesNotLeakMassimoOnSession() async throws {
+        let loopback = try await ListenLoopWebSocketLoopback.start()
+        defer { loopback.stop() }
+        let voice = try await openProductionSpeakSocket(
+            apiKey: "speak-9b23-leftover-tonight",
+            loopback: loopback
+        )
+        voice.startListenLoopAudioForTests()
+        voice.attachListenLoopClientTTSRecorderForTests()
+
+        let snapshot = DeskSnapshot(
+            emails: [VoiceRegressionDesk.murray],
+            events: [
+                CalendarItem(
+                    title: "Massimo showing",
+                    whenLabel: "Tonight 5:30 PM",
+                    relatedPeople: ["Massimo Ricci"]
+                )
+            ]
+        )
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+
+        loopback.sendPeerJSON(
+            #"{"type":"response.created","response_id":"leftover-vad-tonight"}"#
+        )
+        let leftoverLanded = await waitUntil(timeoutMs: 2000) {
+            voice.listenLoopResponseCreatedCount > 0
+        }
+        XCTAssertTrue(leftoverLanded, "leftover inbound response.created must land")
+
+        let blobs = loopback.receivedTexts.compactMap {
+            GrokRealtime.instructions(inSessionUpdate: $0)
+        }
+        XCTAssertFalse(blobs.isEmpty, "presence must be on the production session")
+        for blob in blobs {
+            XCTAssertFalse(
+                blob.contains("Massimo showing"),
+                "9cf53c4 calendar leak on session.update: \(blob)"
+            )
+            XCTAssertFalse(blob.contains("Tonight 5:30 PM"), blob)
+            XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(blob), blob)
+            XCTAssertFalse(GrokRealtime.teachesNoTools(blob), blob)
+        }
+
+        let afterLeftover = loopback.receivedTexts.count
+        loopback.sendPeerJSON(
+            #"{"type":"conversation.item.input_audio_transcription.completed","transcript":"Do I have any appointments tonight?","item_id":"cal-9b23"}"#
+        )
+        _ = await waitUntil(timeoutMs: 2000) {
+            loopback.receivedTexts.count > afterLeftover
+        }
+        let delivered = Array(loopback.receivedTexts.dropFirst(afterLeftover))
+        XCTAssertFalse(
+            delivered.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "do not invent a command: \(delivered)"
+        )
+        XCTAssertFalse(
+            voice.listenLoopClientTTSRecordedTexts.contains {
+                $0.localizedCaseInsensitiveContains("Massimo")
+            },
+            "\(voice.listenLoopClientTTSRecordedTexts)"
+        )
+        _ = model
+        voice.cancel()
+    }
+
     private func openProductionSpeakSocket(
         apiKey: String,
         loopback: ListenLoopWebSocketLoopback

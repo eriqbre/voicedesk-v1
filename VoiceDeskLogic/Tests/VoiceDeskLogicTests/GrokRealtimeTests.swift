@@ -75,7 +75,10 @@ final class GrokRealtimeTests: XCTestCase {
         let text = GrokRealtime.presenceInstructions(for: DeskContext(isConnected: true, snapshot: snapshot))
         XCTAssertTrue(text.contains("ada@example.com"))
         XCTAssertTrue(text.contains("Inspection questions"))
-        XCTAssertTrue(text.contains("Offer review"))
+        XCTAssertFalse(
+            text.contains("Offer review"),
+            "9B23C3AA leftover: calendar rows on the session let her skip the tool"
+        )
         XCTAssertFalse(text.contains("Jordan Hale"))
         XCTAssertFalse(text.contains("1842 Beach Drive"))
         XCTAssertTrue(text.contains("Do not mention any sample listing"))
