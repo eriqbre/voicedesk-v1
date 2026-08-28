@@ -165,12 +165,10 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         voice.cancel()
     }
 
-    /// 12:14 leftover: 83a5c6a / 7ef2f6d left `create_response` true
-    /// (or omitted) on speech_started, so server VAD created a mouth
-    /// before client tools, then another create after tools landed.
-    /// This walk is the production socket: peer `speech_started` /
-    /// user transcript / AppModel begin+end tool-wait. Not a
-    /// CreateTrace factory, leftover1214() string, or source scrape.
+    /// fd4a772 / 83a5c6a 12:14: DidOpen listen-resume `create_response`
+    /// true. Server VAD created I-don't-have on speech_stopped before
+    /// speech_started tool-wait applied, then the real answer after tools.
+    /// Production socket walk. Not a CreateTrace factory.
     func testCalendarAskWaitsForToolsThenOneResponseCreate() async throws {
         let loopback = try await ListenLoopWebSocketLoopback.start()
         defer { loopback.stop() }
@@ -184,13 +182,22 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
             LiveGrokVoiceClient.typeOfSend($0) == "session.update"
         }
         XCTAssertFalse(connectUpdates.isEmpty, "connect must put session.update on the task")
+        let listenFlagBeforeSpeech = connectUpdates.reversed().compactMap {
+            GrokRealtime.createResponse(inSessionUpdate: $0)
+        }.first
+        XCTAssertEqual(
+            listenFlagBeforeSpeech,
+            false,
+            "fd4a772 DidOpen listen-resume create_response true: VAD created I-don't-have before tools. last=\(connectUpdates)"
+        )
         XCTAssertFalse(
-            connectUpdates.contains { GrokRealtime.createResponse(inSessionUpdate: $0) == false },
-            "listen connect must not wait on tools: \(connectUpdates)"
+            GrokRealtime.vadCreatesOnSpeechStopped(createResponse: listenFlagBeforeSpeech),
+            "first listen must not VAD-create a mouth before tools"
         )
 
         let afterConnect = loopback.receivedTexts.count
         let snapshot = DeskSnapshot(accountEmail: "agent@example.com")
+        var heardAssistant = ""
         voice.eventHandler = { event in
             if case .userTranscript(let text, _, _) = event,
                LiveToolMouth.needsClientTools(
@@ -200,6 +207,9 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
                 isOnline: true
                ) {
                 voice.beginToolWaitCreate()
+            }
+            if case .assistantTranscript(let text, _) = event {
+                heardAssistant += text
             }
         }
 
@@ -224,7 +234,33 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         )
 
         loopback.sendPeerJSON(#"{"type":"input_audio_buffer.speech_stopped"}"#)
+        // Server still has DidOpen's flag until it applies speech_started's
+        // session.update. fd4a772 listen-resume true creates I-don't-have here.
+        if GrokRealtime.vadCreatesOnSpeechStopped(createResponse: listenFlagBeforeSpeech) {
+            loopback.sendPeerJSON(
+                #"{"type":"response.created","response_id":"vad-early-1"}"#
+            )
+            loopback.sendPeerJSON(
+                #"{"type":"response.output_audio_transcript.delta","response_id":"vad-early-1","delta":"I don't have the right answer."}"#
+            )
+            loopback.sendPeerJSON(
+                #"{"type":"response.output_audio.delta","response_id":"vad-early-1","delta":"AAAA"}"#
+            )
+            _ = await waitUntil(timeoutMs: 2000) {
+                heardAssistant.localizedCaseInsensitiveContains("don't have the right answer")
+                    || voice.listenLoopResponseCreatedCount > 0
+            }
+        }
         try? await Task.sleep(for: .milliseconds(80))
+        XCTAssertFalse(
+            heardAssistant.localizedCaseInsensitiveContains("don't have the right answer"),
+            "fd4a772 early I-don't-have VAD mouth before tools: \(heardAssistant)"
+        )
+        XCTAssertEqual(
+            voice.listenLoopResponseCreatedCount,
+            0,
+            "no VAD mouth before tools"
+        )
         XCTAssertFalse(
             loopback.receivedTexts.dropFirst(afterConnect).contains {
                 LiveGrokVoiceClient.typeOfSend($0) == "response.create"

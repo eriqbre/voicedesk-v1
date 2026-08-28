@@ -57,6 +57,14 @@ final class LiveToolMouthTests: XCTestCase {
                 isOnline: true
             )
         )
+        XCTAssertTrue(
+            LiveToolMouth.needsClientTools(
+                ask: "what's on my calendar",
+                snapshot: snapshot,
+                isConnected: true,
+                isOnline: true
+            )
+        )
     }
 
     func testHonestGatesStillFailVoiceCutSilenceTwoMouth() {

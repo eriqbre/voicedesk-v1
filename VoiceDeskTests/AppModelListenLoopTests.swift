@@ -1422,18 +1422,18 @@ final class AppModelListenLoopTests: XCTestCase {
         let sawUpdate = await loopback.waitUntilReceived { raw in
             LiveGrokVoiceClient.typeOfSend(raw) == "session.update"
         }
-        XCTAssertTrue(sawUpdate, "recover DidOpen must send listen-resume session.update on the real task")
+        XCTAssertTrue(sawUpdate, "recover DidOpen must send session.update on the real task")
         guard let firstUpdate = loopback.receivedTexts.first(where: {
             LiveGrokVoiceClient.typeOfSend($0) == "session.update"
         }) else {
-            XCTFail("recover must send listen-resume session.update")
+            XCTFail("recover must send session.update")
             voice.cancel()
             return
         }
         XCTAssertEqual(
             GrokRealtime.createResponse(inSessionUpdate: firstUpdate),
-            true,
-            "recover must request a response"
+            false,
+            "fd4a772 recover DidOpen listen-resume true: VAD created I-don't-have before tools"
         )
         XCTAssertTrue(loopback.receivedAppendPCM.contains(command2))
         XCTAssertFalse(voice.listenLoopUsesTestSendSink)
@@ -3314,8 +3314,8 @@ final class AppModelListenLoopTests: XCTestCase {
         )
         XCTAssertEqual(
             GrokRealtime.createResponse(inSessionUpdate: firstUpdate),
-            true,
-            "e89d443 DidOpen sent sessionUpdateObject with create_response omitted — commit on a session that never asked for a response"
+            false,
+            "fd4a772 DidOpen listen-resume true: VAD created I-don't-have before tools"
         )
 
         XCTAssertFalse(ListenInterrupt.isCommand("and now the weather"))

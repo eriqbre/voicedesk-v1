@@ -462,7 +462,16 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     private func sendSessionUpdate() {
-        client.sendJSON(GrokRealtime.sessionUpdateObject(voice: voiceID, instructions: instructions))
+        // Omitted create_response is VAD-create (fd4a772 / 83a5c6a noon).
+        // Presence must not re-arm a mouth while the next ask may need tools.
+        // listen-resume still sends true after verbatim when not waiting.
+        client.sendJSON(
+            GrokRealtime.sessionUpdateObject(
+                voice: voiceID,
+                instructions: instructions,
+                createResponse: GrokRealtime.createResponseWhileToolsRun
+            )
+        )
     }
 
     private func sendListenResumeSessionUpdate() {
@@ -712,7 +721,11 @@ final class GrokVoiceService: VoiceServicing {
 extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     func grokWebSocketDidOpen() {
         didConnectThisLaunch = true
-        sendListenResumeSessionUpdate()
+        // fd4a772 sent listen-resume create_response true here. Server
+        // VAD created I-don't-have on speech_stopped before speech_started
+        // tool-wait could apply. First listen waits; one create after
+        // transcript or tools. listen-resume true stays for verbatim leave.
+        sendToolWaitSessionUpdate()
         startAudioIfNeeded()
     }
 

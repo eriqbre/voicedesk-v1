@@ -5,16 +5,17 @@ import Foundation
 public enum LiveToolMouth: Sendable {
     public static func needsClientTools(
         ask: String,
-        snapshot: DeskSnapshot,
+        snapshot _: DeskSnapshot,
         isConnected: Bool,
         isOnline: Bool
     ) -> Bool {
         guard isConnected, isOnline else { return false }
         if ConversationPresence.looksLikeMailAsk(ask)
-            || ConversationPresence.wantsInboxOverview(ask) {
+            || ConversationPresence.wantsInboxOverview(ask)
+            || ConversationPresence.wantsCalendarAsk(ask) {
             return true
         }
-        return ConversationPresence.wantsCalendarAsk(ask) && snapshot.events.isEmpty
+        return false
     }
 
     public static func shouldSendResponseCreate(toolWait: Bool, alreadyCreated: Bool) -> Bool {
