@@ -1232,6 +1232,10 @@ final class AppModelTests: XCTestCase {
             0,
             "fd4a772 empty-reply-then-cards: no Eve create after tools"
         )
+        XCTAssertTrue(
+            fake.sentResponseCreate,
+            "fd4a772 create-without-words: endToolWait with no tool-done payload"
+        )
         XCTAssertTrue(fake.sawThinkingDuringTools, "client loading at tool start")
         XCTAssertNotEqual(fake.state, .thinking, "loading false when cards/tool done land")
         let payload = try XCTUnwrap(fake.toolDoneOutputs.first)
@@ -1283,6 +1287,10 @@ final class AppModelTests: XCTestCase {
             fake.endToolWaitCount,
             0,
             "fd4a772 empty-reply-then-cards: no Eve create after tools"
+        )
+        XCTAssertTrue(
+            fake.sentResponseCreate,
+            "fd4a772 create-without-words: endToolWait with no tool-done payload"
         )
         XCTAssertTrue(fake.sawThinkingDuringTools, "client loading at tool start")
         XCTAssertNotEqual(fake.state, .thinking, "loading false when cards land")
@@ -1555,6 +1563,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     var endToolWaitCount = 0
     var toolDoneOutputs: [String] = []
     var sawThinkingDuringTools = false
+    var sentResponseCreate = false
 
     func beginToolWaitCreate() {
         beginToolWaitCount += 1
@@ -1575,6 +1584,11 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func endToolWaitCreate() {
         endToolWaitCount += 1
+        sentResponseCreate = LiveToolMouth.shouldSendResponseCreate(
+            toolWait: false,
+            alreadyCreated: !spoken.isEmpty,
+            hasToolResult: !toolDoneOutputs.isEmpty
+        )
     }
 }
 

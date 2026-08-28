@@ -6,14 +6,34 @@ import XCTest
 /// `GrokVoiceServiceSpeakTests` (loopback wire), not a CreateTrace factory.
 final class LiveToolMouthTests: XCTestCase {
     func testShouldSendResponseCreateOnlyAfterToolsLand() {
+        XCTAssertFalse(
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: false,
+                alreadyCreated: false,
+                hasToolResult: false
+            ),
+            "fd4a772 create-without-words: bare create after wait"
+        )
         XCTAssertTrue(
-            LiveToolMouth.shouldSendResponseCreate(toolWait: false, alreadyCreated: false)
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: false,
+                alreadyCreated: false,
+                hasToolResult: true
+            )
         )
         XCTAssertFalse(
-            LiveToolMouth.shouldSendResponseCreate(toolWait: true, alreadyCreated: false)
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: true,
+                alreadyCreated: false,
+                hasToolResult: true
+            )
         )
         XCTAssertFalse(
-            LiveToolMouth.shouldSendResponseCreate(toolWait: false, alreadyCreated: true)
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: false,
+                alreadyCreated: true,
+                hasToolResult: true
+            )
         )
     }
 

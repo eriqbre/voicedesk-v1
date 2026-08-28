@@ -287,11 +287,21 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         )
 
         let beforeTools = loopback.receivedTexts.count
+        voice.reportToolResult(
+            LiveToolMouth.cardPayload([
+                .calendar(CalendarItem(title: "Walk the lot", whenLabel: "Tomorrow 9:00 AM"))
+            ])
+        )
         voice.endToolWaitCreate()
         let sawCreate = await waitUntilNewReceived(loopback, after: beforeTools) {
             LiveGrokVoiceClient.typeOfSend($0) == "response.create"
         }
-        XCTAssertTrue(sawCreate, "one response.create after tools on the real task")
+        XCTAssertTrue(sawCreate, "one response.create after tool done on the real task")
+        let afterDone = Array(loopback.receivedTexts.dropFirst(beforeTools))
+        XCTAssertTrue(
+            afterDone.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
+            "fd4a772 create-without-words: no tool-done payload: \(afterDone)"
+        )
         try? await Task.sleep(for: .milliseconds(80))
         let createsAfterTools = loopback.receivedTexts.dropFirst(beforeTools).filter {
             LiveGrokVoiceClient.typeOfSend($0) == "response.create"
@@ -386,6 +396,23 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
             creates.count,
             1,
             "exactly one Eve mouth after tools: \(creates)"
+        )
+        var sequence: [String] = []
+        for payload in delivered {
+            if let item = GrokRealtime.conversationItemType(inCreate: payload),
+               item == "function_call" || item == "function_call_output" {
+                sequence.append(item)
+            } else if LiveGrokVoiceClient.typeOfSend(payload) == "response.create" {
+                sequence.append("response.create")
+            }
+        }
+        XCTAssertTrue(
+            containsInOrder(sequence, [
+                "function_call",
+                "function_call_output",
+                "response.create"
+            ]),
+            "fd4a772 create-without-words or create before tool done: \(sequence)"
         )
         for blob in delivered.compactMap({ GrokRealtime.instructions(inSessionUpdate: $0) }) {
             XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(blob), blob)

@@ -81,6 +81,7 @@ final class GrokVoiceService: VoiceServicing {
     /// 12:14: `create_response` false while tools run; one create after.
     private var liveToolWait = false
     private var liveToolCallID: String?
+    private var liveToolResultOnSession = false
     private var createdThisUserTurn = false
     /// Bound to the speak's `response.created`. Foreign `response.done`
     /// must not restore listen / clear verbatim mode.
@@ -317,6 +318,7 @@ final class GrokVoiceService: VoiceServicing {
 
     func beginToolWaitCreate() {
         liveToolWait = true
+        liveToolResultOnSession = false
         let callID = UUID().uuidString
         liveToolCallID = callID
         sendToolWaitSessionUpdate()
@@ -342,6 +344,7 @@ final class GrokVoiceService: VoiceServicing {
                 )
             )
         }
+        liveToolResultOnSession = true
         if session.state == .thinking {
             apply(.turnFinished)
         }
@@ -364,7 +367,8 @@ final class GrokVoiceService: VoiceServicing {
         guard client.isConnected, !userWantsVoiceOff else { return }
         guard LiveToolMouth.shouldSendResponseCreate(
             toolWait: liveToolWait,
-            alreadyCreated: createdThisUserTurn
+            alreadyCreated: createdThisUserTurn,
+            hasToolResult: liveToolResultOnSession
         ) else { return }
         client.sendJSON(GrokRealtime.responseCreateObject())
     }
@@ -867,6 +871,7 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             }
             speechStartedBarge = true
             liveToolWait = false
+            liveToolResultOnSession = false
             createdThisUserTurn = false
             if !bargeConsumed, verbatimSpeakResponseID == nil, !awaitingVerbatimSpeakID {
                 sendToolWaitSessionUpdate()

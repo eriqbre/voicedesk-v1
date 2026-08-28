@@ -18,8 +18,13 @@ public enum LiveToolMouth: Sendable {
         return false
     }
 
-    public static func shouldSendResponseCreate(toolWait: Bool, alreadyCreated: Bool) -> Bool {
-        !toolWait && !alreadyCreated
+    /// fd4a772: create with no tool-done payload is empty/IDK then cards.
+    public static func shouldSendResponseCreate(
+        toolWait: Bool,
+        alreadyCreated: Bool,
+        hasToolResult: Bool = false
+    ) -> Bool {
+        !toolWait && !alreadyCreated && hasToolResult
     }
 
     public static let deskGlanceToolName = "deskGlance"
