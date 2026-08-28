@@ -383,11 +383,85 @@ final class LiveToolMouthTests: XCTestCase {
             )),
             identity: .fixture
         )
-        XCTAssertTrue(text.contains("wait in this same turn"), text)
-        XCTAssertTrue(text.contains("in your own words"), text)
+        XCTAssertFalse(
+            text.contains("wait in this same turn"),
+            "AEEAB5CC: wait-and-speak was the park/retry mouth: \(text)"
+        )
         XCTAssertFalse(text.contains("you are checking"), text)
         XCTAssertFalse(text.contains("I'm checking"), text)
         XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(text), text)
         XCTAssertFalse(GrokRealtime.teachesNoTools(text), text)
+    }
+
+    /// AEEAB5CC c819892 1:40:52: “latest email from Murray” with the
+    /// Murray card already on screen and snippet not the full note.
+    /// Mouth was park/retry; zero function_call. Same wait-for-full-note
+    /// family as c42cadc yes — earlier, card already present.
+    /// Live path: needsClientTools + shouldFetchBody. Do not speak
+    /// couldn’t-load / I’ll-retry from cache/card/presence.
+    func testAEEAB5CCLatestEmailFromMurraySnippetCommandsFetchNotParkRetry() {
+        var murray = VoiceRegressionDesk.murray
+        murray.body = nil
+        murray.subject = "Update"
+        murray.preview = "Snippet only"
+        let snapshot = DeskSnapshot(emails: [VoiceRegressionDesk.larenJansen, murray])
+        let context = DeskContext(isConnected: true, snapshot: snapshot)
+        let ask = "latest email from Murray"
+
+        XCTAssertTrue(
+            ConversationPresence.ownsConnectedDeskTurn(ask, hasFocusedEmail: true),
+            "AEEAB5CC leftover: desk must own so the existing tool can run"
+        )
+        XCTAssertTrue(
+            LiveToolMouth.needsClientTools(
+                ask: ask,
+                snapshot: snapshot,
+                isConnected: true,
+                isOnline: true,
+                hasFocusedEmail: true
+            ),
+            "AEEAB5CC leftover: card present, zero function_call"
+        )
+
+        let evidence = ConversationPresence.deskEvidence(
+            for: ask,
+            context: context,
+            focusedEmail: murray
+        )
+        XCTAssertEqual(evidence?.shouldFetchBody, true, "must command the existing fetch/summarize")
+        XCTAssertEqual(evidence?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(evidence?.cards.filter { $0.kind == .email }.count, 1)
+        if case .email(let item) = evidence?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertEqual(item.subject, "Update")
+        } else {
+            XCTFail("Murray card must stay")
+        }
+
+        let text = evidence?.text ?? ""
+        XCTAssertFalse(
+            text.localizedCaseInsensitiveContains("couldn’t load")
+                || text.localizedCaseInsensitiveContains("couldn't load"),
+            "c819892 park mouth from snippet card: \(text)"
+        )
+        XCTAssertFalse(
+            text.localizedCaseInsensitiveContains("i’ll retry")
+                || text.localizedCaseInsensitiveContains("i'll retry"),
+            "c819892 park mouth from snippet card: \(text)"
+        )
+        XCTAssertFalse(
+            text.localizedCaseInsensitiveContains("full note"),
+            "c42cadc wait-for-full-note family: \(text)"
+        )
+        XCTAssertFalse(
+            text.localizedCaseInsensitiveContains("comes through"),
+            text
+        )
+
+        let presence = GrokRealtime.presenceInstructions(for: context)
+        XCTAssertFalse(
+            presence.contains("wait in this same turn"),
+            "c819892 taught Eve to park/speak before fetch"
+        )
     }
 }

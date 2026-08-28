@@ -914,13 +914,24 @@ final class AppModel {
         }
         // Live VAD: cards + function_call_output. Do not speak a desk
         // answer (Costco body, glance dump) before that report.
+        // AEEAB5CC: snippet card is not a park/retry mouth — fetch first.
         if isLiveVADTurn {
-            finishLiveTool(cards: evidence.cards)
+            var cards = evidence.cards
+            if evidence.shouldFetchBody, let email = evidence.focusedEmail {
+                await prefetchBodyForEve(email)
+                if let updated = deskSnapshot.emails.first(where: {
+                    $0.id == email.id || ($0.providerID != nil && $0.providerID == email.providerID)
+                }) {
+                    cards = [.email(updated)]
+                    lastFocusedEmail = updated
+                }
+            }
+            finishLiveTool(cards: cards)
             refreshPresence()
             logVoiceTurn(
                 evidence: evidence,
                 reply: InboxGlance.onScreenText(for: evidence),
-                cards: evidence.cards
+                cards: cards
             )
             return
         }
@@ -1109,10 +1120,6 @@ final class AppModel {
             refreshEmailCards(email)
             if pendingThreadSummary || email.hasFullBody || email.hasEarlierMessages {
                 await applyLoadedEmail(email)
-            } else {
-                let reply = ConversationPresence.emailBodySyncFailedReply(email)
-                appendAssistant(reply, cards: [.email(email)])
-                await speakDeskReply(reply)
             }
         }
     }
@@ -1397,19 +1404,25 @@ final class AppModel {
     /// Live VAD read path: fetch the newest body so Eve can speak it.
     /// Do not speak a client line.
     private func prefetchNewestBodyForEve() async {
+        let newest = EmailRecency.newest(deskSnapshot.emails) ?? deskSnapshot.emails.first
+        await prefetchBodyForEve(newest)
+    }
+
+    /// Fetch one thread body onto the snapshot. No park/retry mouth.
+    private func prefetchBodyForEve(_ email: EmailItem?) async {
         guard google.isConnected, let token = google.accessToken else {
             refreshPresence()
             return
         }
-        guard let newest = EmailRecency.newest(deskSnapshot.emails) ?? deskSnapshot.emails.first else {
+        guard let email else {
             refreshPresence()
             return
         }
-        if newest.hasFullBody {
+        if email.hasFullBody {
             refreshPresence()
             return
         }
-        guard let id = newest.providerID, !id.isEmpty else {
+        guard let id = email.providerID, !id.isEmpty else {
             refreshPresence()
             return
         }
