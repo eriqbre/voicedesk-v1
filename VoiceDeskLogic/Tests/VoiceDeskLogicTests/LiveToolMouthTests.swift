@@ -219,8 +219,8 @@ final class LiveToolMouthTests: XCTestCase {
         )
     }
 
-    /// 9cf53c4 9B23C3AA 9:01:56 leftover VAD spoke Costco from presence.
-    /// No synonym table. Presence must not teach answer-from-facts.
+    /// 9cf53c4 9B23C3AA 9:01:56 leftover VAD spoke Costco — no tool.
+    /// Sender is already on the from-phrase. Not a Costco synonym table.
     func testLiveCostcoDoesNotSpeakFromPresenceWithoutToolReport() {
         let costco = EmailItem(
             providerID: "fixture-costco",
@@ -233,31 +233,42 @@ final class LiveToolMouthTests: XCTestCase {
         )
         let snapshot = DeskSnapshot(emails: [VoiceRegressionDesk.murray, costco])
         let ask = "Read me the one from Costco."
-        XCTAssertFalse(
+        XCTAssertTrue(
+            GmailSearchQuery.hasSenderPattern(ask),
+            "existing from-phrase, not a leftover synonym"
+        )
+        XCTAssertTrue(
             ConversationPresence.ownsConnectedDeskTurn(ask),
-            "not a leftover-on-wire synonym table"
+            "9cf53c4 required an email word — leftover VAD spoke Costco"
+        )
+        XCTAssertTrue(
+            LiveToolMouth.needsClientTools(
+                ask: ask,
+                snapshot: snapshot,
+                isConnected: true,
+                isOnline: true
+            )
+        )
+        XCTAssertFalse(
+            ConversationPresence.ownsConnectedDeskTurn("What year did John Wick get released")
         )
         let text = GrokRealtime.presenceInstructions(
             for: DeskContext(isConnected: true, snapshot: snapshot)
         )
         XCTAssertFalse(text.contains("you speak the answer"), text)
         XCTAssertFalse(text.contains("answer from the facts"), text)
-        XCTAssertTrue(GrokRealtime.connectedDeskFacts(snapshot).contains("Costco"))
-        XCTAssertFalse(
-            GrokRealtime.connectedDeskFacts(snapshot).contains("You speak the answer")
-        )
         XCTAssertFalse(
             LiveToolMouth.shouldSendResponseCreate(
                 toolWait: true,
                 alreadyCreated: false,
                 hasToolResult: false
             ),
-            "leftover VAD + Costco presence line must wait — no create without a tool report"
+            "no create without a tool report"
         )
     }
 
-    /// 9cf53c4 9B23C3AA 9:02:09 leftover VAD spoke Massimo from presence.
-    /// Do not regex appointments tonight.
+    /// 9cf53c4 9B23C3AA 9:02:09 leftover VAD spoke Massimo — no tool.
+    /// Calendar noun × tonight is the existing family, not a leftover phrase.
     func testLiveAppointmentsTonightDoesNotSpeakFromPresenceWithoutToolReport() {
         let snapshot = DeskSnapshot(
             emails: [VoiceRegressionDesk.murray],
@@ -270,24 +281,35 @@ final class LiveToolMouthTests: XCTestCase {
             ]
         )
         let ask = "Do I have any appointments tonight?"
-        XCTAssertFalse(
-            ConversationPresence.ownsConnectedDeskTurn(ask),
-            "not an appointments-tonight synonym table"
+        XCTAssertTrue(
+            ConversationPresence.wantsCalendarAsk(ask),
+            "9cf53c4 calendar|schedule × my|today|upcoming skipped tonight"
         )
-        XCTAssertFalse(ConversationPresence.wantsCalendarAsk(ask), ask)
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask), ask)
+        XCTAssertTrue(
+            LiveToolMouth.needsClientTools(
+                ask: ask,
+                snapshot: snapshot,
+                isConnected: true,
+                isOnline: true
+            )
+        )
+        XCTAssertFalse(
+            ConversationPresence.wantsCalendarAsk("What's for dinner tonight?"),
+            "tonight alone is not calendar"
+        )
         let text = GrokRealtime.presenceInstructions(
             for: DeskContext(isConnected: true, snapshot: snapshot)
         )
         XCTAssertFalse(text.contains("you speak the answer"), text)
         XCTAssertFalse(text.contains("answer from the facts"), text)
-        XCTAssertTrue(GrokRealtime.connectedDeskFacts(snapshot).contains("Massimo"))
         XCTAssertFalse(
             LiveToolMouth.shouldSendResponseCreate(
                 toolWait: true,
                 alreadyCreated: false,
                 hasToolResult: false
             ),
-            "leftover VAD + Massimo presence line must wait — no create without a tool report"
+            "no create without a tool report"
         )
     }
 

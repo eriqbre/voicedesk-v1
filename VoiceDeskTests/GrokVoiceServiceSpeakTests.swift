@@ -422,6 +422,84 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         voice.cancel()
     }
 
+    /// 9cf53c4 9B23C3AA leftover inbound `response.created` then newest
+    /// emails. Inbound create set createdThisUserTurn, so
+    /// shouldSendResponseCreate skipped the done mouth, and
+    /// finishLiveTool wrote empty onScreenText + 5 cards. Drive leftover
+    /// inbound create, not a planted empty transcript.
+    func testLeftoverInboundNewestEmailsSendsDoneMouthWithoutEmptyCards() async throws {
+        let loopback = try await ListenLoopWebSocketLoopback.start()
+        defer { loopback.stop() }
+        let voice = try await openProductionSpeakSocket(
+            apiKey: "speak-9b23-leftover-inbox",
+            loopback: loopback
+        )
+        voice.startListenLoopAudioForTests()
+        voice.attachListenLoopClientTTSRecorderForTests()
+
+        let inbox = [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre,
+            VoiceRegressionDesk.laren,
+            VoiceRegressionDesk.ericGross
+        ]
+        XCTAssertEqual(inbox.count, 5)
+        XCTAssertTrue(InboxGlance.onScreenText(compactCardCount: 5).isEmpty)
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: inbox)),
+            sync: MockGoogleSync(result: DeskSnapshot(emails: inbox))
+        )
+
+        loopback.sendPeerJSON(
+            #"{"type":"response.created","response_id":"leftover-vad-1"}"#
+        )
+        let leftoverLanded = await waitUntil(timeoutMs: 2000) {
+            voice.listenLoopResponseCreatedCount > 0
+        }
+        XCTAssertTrue(leftoverLanded, "leftover inbound response.created must land")
+
+        let afterLeftover = loopback.receivedTexts.count
+        loopback.sendPeerJSON(
+            #"{"type":"conversation.item.input_audio_transcription.completed","transcript":"What are my newest emails?","item_id":"mail-9b23"}"#
+        )
+        let sawCreate = await waitUntilNewReceived(loopback, after: afterLeftover) {
+            LiveGrokVoiceClient.typeOfSend($0) == "response.create"
+        }
+        XCTAssertTrue(
+            sawCreate,
+            "9cf53c4 leftover inbound marked alreadyCreated — no done mouth"
+        )
+        let delivered = Array(loopback.receivedTexts.dropFirst(afterLeftover))
+        XCTAssertTrue(
+            delivered.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "start report missing: \(delivered)"
+        )
+        XCTAssertTrue(
+            delivered.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
+            "tool-done missing: \(delivered)"
+        )
+        let emptyMouthCards = model.turns.filter {
+            $0.role == .assistant
+                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !$0.cards.isEmpty
+        }
+        XCTAssertTrue(
+            emptyMouthCards.isEmpty,
+            "9B23C3AA leftover inbound + empty + 5 cards: \(model.turns.map { "\($0.text) cards=\($0.cards.count)" })"
+        )
+        XCTAssertTrue(
+            model.turns.flatMap(\.cards).contains { $0.kind == .email },
+            "cards land with tool-done"
+        )
+        let creates = delivered.filter { LiveGrokVoiceClient.typeOfSend($0) == "response.create" }
+        XCTAssertEqual(creates.count, 1, "one done mouth after tools: \(creates)")
+        _ = model
+        voice.cancel()
+    }
+
     private func openProductionSpeakSocket(
         apiKey: String,
         loopback: ListenLoopWebSocketLoopback

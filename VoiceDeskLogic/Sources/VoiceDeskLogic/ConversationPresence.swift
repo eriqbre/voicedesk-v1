@@ -576,8 +576,13 @@ public enum ConversationPresence {
         if wantsEmailBody(raw), hasDeskMailIntent(raw) {
             return true
         }
-        if hasDeskMailIntent(raw),
-           (GmailSearchQuery.hasSenderPattern(raw) || GmailSearchQuery.query(from: raw) != nil) {
+        // “Read me the one from Costco” already has a sender on the existing
+        // from-phrase. Do not require an “email” word — that skip let leftover
+        // VAD speak the desk answer with no function_call.
+        if GmailSearchQuery.hasSenderPattern(raw) {
+            return true
+        }
+        if hasDeskMailIntent(raw), GmailSearchQuery.query(from: raw) != nil {
             return true
         }
         return false
@@ -628,7 +633,8 @@ public enum ConversationPresence {
         if wantsCalendarSummary(raw) { return true }
         if wantsCalendarOverview(raw) { return true }
         return contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
-            || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
+            || (contains(lower, ["calendar", "schedule", "meetings", "appointments"])
+                && contains(lower, ["my", "today", "tonight", "upcoming"]))
     }
 
     /// Local build identity — not live Grok, not calendar.
