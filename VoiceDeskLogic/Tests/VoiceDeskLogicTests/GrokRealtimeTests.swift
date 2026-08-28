@@ -102,7 +102,10 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(text.contains("stay silent"))
         XCTAssertFalse(text.contains("you speak the answer"))
         XCTAssertFalse(text.contains("answer from the facts"))
-        XCTAssertTrue(text.contains("in your own words"))
+        XCTAssertFalse(
+            text.contains("wait in this same turn"),
+            "AEEAB5CC: wait-and-speak was the park/retry mouth"
+        )
         XCTAssertFalse(text.contains("let the app handle"))
         XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(text))
         XCTAssertFalse(GrokRealtime.teachesNoTools(text), text)

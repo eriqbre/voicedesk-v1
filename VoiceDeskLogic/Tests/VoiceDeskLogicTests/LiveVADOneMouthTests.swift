@@ -135,7 +135,6 @@ final class LiveVADOneMouthTests: XCTestCase {
         XCTAssertFalse(text.contains("you speak the answer"), text)
         XCTAssertFalse(text.contains("answer from the facts"), text)
         XCTAssertFalse(text.contains("answer from the last-synced facts"), text)
-        XCTAssertTrue(text.contains("in your own words"), text)
         XCTAssertTrue(text.contains("Build identity"), text)
         XCTAssertFalse(text.contains("stay silent"), text)
         XCTAssertFalse(text.contains("Stay silent"), text)
@@ -145,7 +144,10 @@ final class LiveVADOneMouthTests: XCTestCase {
         XCTAssertFalse(text.contains("you are checking"), text)
         XCTAssertFalse(text.contains("I don’t know"), text)
         XCTAssertFalse(text.contains("I don't know"), text)
-        XCTAssertTrue(text.contains("wait in this same turn"), text)
+        XCTAssertFalse(
+            text.contains("wait in this same turn"),
+            "AEEAB5CC: wait-and-speak was the park/retry mouth"
+        )
         XCTAssertFalse(text.contains("let the app handle"), text)
         XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(text), text)
         XCTAssertFalse(GrokRealtime.teachesNoTools(text), text)

@@ -210,25 +210,50 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
+    /// AEEAB5CC leftover mouth required “retry” / “VoiceDesk” after fetch
+    /// error. Fetch still runs. Card stays. No canned park/retry speak.
     func testEmailDetailsFetchFailureRetriesInVoiceDesk() async {
         var email = SampleData.syncedEmail()
         email.fromName = "Murray Cole"
         email.providerID = "msg-murray"
         let sync = MockGoogleSync(result: DeskSnapshot(emails: [email]))
         sync.error = "network down"
+        let voice = MockVoiceService(label: "test", instant: true)
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: voice,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [email])),
             sync: sync
         )
         await model.applyUserTurn("pull up details on Murray's email")
+        XCTAssertGreaterThan(sync.fetchCalls, 0, "must command the existing fetchMessage")
         let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.lowercased().contains("retry"))
-        XCTAssertFalse(EmailSummary.containsUIChrome(reply))
-        XCTAssertTrue(reply.contains("VoiceDesk"))
+        XCTAssertFalse(
+            reply.localizedCaseInsensitiveContains("retry"),
+            "c819892 leftover mouth: \(reply)"
+        )
+        XCTAssertFalse(
+            reply.contains("VoiceDesk"),
+            "leftover canned VoiceDesk line: \(reply)"
+        )
+        XCTAssertFalse(
+            reply.localizedCaseInsensitiveContains("couldn’t load")
+                || reply.localizedCaseInsensitiveContains("couldn't load"),
+            reply
+        )
+        XCTAssertFalse(voice.spoken.contains {
+            $0.localizedCaseInsensitiveContains("retry")
+                || $0.contains("VoiceDesk")
+                || $0.localizedCaseInsensitiveContains("couldn’t load")
+                || $0.localizedCaseInsensitiveContains("couldn't load")
+        }, "\(voice.spoken)")
         XCTAssertFalse(reply.lowercased().contains("gmail"))
-        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(reply), reply)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Cole")
+        } else {
+            XCTFail("Murray card must stay")
+        }
         XCTAssertEqual(model.deskSnapshot.emails.first?.preview, email.preview)
     }
 
@@ -744,6 +769,77 @@ final class AppModelTests: XCTestCase {
         )
         XCTAssertTrue(fake.sentTurns.isEmpty, "yes must not inject a Grok user turn")
         XCTAssertFalse(fake.spoken.contains { $0.localizedCaseInsensitiveContains("full note comes through") })
+    }
+
+    /// AEEAB5CC c819892 1:40:52: Murray card already on screen, snippet
+    /// not the full note. Park/retry mouth, zero fetch of Murray.
+    /// Lauren is newer so prefetchNewest does not steal the fetch.
+    /// Live path must command the existing tool, fetch Murray, and
+    /// not speak couldn’t-load / I’ll-retry. Cards stay on Murray.
+    func testLiveLatestEmailFromMurraySnippetFetchesInsteadOfParkRetry() async throws {
+        var murray = VoiceRegressionDesk.murray
+        murray.body = nil
+        murray.subject = "Update"
+        murray.preview = "Snippet only"
+        let lauren = VoiceRegressionDesk.larenJansen
+        XCTAssertFalse(murray.hasFullBody)
+        let snapshot = DeskSnapshot(emails: [lauren, murray])
+        let sync = MockGoogleSync(result: snapshot)
+        sync.bodies[murray.providerID ?? ""] = "Murray closing update — notarize today."
+        sync.bodies[lauren.providerID ?? ""] = lauren.body ?? ""
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        _ = await fake.startListening()
+
+        fake.emitUser("latest email from Murray")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0,
+               model.deskSnapshot.emails.contains(where: {
+                   $0.fromName == "Murray Mitchell" && $0.hasFullBody
+               }) {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "AEEAB5CC leftover: zero function_call")
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "AEEAB5CC tape had zero function_call: \(fake.wireItems)"
+        )
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
+            "mouth only after function_call_output: \(fake.wireItems)"
+        )
+        XCTAssertTrue(
+            model.deskSnapshot.emails.contains {
+                $0.fromName == "Murray Mitchell" && $0.hasFullBody
+            },
+            "c819892 returned before fetch/summarize; Murray stayed snippet"
+        )
+        XCTAssertFalse(
+            fake.spoken.contains {
+                $0.localizedCaseInsensitiveContains("couldn’t load")
+                    || $0.localizedCaseInsensitiveContains("couldn't load")
+                    || $0.localizedCaseInsensitiveContains("i’ll retry")
+                    || $0.localizedCaseInsensitiveContains("i'll retry")
+                    || $0.localizedCaseInsensitiveContains("full note comes through")
+            },
+            "park/retry mouth: \(fake.spoken)"
+        )
+        let murrayCards = model.turns.flatMap(\.cards).compactMap { card -> EmailItem? in
+            if case .email(let item) = card { return item }
+            return nil
+        }
+        XCTAssertTrue(murrayCards.contains { $0.fromName == "Murray Mitchell" })
+        XCTAssertFalse(murrayCards.contains { $0.fromName == "Laren Jansen" })
+        XCTAssertTrue(fake.spoken.isEmpty, "do not force a looking-mouth: \(fake.spoken)")
     }
 
     func testMarieLastEmailDoesNotAndLastToken() async {

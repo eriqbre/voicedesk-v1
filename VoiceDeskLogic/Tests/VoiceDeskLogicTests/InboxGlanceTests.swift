@@ -309,11 +309,6 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(InboxGlance.isShortOnScreenLeadIn(ConversationPresence.gmailSearchEmptyReply))
         XCTAssertFalse(InboxGlance.isShortOnScreenLeadIn(ConversationPresence.gmailSearchFailedReply))
         XCTAssertFalse(InboxGlance.isShortOnScreenLeadIn(ConversationPresence.connectHowToReply))
-        XCTAssertFalse(
-            InboxGlance.isShortOnScreenLeadIn(
-                ConversationPresence.emailBodySyncFailedReply(email)
-            )
-        )
 
         let inboxOnScreen = InboxGlance.onScreenText(compactCardCount: 3)
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(inboxOnScreen), inboxOnScreen)

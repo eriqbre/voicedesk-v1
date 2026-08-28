@@ -1845,7 +1845,8 @@ public enum ConversationPresence {
         if email.hasFullBody {
             return EmailSummary.heuristic(EmailSummaryRequest.from(email, includeEarlier: false))
         }
-        return emailBodySyncFailedReply(email)
+        // AEEAB5CC: snippet + card is not a park/retry mouth. Fetch first.
+        return ""
     }
 
     /// Multi-sentence summary of the latest body, plus a brief earlier beat if present.
@@ -1854,10 +1855,6 @@ public enum ConversationPresence {
             return EmailSummary.heuristic(EmailSummaryRequest.from(email, includeEarlier: true))
         }
         return "I’ll load \(email.fromName)’s earlier messages here in VoiceDesk."
-    }
-
-    public static func emailBodySyncFailedReply(_ email: EmailItem) -> String {
-        "I still have \(email.fromName)’s email. I couldn’t load the full message — I’ll retry here in VoiceDesk."
     }
 
     public static func wantsCalendarDetails(_ raw: String) -> Bool {

@@ -100,10 +100,10 @@ final class ConversationPresenceTests: XCTestCase {
             "m-murray"
         )
         let withoutBody = ConversationPresence.emailBodyReply(murray)
-        XCTAssertEqual(withoutBody, ConversationPresence.emailBodySyncFailedReply(murray))
-        XCTAssertTrue(withoutBody.lowercased().contains("retry"))
+        XCTAssertTrue(withoutBody.isEmpty, "AEEAB5CC: snippet is not a park/retry mouth")
+        XCTAssertFalse(withoutBody.localizedCaseInsensitiveContains("retry"))
+        XCTAssertFalse(withoutBody.localizedCaseInsensitiveContains("couldn’t load"))
         XCTAssertFalse(EmailSummary.containsUIChrome(withoutBody))
-        XCTAssertTrue(withoutBody.contains("VoiceDesk"))
         assertDoesNotBounceToGmail(withoutBody)
         var loaded = murray
         loaded.body = "Walk the lot Saturday at 10.\n\n> On Tuesday Jordan wrote:\n>> old quote"
