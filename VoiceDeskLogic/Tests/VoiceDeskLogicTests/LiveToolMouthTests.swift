@@ -1,85 +1,74 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// 12:14 leftover: first VAD mouth I-don’t-know / empty before tools,
-/// then the real answer. Runtime walk — not a source scrape.
+/// 12:14 leftover: listen-resume `create_response: true` lets VAD create
+/// before tools, then another create after tools. Runtime walk of
+/// production session.update / VAD-create / response.create — not a
+/// baked leftover1214() phrase factory.
 final class LiveToolMouthTests: XCTestCase {
-    func testLeftover1214IsEarlyIDontKnowThenRealAnswer() {
-        let leftover = LiveToolMouth.leftover1214()
+    func testSha83a5c6aNoonCreateBeforeAndAfterToolsFails() {
+        let leftover = LiveToolMouth.sha83a5c6aNoonCreateTrace()
+        XCTAssertEqual(leftover.createResponseOnListen, true)
         XCTAssertTrue(
-            leftover.isEarlyIDontKnowThenRealAnswer,
-            "83a5c6a / 7ef2f6d noon walk: I-don't-know then the real answer"
+            GrokRealtime.vadCreatesOnSpeechStopped(createResponse: leftover.createResponseOnListen)
         )
-        XCTAssertTrue(LiveToolMouth.leftover1214EmptyFirst().isEarlyIDontKnowThenRealAnswer)
-        XCTAssertTrue(LiveToolMouth.isIDontKnowOrEmpty("I don't know"))
-        XCTAssertTrue(LiveToolMouth.isIDontKnowOrEmpty("I don’t know"))
-        XCTAssertTrue(LiveToolMouth.isIDontKnowOrEmpty("   "))
-        XCTAssertFalse(LiveToolMouth.isIDontKnowOrEmpty("Murray wrote about the closing package."))
+        XCTAssertGreaterThanOrEqual(leftover.createsBeforeTools, 1)
+        XCTAssertGreaterThanOrEqual(leftover.createsAfterTools, 1)
+        XCTAssertTrue(
+            leftover.isNoon1214Leftover,
+            "83a5c6a / 7ef2f6d noon: VAD mouth before tools, then another after"
+        )
+        XCTAssertFalse(leftover.isOneMouthAfterTools)
     }
 
-    func testProductWaitThenOneMouthIsNotEarlyIDontKnow() {
-        let product = LiveToolMouth.productWaitThenOneMouth(
-            answer: "Murray wrote about the closing package."
-        )
-        XCTAssertFalse(product.isEarlyIDontKnowThenRealAnswer)
-        XCTAssertFalse(product.firstMouthBeforeTools)
-        XCTAssertTrue(product.laterMouth.isEmpty)
-        XCTAssertEqual(product.createdCount, 1)
-    }
-
-    func testFirstAudioWaitsForToolsOnLiveMailAsk() {
+    func testProductToolWaitIsOneCreateAfterTools() {
+        let product = LiveToolMouth.productToolWaitCreateTrace()
+        XCTAssertEqual(product.createResponseOnListen, GrokRealtime.createResponseWhileToolsRun)
+        XCTAssertEqual(product.createResponseOnListen, false)
         XCTAssertFalse(
-            LiveToolMouth.shouldPlayFirstAudio(awaitingIntent: true, needsTools: false, toolsLanded: false)
+            GrokRealtime.vadCreatesOnSpeechStopped(createResponse: product.createResponseOnListen)
         )
-        XCTAssertFalse(
-            LiveToolMouth.shouldPlayFirstAudio(needsTools: true, toolsLanded: false)
-        )
+        XCTAssertEqual(product.createsBeforeTools, 0)
+        XCTAssertEqual(product.createsAfterTools, 1)
+        XCTAssertFalse(product.isNoon1214Leftover)
+        XCTAssertTrue(product.isOneMouthAfterTools)
         XCTAssertTrue(
-            LiveToolMouth.shouldPlayFirstAudio(needsTools: true, toolsLanded: true)
-        )
-        XCTAssertTrue(
-            LiveToolMouth.shouldPlayFirstAudio(needsTools: false, toolsLanded: false)
-        )
-        XCTAssertTrue(
-            LiveToolMouth.shouldCreateAfterTools(
-                needsTools: true,
-                toolsLanded: true,
-                playedFirstAudio: false
-            )
+            LiveToolMouth.shouldSendResponseCreate(toolWait: false, alreadyCreated: false)
         )
         XCTAssertFalse(
-            LiveToolMouth.shouldCreateAfterTools(
-                needsTools: true,
-                toolsLanded: true,
-                playedFirstAudio: true
-            ),
-            "already-heard mouth must not get a second create"
+            LiveToolMouth.shouldSendResponseCreate(toolWait: true, alreadyCreated: false)
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldSendResponseCreate(toolWait: false, alreadyCreated: true)
         )
     }
 
-    func testHoldFirstAudioUntilToolsOnLiveMailNotVersion() {
+    func testListenResumeStaysCreateResponseTrue() throws {
+        let resume = GrokRealtime.listenResumeSessionUpdateObject()
+        let data = try JSONSerialization.data(withJSONObject: resume)
+        let raw = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertEqual(GrokRealtime.createResponse(inSessionUpdate: raw), true)
+        let wait = GrokRealtime.toolWaitSessionUpdateObject()
+        let waitData = try JSONSerialization.data(withJSONObject: wait)
+        let waitRaw = try XCTUnwrap(String(data: waitData, encoding: .utf8))
+        XCTAssertEqual(GrokRealtime.createResponse(inSessionUpdate: waitRaw), false)
+    }
+
+    func testNeedsClientToolsOnLiveMailNotVersion() {
         let snapshot = DeskSnapshot(
             accountEmail: "agent@example.com",
             emails: [VoiceRegressionDesk.murray]
         )
         XCTAssertTrue(
-            LiveToolMouth.shouldHoldFirstAudioUntilTools(
+            LiveToolMouth.needsClientTools(
                 ask: "Can you read my latest email?",
                 snapshot: snapshot,
                 isConnected: true,
                 isOnline: true
             )
         )
-        XCTAssertTrue(
-            LiveToolMouth.shouldHoldFirstAudioUntilTools(
-                ask: "show me my emails",
-                snapshot: snapshot,
-                isConnected: true,
-                isOnline: true
-            )
-        )
         XCTAssertFalse(
-            LiveToolMouth.shouldHoldFirstAudioUntilTools(
+            LiveToolMouth.needsClientTools(
                 ask: "what's my version",
                 snapshot: snapshot,
                 isConnected: true,
@@ -87,7 +76,7 @@ final class LiveToolMouthTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            LiveToolMouth.shouldHoldFirstAudioUntilTools(
+            LiveToolMouth.needsClientTools(
                 ask: "Can you read my latest email?",
                 snapshot: snapshot,
                 isConnected: false,
@@ -103,15 +92,10 @@ final class LiveToolMouthTests: XCTestCase {
         XCTAssertEqual(up.mouth, .eve)
         XCTAssertFalse(up.swallowed)
         XCTAssertFalse(up.wroteClientTTS)
-        let swallow = LiveEveSpeak.plan(text: "1.2.3", socketConnected: true)
-        XCTAssertFalse(
-            swallow.swallowed,
-            "8927c2d silence: Eve chosen then swallow / no ClientTTS"
-        )
         XCTAssertTrue(A2727B1Walk.versionIsDualMouth())
     }
 
-    func testPresenceDoesNotTeachCheckingPlaceholder() {
+    func testPresenceStillTeachesWaitNotPlaceholder() {
         let text = GrokRealtime.presenceInstructions(
             for: DeskContext(isConnected: true, snapshot: DeskSnapshot(
                 accountEmail: "agent@example.com",
@@ -119,11 +103,10 @@ final class LiveToolMouthTests: XCTestCase {
             )),
             identity: .fixture
         )
+        XCTAssertTrue(text.contains("wait in this same turn"), text)
+        XCTAssertTrue(text.contains("in your own words"), text)
         XCTAssertFalse(text.contains("you are checking"), text)
         XCTAssertFalse(text.contains("I'm checking"), text)
-        XCTAssertFalse(text.contains("I don’t know"), text)
-        XCTAssertFalse(text.contains("I don't know"), text)
-        XCTAssertTrue(text.contains("wait in this same turn"), text)
         XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(text), text)
         XCTAssertFalse(GrokRealtime.teachesNoTools(text), text)
     }

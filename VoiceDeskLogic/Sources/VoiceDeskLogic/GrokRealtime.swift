@@ -217,6 +217,26 @@ public enum GrokRealtime {
         )
     }
 
+    /// 12:14: do not auto-create a spoken mouth while client tools run.
+    public static let createResponseWhileToolsRun = false
+
+    public static func toolWaitSessionUpdateObject(
+        voice: String = defaultVoice,
+        instructions: String = presenceInstructions
+    ) -> [String: Any] {
+        sessionUpdateObject(
+            voice: voice,
+            instructions: instructions,
+            interruptResponse: true,
+            createResponse: createResponseWhileToolsRun
+        )
+    }
+
+    /// Server VAD creates on speech_stopped when the flag is true or omitted.
+    public static func vadCreatesOnSpeechStopped(createResponse: Bool?) -> Bool {
+        createResponse != false
+    }
+
     /// Instructions string from a delivered `session.update`. Nil if
     /// this is not that type or the field is missing.
     public static func instructions(inSessionUpdate raw: String) -> String? {

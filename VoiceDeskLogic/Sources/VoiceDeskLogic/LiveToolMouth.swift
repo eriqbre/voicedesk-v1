@@ -1,73 +1,34 @@
 import Foundation
 
-/// 12:14 leftover: Eve’s first VAD mouth is I-don’t-know / empty
-/// before client tools land, then a later mouth with the real answer.
-/// Product: wait for tools, then one mouth. Not a mute flag.
-public struct LiveToolMouth: Equatable, Sendable {
-    public var firstMouth: String
-    public var firstMouthBeforeTools: Bool
-    public var laterMouth: String
-    public var createdCount: Int
+/// 12:14: one spoken mouth after tools. Not a mute/hold of first PCM.
+/// `create_response` is false while tools run; one `response.create` after.
+public enum LiveToolMouth: Sendable {
+    public struct CreateTrace: Equatable, Sendable {
+        public var createResponseOnListen: Bool?
+        public var createsBeforeTools: Int
+        public var createsAfterTools: Int
 
-    public init(
-        firstMouth: String,
-        firstMouthBeforeTools: Bool,
-        laterMouth: String,
-        createdCount: Int
-    ) {
-        self.firstMouth = firstMouth
-        self.firstMouthBeforeTools = firstMouthBeforeTools
-        self.laterMouth = laterMouth
-        self.createdCount = createdCount
+        public init(
+            createResponseOnListen: Bool?,
+            createsBeforeTools: Int,
+            createsAfterTools: Int
+        ) {
+            self.createResponseOnListen = createResponseOnListen
+            self.createsBeforeTools = createsBeforeTools
+            self.createsAfterTools = createsAfterTools
+        }
+
+        /// 83a5c6a noon: VAD created a mouth before tools, then another after.
+        public var isNoon1214Leftover: Bool {
+            createsBeforeTools >= 1 && createsAfterTools >= 1
+        }
+
+        public var isOneMouthAfterTools: Bool {
+            createsBeforeTools == 0 && createsAfterTools == 1
+        }
     }
 
-    /// Noon walk on 83a5c6a: I-don’t-know / empty, then the real answer.
-    public static func leftover1214() -> LiveToolMouth {
-        LiveToolMouth(
-            firstMouth: "I don't know",
-            firstMouthBeforeTools: true,
-            laterMouth: "Murray wrote about the closing package.",
-            createdCount: 2
-        )
-    }
-
-    public static func leftover1214EmptyFirst() -> LiveToolMouth {
-        LiveToolMouth(
-            firstMouth: "",
-            firstMouthBeforeTools: true,
-            laterMouth: "Murray wrote about the closing package.",
-            createdCount: 2
-        )
-    }
-
-    /// Tools landed, then one spoken mouth. No later mouth.
-    public static func productWaitThenOneMouth(answer: String) -> LiveToolMouth {
-        LiveToolMouth(
-            firstMouth: answer,
-            firstMouthBeforeTools: false,
-            laterMouth: "",
-            createdCount: 1
-        )
-    }
-
-    public var isEarlyIDontKnowThenRealAnswer: Bool {
-        firstMouthBeforeTools
-            && Self.isIDontKnowOrEmpty(firstMouth)
-            && !laterMouth.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    public static func isIDontKnowOrEmpty(_ raw: String) -> Bool {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return true }
-        let lower = trimmed.lowercased().replacingOccurrences(of: "’", with: "'")
-        if lower.contains("i don't know") { return true }
-        if lower.contains("i do not know") { return true }
-        return false
-    }
-
-    /// Live mail / empty-calendar asks run client tools. Hold first
-    /// audio until those land so VAD cannot speak a placeholder mouth.
-    public static func shouldHoldFirstAudioUntilTools(
+    public static func needsClientTools(
         ask: String,
         snapshot: DeskSnapshot,
         isConnected: Bool,
@@ -81,22 +42,39 @@ public struct LiveToolMouth: Equatable, Sendable {
         return ConversationPresence.wantsCalendarAsk(ask) && snapshot.events.isEmpty
     }
 
-    public static func shouldPlayFirstAudio(
-        awaitingIntent: Bool = false,
-        needsTools: Bool,
-        toolsLanded: Bool
-    ) -> Bool {
-        if awaitingIntent { return false }
-        return !needsTools || toolsLanded
+    public static func shouldSendResponseCreate(toolWait: Bool, alreadyCreated: Bool) -> Bool {
+        !toolWait && !alreadyCreated
     }
 
-    /// Unheard early create may be cancelled; one `response.create`
-    /// after tools is the waited mouth — not a command barge.
-    public static func shouldCreateAfterTools(
-        needsTools: Bool,
-        toolsLanded: Bool,
-        playedFirstAudio: Bool
-    ) -> Bool {
-        needsTools && toolsLanded && !playedFirstAudio
+    /// Production listen-resume wire + VAD auto-create before tools +
+    /// a later create after tools. That is the 83a5c6a / 7ef2f6d noon miss.
+    public static func sha83a5c6aNoonCreateTrace() -> CreateTrace {
+        let flag = createResponse(in: GrokRealtime.listenResumeSessionUpdateObject())
+        let before = GrokRealtime.vadCreatesOnSpeechStopped(createResponse: flag) ? 1 : 0
+        return CreateTrace(
+            createResponseOnListen: flag,
+            createsBeforeTools: before,
+            createsAfterTools: 1
+        )
+    }
+
+    /// Production tool-wait wire: `create_response` false, no VAD create,
+    /// one `response.create` after tools.
+    public static func productToolWaitCreateTrace() -> CreateTrace {
+        let flag = createResponse(in: GrokRealtime.toolWaitSessionUpdateObject())
+        let before = GrokRealtime.vadCreatesOnSpeechStopped(createResponse: flag) ? 1 : 0
+        let after = shouldSendResponseCreate(toolWait: false, alreadyCreated: before > 0) ? 1 : 0
+        return CreateTrace(
+            createResponseOnListen: flag,
+            createsBeforeTools: before,
+            createsAfterTools: after
+        )
+    }
+
+    private static func createResponse(in object: [String: Any]) -> Bool? {
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let raw = String(data: data, encoding: .utf8)
+        else { return nil }
+        return GrokRealtime.createResponse(inSessionUpdate: raw)
     }
 }

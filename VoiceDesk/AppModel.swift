@@ -441,18 +441,18 @@ final class AppModel {
                 }
                 // Live VAD already has Eve's mouth. Do not claimLocal —
                 // that drops her in-flight audio. Cards and tools still run.
-                // 12:14: hold first VAD audio until those tools land.
-                if isLiveVADTurn, LiveToolMouth.shouldHoldFirstAudioUntilTools(
+                // 12:14: create_response false while tools run; one create after.
+                if isLiveVADTurn, LiveToolMouth.needsClientTools(
                     ask: text,
                     snapshot: deskSnapshot,
                     isConnected: true,
                     isOnline: isOnline
                 ) {
-                    voice.markLiveTurnNeedsTools(true)
+                    voice.beginToolWaitCreate()
                 }
                 Task {
                     await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
-                    voice.markLiveTurnToolsLanded()
+                    voice.endToolWaitCreate()
                 }
                 return
             }

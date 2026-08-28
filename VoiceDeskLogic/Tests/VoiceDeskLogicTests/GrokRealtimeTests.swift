@@ -286,6 +286,14 @@ final class GrokRealtimeTests: XCTestCase {
             String(data: JSONSerialization.data(withJSONObject: listenResume), encoding: .utf8)
         )
         XCTAssertEqual(GrokRealtime.createResponse(inSessionUpdate: resumeJSON), true)
+        let toolWait = GrokRealtime.toolWaitSessionUpdateObject()
+        let toolWaitTurn = try XCTUnwrap(
+            (toolWait["session"] as? [String: Any])?["turn_detection"] as? [String: Any]
+        )
+        XCTAssertEqual(toolWaitTurn["create_response"] as? Bool, false)
+        XCTAssertFalse(GrokRealtime.vadCreatesOnSpeechStopped(createResponse: false))
+        XCTAssertTrue(GrokRealtime.vadCreatesOnSpeechStopped(createResponse: true))
+        XCTAssertTrue(GrokRealtime.vadCreatesOnSpeechStopped(createResponse: nil))
         let defaultJSON = try XCTUnwrap(
             String(data: GrokRealtime.sessionUpdateJSON(voice: "eve"), encoding: .utf8)
         )
