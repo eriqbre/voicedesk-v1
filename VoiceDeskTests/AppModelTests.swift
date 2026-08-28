@@ -1460,6 +1460,163 @@ final class AppModelTests: XCTestCase {
         VoiceInteractionLog.resetForTests()
     }
 
+    /// 9cf53c4 9B23C3AA 9:01:32 "What are my newest emails?"
+    /// Leftover VAD already opened an empty assistant mouth. Tools ran,
+    /// then 5 cards attached onto that empty reply — no live.speak.
+    /// Drive leftover create the way the walk did, not a planted flag.
+    func testLiveNewestEmailsDoesNotAttachCardsOntoEmptyVADMouth() async throws {
+        let inbox = [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre,
+            VoiceRegressionDesk.laren,
+            VoiceRegressionDesk.ericGross
+        ]
+        XCTAssertEqual(inbox.count, 5)
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: inbox)),
+            sync: MockGoogleSync(result: DeskSnapshot(emails: inbox))
+        )
+        model.turns.append(ConversationTurn(role: .assistant, text: "", cards: []))
+        _ = await fake.startListening()
+        fake.emitLeftoverVADCreate()
+        fake.emitUser("What are my newest emails?")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.beginToolWaitCount,
+            0,
+            "9cf53c4 newest emails must command a tool"
+        )
+        XCTAssertTrue(
+            fake.spoken.isEmpty,
+            "no live.speak on the empty-frame inbox turn: \(fake.spoken)"
+        )
+        let emptyMouthCards = model.turns.filter {
+            $0.role == .assistant
+                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !$0.cards.isEmpty
+        }
+        XCTAssertTrue(
+            emptyMouthCards.isEmpty,
+            "9B23C3AA empty assistantReply + 5 cards: \(model.turns.map { "\($0.text) cards=\($0.cards.count)" })"
+        )
+        _ = model
+    }
+
+    /// 9cf53c4 9B23C3AA 9:01:56 "Read me the one from Costco."
+    /// Leftover VAD spoke Costco from presence — no function_call.
+    /// Wait on that leftover mouth. Do not take the presence line.
+    /// Not a "the one from" synonym table. Not leftover-inbox-on-bubble.
+    func testLiveCostcoDoesNotSpeakFromPresenceWithoutToolReport() async throws {
+        let snapshot = DeskSnapshot(
+            emails: [
+                VoiceRegressionDesk.murray,
+                EmailItem(
+                    providerID: "fixture-costco",
+                    fromName: "Costco",
+                    fromEmail: "receipts@costco.example",
+                    sentAtLabel: "Yesterday 6:12 PM",
+                    subject: "Your Costco.com order",
+                    preview: "Thanks for your order",
+                    filterTag: "Inbox"
+                )
+            ]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        model.turns.append(ConversationTurn(role: .assistant, text: "", cards: []))
+        _ = await fake.startListening()
+        fake.emitLeftoverVADCreate()
+        fake.emitUser("Read me the one from Costco.")
+        fake.emitAssistant(
+            "You have a Costco order from yesterday about your receipt.",
+            isFinal: true
+        )
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.beginToolWaitCount,
+            0,
+            "9cf53c4 Costco never waited — leftover VAD spoke from presence"
+        )
+        XCTAssertFalse(
+            fake.sentResponseCreate,
+            "no Eve create without a function_call report: \(fake.toolDoneOutputs)"
+        )
+        XCTAssertTrue(fake.spoken.isEmpty, "\(fake.spoken)")
+        XCTAssertFalse(
+            model.turns.contains { $0.text.localizedCaseInsensitiveContains("Costco") },
+            "leftover VAD desk answer landed without a tool report: \(model.turns.map(\.text))"
+        )
+        _ = model
+    }
+
+    /// 9cf53c4 9B23C3AA 9:02:09 "Do I have any appointments tonight?"
+    /// Leftover VAD spoke Massimo from presence — never a tool report.
+    /// Wait on that leftover mouth. Do not regex appointments tonight.
+    func testLiveAppointmentsTonightDoesNotSpeakFromPresenceWithoutToolReport() async throws {
+        let snapshot = DeskSnapshot(
+            emails: [VoiceRegressionDesk.murray],
+            events: [
+                CalendarItem(
+                    title: "Massimo showing",
+                    whenLabel: "Tonight 5:30 PM",
+                    relatedPeople: ["Massimo Ricci"]
+                )
+            ]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        model.turns.append(ConversationTurn(role: .assistant, text: "", cards: []))
+        _ = await fake.startListening()
+        fake.emitLeftoverVADCreate()
+        fake.emitUser("Do I have any appointments tonight?")
+        fake.emitAssistant(
+            "You have Massimo showing tonight at 5:30.",
+            isFinal: true
+        )
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.beginToolWaitCount,
+            0,
+            "9cf53c4 appointments-tonight never waited — leftover VAD spoke Massimo"
+        )
+        XCTAssertFalse(
+            fake.sentResponseCreate,
+            "no Eve create without a function_call report: \(fake.toolDoneOutputs)"
+        )
+        XCTAssertTrue(fake.spoken.isEmpty, "\(fake.spoken)")
+        XCTAssertFalse(
+            model.turns.contains { $0.text.localizedCaseInsensitiveContains("Massimo") },
+            "leftover VAD desk answer landed without a tool report: \(model.turns.map(\.text))"
+        )
+        _ = model
+    }
+
     /// a85473b leftover: leftover Authentisign already on screen, then a
     /// real calendar user bubble. Tools / Eve have not landed yet. Prior
     /// email cards must already be gone (empty/cleared). Not barge-only.
@@ -1773,6 +1930,13 @@ final class FakeLiveVoiceService: VoiceServicing {
     func emitUser(_ text: String, itemID: String? = nil) {
         guard tapLive else { return }
         eventHandler?(.userTranscript(text, isFinal: true, itemID: itemID))
+    }
+
+    /// 9B23C3AA leftover VAD: `response.created` leftover empty mouth
+    /// before the user transcript. Same path as GrokVoiceService, not
+    /// a planted createdThisUserTurn flag.
+    func emitLeftoverVADCreate() {
+        eventHandler?(.assistantTranscript("", isFinal: true))
     }
 
     func emitPartial(_ text: String, itemID: String? = nil) {

@@ -97,7 +97,8 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(text.contains("Can we walk the punch list"))
         XCTAssertTrue(text.contains("from, subject, and when"))
         XCTAssertFalse(text.contains("stay silent"))
-        XCTAssertTrue(text.contains("you speak the answer"))
+        XCTAssertFalse(text.contains("you speak the answer"))
+        XCTAssertFalse(text.contains("answer from the facts"))
         XCTAssertTrue(text.contains("in your own words"))
         XCTAssertFalse(text.contains("let the app handle"))
         XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(text))
@@ -117,7 +118,7 @@ final class GrokRealtimeTests: XCTestCase {
         XCTAssertFalse(facts.contains("Can we walk the punch list"))
         XCTAssertFalse(facts.localizedCaseInsensitiveContains("preview"))
         XCTAssertFalse(facts.contains("stay silent"))
-        XCTAssertTrue(facts.contains("You speak the answer"))
+        XCTAssertFalse(facts.contains("You speak the answer"))
         XCTAssertFalse(GrokRealtime.teachesNoTools(facts), facts)
     }
 

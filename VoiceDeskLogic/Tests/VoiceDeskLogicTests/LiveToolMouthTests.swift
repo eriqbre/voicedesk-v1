@@ -33,7 +33,27 @@ final class LiveToolMouthTests: XCTestCase {
                 toolWait: false,
                 alreadyCreated: true,
                 hasToolResult: true
-            )
+            ),
+            "our response.create already fired — do not stack a second"
+        )
+        XCTAssertTrue(
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: false,
+                alreadyCreated: false,
+                hasToolResult: true
+            ),
+            "leftover VAD inbound create is not alreadyCreated — done mouth after tools"
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldAttachCardsOntoMouth(mouthEmpty: true, hasToolResult: true),
+            "9B23C3AA leftover VAD empty mouth + cards"
+        )
+        XCTAssertTrue(
+            LiveToolMouth.shouldAttachCardsOntoMouth(mouthEmpty: false, hasToolResult: true)
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldAttachCardsOntoMouth(mouthEmpty: false, hasToolResult: false),
+            "59 parked cards at handleLiveUser start, before any tool report"
         )
         XCTAssertFalse(
             LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: false),
@@ -162,6 +182,124 @@ final class LiveToolMouthTests: XCTestCase {
         let output = try XCTUnwrap(GrokRealtime.functionCallOutput(inCreate: doneRaw))
         XCTAssertFalse(InboxGlance.isFromSubjectGlanceDump(output), output)
         XCTAssertTrue(output.contains(VoiceRegressionDesk.murray.fromName), output)
+    }
+
+    /// 9cf53c4 9B23C3AA 9:01:32 leftover VAD `response.created` leftover
+    /// empty mouth, then newest emails. Cards must not attach onto that
+    /// empty leftover. Drive leftover create, not a planted flag.
+    func testLiveNewestEmailsDoesNotAttachCardsOntoEmptyVADMouth() {
+        let inbox = [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre,
+            VoiceRegressionDesk.laren,
+            VoiceRegressionDesk.ericGross
+        ]
+        XCTAssertEqual(inbox.count, 5)
+        XCTAssertTrue(
+            ConversationPresence.ownsConnectedDeskTurn("What are my newest emails?"),
+            "newest emails is a desk ask — tools must run"
+        )
+        XCTAssertTrue(
+            LiveToolMouth.needsClientTools(
+                ask: "What are my newest emails?",
+                snapshot: DeskSnapshot(emails: inbox),
+                isConnected: true,
+                isOnline: true
+            )
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldAttachCardsOntoMouth(mouthEmpty: true, hasToolResult: true),
+            "9B23C3AA leftover VAD empty + 5 cards, no live.speak"
+        )
+        XCTAssertTrue(
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: false,
+                alreadyCreated: false,
+                hasToolResult: true
+            ),
+            "leftover VAD inbound create is not the done mouth"
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: false,
+                alreadyCreated: false,
+                hasToolResult: false
+            ),
+            "fd4a772 create-without-words"
+        )
+    }
+
+    /// 9cf53c4 9B23C3AA 9:01:56 leftover VAD spoke Costco from presence.
+    /// No synonym table. Presence must not teach answer-from-facts.
+    func testLiveCostcoDoesNotSpeakFromPresenceWithoutToolReport() {
+        let costco = EmailItem(
+            providerID: "fixture-costco",
+            fromName: "Costco",
+            fromEmail: "receipts@costco.example",
+            sentAtLabel: "Yesterday 6:12 PM",
+            subject: "Your Costco.com order",
+            preview: "Thanks for your order",
+            filterTag: "Inbox"
+        )
+        let snapshot = DeskSnapshot(emails: [VoiceRegressionDesk.murray, costco])
+        let ask = "Read me the one from Costco."
+        XCTAssertFalse(
+            ConversationPresence.ownsConnectedDeskTurn(ask),
+            "not a leftover-on-wire synonym table"
+        )
+        let text = GrokRealtime.presenceInstructions(
+            for: DeskContext(isConnected: true, snapshot: snapshot)
+        )
+        XCTAssertFalse(text.contains("you speak the answer"), text)
+        XCTAssertFalse(text.contains("answer from the facts"), text)
+        XCTAssertTrue(GrokRealtime.connectedDeskFacts(snapshot).contains("Costco"))
+        XCTAssertFalse(
+            GrokRealtime.connectedDeskFacts(snapshot).contains("You speak the answer")
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: true,
+                alreadyCreated: false,
+                hasToolResult: false
+            ),
+            "leftover VAD + Costco presence line must wait — no create without a tool report"
+        )
+    }
+
+    /// 9cf53c4 9B23C3AA 9:02:09 leftover VAD spoke Massimo from presence.
+    /// Do not regex appointments tonight.
+    func testLiveAppointmentsTonightDoesNotSpeakFromPresenceWithoutToolReport() {
+        let snapshot = DeskSnapshot(
+            emails: [VoiceRegressionDesk.murray],
+            events: [
+                CalendarItem(
+                    title: "Massimo showing",
+                    whenLabel: "Tonight 5:30 PM",
+                    relatedPeople: ["Massimo Ricci"]
+                )
+            ]
+        )
+        let ask = "Do I have any appointments tonight?"
+        XCTAssertFalse(
+            ConversationPresence.ownsConnectedDeskTurn(ask),
+            "not an appointments-tonight synonym table"
+        )
+        XCTAssertFalse(ConversationPresence.wantsCalendarAsk(ask), ask)
+        let text = GrokRealtime.presenceInstructions(
+            for: DeskContext(isConnected: true, snapshot: snapshot)
+        )
+        XCTAssertFalse(text.contains("you speak the answer"), text)
+        XCTAssertFalse(text.contains("answer from the facts"), text)
+        XCTAssertTrue(GrokRealtime.connectedDeskFacts(snapshot).contains("Massimo"))
+        XCTAssertFalse(
+            LiveToolMouth.shouldSendResponseCreate(
+                toolWait: true,
+                alreadyCreated: false,
+                hasToolResult: false
+            ),
+            "leftover VAD + Massimo presence line must wait — no create without a tool report"
+        )
     }
 
     func testPresenceStillTeachesWaitNotPlaceholder() {

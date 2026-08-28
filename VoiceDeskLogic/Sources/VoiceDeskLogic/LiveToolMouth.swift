@@ -20,6 +20,8 @@ public enum LiveToolMouth: Sendable {
 
     /// fd4a772: create with no tool-done payload is empty/IDK then cards.
     /// 59c6d81: begin/end wait then bare create — same hole.
+    /// Leftover VAD `response.created` is not the desk mouth — pass
+    /// `alreadyCreated: false` for that inbound create.
     public static func shouldSendResponseCreate(
         toolWait: Bool,
         alreadyCreated: Bool,
@@ -32,6 +34,16 @@ public enum LiveToolMouth: Sendable {
     /// Parking before that report is the 59 start-park leftover.
     public static func shouldParkLiveDeskCards(hasToolResult: Bool) -> Bool {
         hasToolResult
+    }
+
+    /// 9B23C3AA leftover VAD empty mouth: cards must not draw onto
+    /// an empty leftover assistant. They land with the done mouth
+    /// after `function_call_output`.
+    public static func shouldAttachCardsOntoMouth(
+        mouthEmpty: Bool,
+        hasToolResult: Bool
+    ) -> Bool {
+        !mouthEmpty && hasToolResult
     }
 
     /// bdbace4 walk 14B69B95: calendar was spoken, prior Authentisign

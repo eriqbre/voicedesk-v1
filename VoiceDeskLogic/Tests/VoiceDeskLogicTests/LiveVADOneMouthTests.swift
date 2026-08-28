@@ -127,12 +127,14 @@ final class LiveVADOneMouthTests: XCTestCase {
         }
     }
 
-    func testPresenceLetsEveAnswerDeskTurns() {
+    func testPresenceDoesNotLetEveAnswerDeskFromFactsAlone() {
         let text = GrokRealtime.presenceInstructions(
             for: DeskContext(isConnected: true, snapshot: hotSnapshot),
             identity: .fixture
         )
-        XCTAssertTrue(text.contains("you speak the answer"), text)
+        XCTAssertFalse(text.contains("you speak the answer"), text)
+        XCTAssertFalse(text.contains("answer from the facts"), text)
+        XCTAssertFalse(text.contains("answer from the last-synced facts"), text)
         XCTAssertTrue(text.contains("in your own words"), text)
         XCTAssertTrue(text.contains("Build identity"), text)
         XCTAssertFalse(text.contains("stay silent"), text)
@@ -151,6 +153,6 @@ final class LiveVADOneMouthTests: XCTestCase {
         XCTAssertFalse(text.contains("do not pretend to call functions"), text)
         let facts = GrokRealtime.connectedDeskFacts(hotSnapshot)
         XCTAssertFalse(facts.contains("stay silent"), facts)
-        XCTAssertTrue(facts.contains("You speak the answer"), facts)
+        XCTAssertFalse(facts.contains("You speak the answer"), facts)
     }
 }
