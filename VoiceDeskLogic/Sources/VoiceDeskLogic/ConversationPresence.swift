@@ -306,7 +306,8 @@ public enum ConversationPresence {
         pendingSearchClarify: Bool = false,
         hasClarifyMatches: Bool = false,
         hasFocusedEmail: Bool = false,
-        pendingSenderRefine: Bool = false
+        pendingSenderRefine: Bool = false,
+        events: [CalendarItem] = []
     ) -> Bool {
         let deskFollow = pendingSearchClarify || hasClarifyMatches || hasFocusedEmail || pendingSenderRefine
         if deskFollow, isSenderRejectRefine(raw) {
@@ -321,6 +322,11 @@ public enum ConversationPresence {
         // “Who’s it from?” — next utterance is a brand. Not after multi-match cards.
         if pendingSearchClarify, !hasClarifyMatches,
            GmailSearchQuery.plan(from: raw, treatAsBrand: true) != nil {
+            return true
+        }
+        // matchingCalendar is the calendar from-phrase: an event already
+        // on the snapshot. Do not also require a “calendar” word.
+        if matchingCalendar(for: raw, in: events) != nil {
             return true
         }
         return looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) || wantsVersionAsk(raw)
@@ -633,8 +639,7 @@ public enum ConversationPresence {
         if wantsCalendarSummary(raw) { return true }
         if wantsCalendarOverview(raw) { return true }
         return contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
-            || (contains(lower, ["calendar", "schedule", "meetings", "appointments"])
-                && contains(lower, ["my", "today", "tonight", "upcoming"]))
+            || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
     }
 
     /// Local build identity — not live Grok, not calendar.
@@ -786,16 +791,18 @@ public enum ConversationPresence {
             return versionEvidence(for: raw)
         }
 
+        // Event already on the snapshot — same skip-delete as mail
+        // from-phrase. Do not wait for a “calendar” word.
+        if let event = matchingCalendar(for: raw, in: context.snapshot.events) {
+            return DeskEvidence(
+                topic: .calendar,
+                text: calendarDetailsReply(event),
+                cards: [.calendar(event)]
+            )
+        }
         if wantsCalendarAsk(raw) {
             if wantsCalendarOverview(raw) {
                 return calendarOverviewEvidence(context: context, ask: raw)
-            }
-            if let event = matchingCalendar(for: raw, in: context.snapshot.events) {
-                return DeskEvidence(
-                    topic: .calendar,
-                    text: calendarDetailsReply(event),
-                    cards: [.calendar(event)]
-                )
             }
             if context.isConnected {
                 if wantsCalendarDetails(raw) || GmailSearchQuery.hasSenderPattern(raw) {

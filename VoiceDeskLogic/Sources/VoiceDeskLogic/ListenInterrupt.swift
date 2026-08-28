@@ -25,7 +25,8 @@ public enum ListenInterrupt: Sendable {
             pendingSearchClarify: pendingSearchClarify,
             hasClarifyMatches: hasClarifyMatches,
             hasFocusedEmail: hasFocusedEmail,
-            pendingSenderRefine: pendingSenderRefine
+            pendingSenderRefine: pendingSenderRefine,
+            events: context.snapshot.events
         ) {
             return true
         }

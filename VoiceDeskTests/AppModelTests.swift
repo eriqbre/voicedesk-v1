@@ -1485,6 +1485,11 @@ final class AppModelTests: XCTestCase {
         )
         _ = await fake.startListening()
         fake.emitLeftoverVADCreate()
+        XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
+        XCTAssertFalse(
+            fake.createdThisUserTurn,
+            "leftover inbound response.created is not alreadyCreated"
+        )
         fake.emitUser("What are my newest emails?")
         let deadline = ContinuousClock.now + .milliseconds(2000)
         while ContinuousClock.now < deadline {
@@ -1550,6 +1555,8 @@ final class AppModelTests: XCTestCase {
         )
         _ = await fake.startListening()
         fake.emitLeftoverVADCreate()
+        XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
+        XCTAssertFalse(fake.createdThisUserTurn)
         fake.emitUser("Read me the one from Costco.")
         let deadline = ContinuousClock.now + .milliseconds(2000)
         while ContinuousClock.now < deadline {
@@ -1575,11 +1582,11 @@ final class AppModelTests: XCTestCase {
         _ = model
     }
 
-    /// 9cf53c4 9B23C3AA 9:02:09 leftover inbound then
-    /// “Do I have any appointments tonight?” wantsCalendarAsk was
-    /// too narrow (calendar|schedule × my|today|upcoming). Fall-through
-    /// let leftover VAD speak Massimo with no function_call. No planted
-    /// leftover empty mouth.
+    /// 9cf53c4 9B23C3AA leftover inbound then a Massimo ask with no
+    /// “calendar” word. matchingCalendar already had the event;
+    /// wantsCalendarAsk required a calendar word — leftover VAD spoke
+    /// Massimo with no function_call. No appointments∩tonight table.
+    /// No planted leftover empty mouth.
     func testLiveAppointmentsTonightDoesNotSpeakWithoutToolReport() async throws {
         let snapshot = DeskSnapshot(
             emails: [VoiceRegressionDesk.murray],
@@ -1600,7 +1607,9 @@ final class AppModelTests: XCTestCase {
         )
         _ = await fake.startListening()
         fake.emitLeftoverVADCreate()
-        fake.emitUser("Do I have any appointments tonight?")
+        XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
+        XCTAssertFalse(fake.createdThisUserTurn)
+        fake.emitUser("Do I have the Massimo showing?")
         let deadline = ContinuousClock.now + .milliseconds(2000)
         while ContinuousClock.now < deadline {
             if fake.endToolWaitCount > 0 { break }
@@ -1945,10 +1954,12 @@ final class FakeLiveVoiceService: VoiceServicing {
     }
 
     /// 9B23C3AA leftover inbound `response.created` before the user
-    /// transcript. Same alreadyCreated rule as GrokVoiceService:
-    /// leftover inbound does not mark it. Not an empty transcript.
-    /// Not a planted ConversationTurn.
-    func emitLeftoverVADCreate() {}
+    /// transcript. Same alreadyCreated rule as GrokVoiceService
+    /// (`response.created` does not set createdThisUserTurn). Not an
+    /// empty assistantTranscript. Not a planted ConversationTurn.
+    func emitLeftoverVADCreate() {
+        leftoverInboundCreateCount += 1
+    }
 
     func emitPartial(_ text: String, itemID: String? = nil) {
         guard tapLive else { return }
@@ -1976,6 +1987,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     var sawThinkingDuringTools = false
     var sentResponseCreate = false
     var createdThisUserTurn = false
+    var leftoverInboundCreateCount = 0
     var wireItems: [String] = []
 
     func beginToolWaitCreate() {

@@ -88,7 +88,8 @@ public enum VoiceTurnReplay: Sendable {
                 pendingSearchClarify: pendingSearchClarify,
                 hasClarifyMatches: !clarifyMatches.isEmpty,
                 hasFocusedEmail: focusedEmail != nil,
-                pendingSenderRefine: pendingSenderRefine
+                pendingSenderRefine: pendingSenderRefine,
+                events: context.snapshot.events
             ),
             looksLikeMailAsk: ConversationPresence.looksLikeMailAsk(cleaned),
             evidence: evidence,

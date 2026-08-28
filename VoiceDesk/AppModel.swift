@@ -432,7 +432,8 @@ final class AppModel {
                 pendingSearchClarify: awaitingClarify,
                 hasClarifyMatches: !lastSearchMatches.isEmpty,
                 hasFocusedEmail: lastFocusedEmail != nil,
-                pendingSenderRefine: pendingSenderRefine
+                pendingSenderRefine: pendingSenderRefine,
+                events: deskSnapshot.events
             ) {
                 // bdbace4 14B69B95: yieldGrokInterruptAnswer returned here.
                 // Eve spoke calendar from presence; leftover email cards
@@ -612,7 +613,8 @@ final class AppModel {
                 pendingSearchClarify: awaitingClarify,
                 hasClarifyMatches: !lastSearchMatches.isEmpty,
                 hasFocusedEmail: lastFocusedEmail != nil,
-                pendingSenderRefine: pendingSenderRefine
+                pendingSenderRefine: pendingSenderRefine,
+                events: deskSnapshot.events
             ) {
                 claimLocalAssistantReply()
                 await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)

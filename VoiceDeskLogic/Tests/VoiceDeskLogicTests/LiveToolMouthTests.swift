@@ -267,8 +267,9 @@ final class LiveToolMouthTests: XCTestCase {
         )
     }
 
-    /// 9cf53c4 9B23C3AA 9:02:09 leftover VAD spoke Massimo — no tool.
-    /// Calendar noun × tonight is the existing family, not a leftover phrase.
+    /// 9cf53c4 leftover VAD spoke Massimo — no tool. matchingCalendar
+    /// already had the event; wantsCalendarAsk required a calendar word.
+    /// No appointments∩tonight table.
     func testLiveAppointmentsTonightDoesNotSpeakFromPresenceWithoutToolReport() {
         let snapshot = DeskSnapshot(
             emails: [VoiceRegressionDesk.murray],
@@ -280,12 +281,24 @@ final class LiveToolMouthTests: XCTestCase {
                 )
             ]
         )
-        let ask = "Do I have any appointments tonight?"
-        XCTAssertTrue(
-            ConversationPresence.wantsCalendarAsk(ask),
-            "9cf53c4 calendar|schedule × my|today|upcoming skipped tonight"
+        let walkAsk = "Do I have any appointments tonight?"
+        XCTAssertFalse(
+            ConversationPresence.wantsCalendarAsk(walkAsk),
+            "not an appointments∩tonight table"
         )
-        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(ask), ask)
+        let ask = "Do I have the Massimo showing?"
+        XCTAssertFalse(
+            ConversationPresence.wantsCalendarAsk(ask),
+            "no calendar word — 9cf53c4 skipped matchingCalendar"
+        )
+        XCTAssertEqual(
+            ConversationPresence.matchingCalendar(for: ask, in: snapshot.events)?.title,
+            "Massimo showing"
+        )
+        XCTAssertTrue(
+            ConversationPresence.ownsConnectedDeskTurn(ask, events: snapshot.events),
+            "9cf53c4 required a calendar word — leftover VAD spoke Massimo"
+        )
         XCTAssertTrue(
             LiveToolMouth.needsClientTools(
                 ask: ask,
@@ -297,6 +310,24 @@ final class LiveToolMouthTests: XCTestCase {
         XCTAssertFalse(
             ConversationPresence.wantsCalendarAsk("What's for dinner tonight?"),
             "tonight alone is not calendar"
+        )
+        XCTAssertNil(
+            ConversationPresence.matchingCalendar(
+                for: "What's for dinner tonight?",
+                in: snapshot.events
+            )
+        )
+        XCTAssertFalse(
+            ConversationPresence.ownsConnectedDeskTurn(
+                "What's for dinner tonight?",
+                events: snapshot.events
+            )
+        )
+        XCTAssertFalse(
+            ConversationPresence.ownsConnectedDeskTurn(
+                "What year did John Wick get released",
+                events: snapshot.events
+            )
         )
         let text = GrokRealtime.presenceInstructions(
             for: DeskContext(isConnected: true, snapshot: snapshot)
