@@ -987,7 +987,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
-    func testInboxOverviewAttachesCompactRowsAndSpeaksDigest() async {
+    func testInboxOverviewAttachesCompactRowsAndSpeaksDigest() async throws {
         var murray = SampleData.syncedEmail()
         murray.fromName = "Murray Mitchell"
         murray.providerID = "msg-murray-list"
@@ -1000,6 +1000,9 @@ final class AppModelTests: XCTestCase {
         steve.subject = "Inspection note"
         steve.body = "Punch list is attached."
         let snapshot = DeskSnapshot(emails: [murray, steve])
+        let ask = "summary of my latest emails"
+        let dump = InboxGlance.spokenInbox(ask: ask, emails: snapshot.emails)
+        XCTAssertTrue(InboxGlance.isFromSubjectGlanceDump(dump), dump)
         let fake = FakeLiveVoiceService()
         let model = AppModel(
             voice: fake,
@@ -1007,7 +1010,7 @@ final class AppModelTests: XCTestCase {
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: MockGoogleSync(result: snapshot)
         )
-        await model.applyUserTurn("summary of my latest emails")
+        await model.applyUserTurn(ask)
         let cards = model.turns.last?.cards ?? []
         XCTAssertEqual(cards.count, 2)
         XCTAssertTrue(cards.allSatisfy { card in
@@ -1019,14 +1022,13 @@ final class AppModelTests: XCTestCase {
             InboxGlance.isShortOnScreenLeadIn(onScreen),
             "glance is cards-only: \(onScreen)"
         )
-        let digest = fake.spoken.last ?? ""
-        XCTAssertTrue(InboxGlance.isShortSpokenSummary(digest), digest)
-        XCTAssertFalse(InboxGlance.isShortSpokenAck(digest), digest)
-        XCTAssertFalse(InboxGlance.isMultiline(digest), digest)
-        XCTAssertFalse(InboxGlance.repeatsGlanceLines(digest), digest)
-        XCTAssertNotEqual(digest, onScreen)
-        XCTAssertFalse(digest.contains("<html"))
-        XCTAssertFalse(EmailSummary.containsUIChrome(digest))
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 client digest: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertFalse(fake.spoken.contains(dump))
         XCTAssertTrue(fake.sentTurns.isEmpty)
 
         let epoch = model.conversationScrollEpoch
@@ -1050,6 +1052,32 @@ final class AppModelTests: XCTestCase {
         } else {
             XCTFail("expected compact email to expand")
         }
+
+        // Live overview: Eve after tool-done, not a client dump, not empty-then-cards.
+        // Different synonym so TranscriptDedupe does not swallow the typed ask.
+        _ = await fake.startListening()
+        fake.emitUser("show me my latest emails")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "fd4a772 never waited on tools")
+        XCTAssertGreaterThan(fake.endToolWaitCount, 0, "fd4a772 no Eve create after tools")
+        XCTAssertTrue(
+            fake.sentResponseCreate,
+            "fd4a772 create-without-words: endToolWait with no tool-done payload"
+        )
+        XCTAssertTrue(fake.sawThinkingDuringTools, "client loading at tool start")
+        let payload = try XCTUnwrap(fake.toolDoneOutputs.first)
+        XCTAssertFalse(InboxGlance.isFromSubjectGlanceDump(payload), payload)
+        XCTAssertNotEqual(payload, dump)
+        XCTAssertTrue(payload.contains(murray.fromName), payload)
+        XCTAssertTrue(payload.contains(murray.subject), payload)
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "\(fake.spoken)"
+        )
     }
 
     func testSingleEmailSummaryNamesConcreteAsksNotCardChrome() async {
