@@ -19,12 +19,19 @@ public enum LiveToolMouth: Sendable {
     }
 
     /// fd4a772: create with no tool-done payload is empty/IDK then cards.
+    /// 59c6d81: begin/end wait then bare create — same hole.
     public static func shouldSendResponseCreate(
         toolWait: Bool,
         alreadyCreated: Bool,
         hasToolResult: Bool = false
     ) -> Bool {
         !toolWait && !alreadyCreated && hasToolResult
+    }
+
+    /// Cards draw from the same rows as `function_call_output`.
+    /// Parking before that report is the 59 start-park leftover.
+    public static func shouldParkLiveDeskCards(hasToolResult: Bool) -> Bool {
+        hasToolResult
     }
 
     public static let deskGlanceToolName = "deskGlance"

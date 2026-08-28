@@ -434,18 +434,14 @@ final class AppModel {
                 hasFocusedEmail: lastFocusedEmail != nil,
                 pendingSenderRefine: pendingSenderRefine
             ) {
-                if isLiveVADTurn {
-                    parkLiveVADDeskCards(
-                        for: text,
-                        awaitingClarify: awaitingClarify
-                    )
-                }
                 if yieldGrokInterruptAnswer {
                     return
                 }
                 // Live VAD already has Eve's mouth. Do not claimLocal —
                 // that drops her in-flight audio. Cards and tools still run.
                 // 12:14: create_response false while tools run; one create after.
+                // Do not park cards here — 59 parked before tools, so a
+                // bare create attached rows to an empty mouth (fd4a772).
                 if isLiveVADTurn, LiveToolMouth.needsClientTools(
                     ask: text,
                     snapshot: deskSnapshot,
@@ -914,7 +910,6 @@ final class AppModel {
     }
 
     private func applyDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) async {
-        clearLiveThinkingBeat()
         rememberEvidence(evidence)
         if evidence.topic == .version {
             let line = ConversationPresence.spokenIdentityLine(
@@ -925,6 +920,7 @@ final class AppModel {
                 appendAssistant(line)
             }
             await speakDeskReply(line)
+            clearLiveThinkingBeat()
             logVoiceTurn(
                 evidence: evidence,
                 intentHint: "version",
@@ -935,6 +931,7 @@ final class AppModel {
             return
         }
         if evidence.shouldSearchGmail, let query = evidence.gmailQuery, !query.isEmpty {
+            clearLiveThinkingBeat()
             await searchGmail(query, plan: evidence.gmailPlan, ask: evidence.searchAsk)
             logVoiceTurn(
                 evidence: evidence,
@@ -944,6 +941,7 @@ final class AppModel {
             return
         }
         if evidence.shouldFetchBody, let email = evidence.focusedEmail {
+            clearLiveThinkingBeat()
             await revealEmailBody(email)
             logVoiceTurn(
                 evidence: evidence,
@@ -958,9 +956,8 @@ final class AppModel {
         }
         // Live list/show: cards + tool done on Eve's wire. Not spokenCalendar.
         if isLiveVADTurn {
-            parkOrAttachLiveDeskCards(evidence.cards)
+            finishLiveTool(cards: evidence.cards)
             refreshPresence()
-            voice.reportToolResult(LiveToolMouth.cardPayload(evidence.cards))
             pendingGeneralVoiceLog = true
             return
         }
@@ -979,9 +976,8 @@ final class AppModel {
             // already on the wire. Done carries the same rows as the cards.
             // Eve translates once. Client thinking indicator, not spoken.
             _ = await emailSummarizer.glanceInbox(emails)
-            parkOrAttachLiveDeskCards(evidence.cards)
+            finishLiveTool(cards: evidence.cards)
             refreshPresence()
-            voice.reportToolResult(LiveToolMouth.cardPayload(evidence.cards))
             pendingGeneralVoiceLog = true
             return
         }
@@ -1022,6 +1018,16 @@ final class AppModel {
         guard let id = liveThinkingBeatID else { return }
         liveThinkingBeatID = nil
         removeTurn(id: id)
+    }
+
+    /// Tool-done on Eve's wire, then the same rows draw. Not before.
+    private func finishLiveTool(cards: [ContentCard]) {
+        let payload = LiveToolMouth.cardPayload(cards)
+        voice.reportToolResult(payload)
+        if LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: !payload.isEmpty) {
+            parkOrAttachLiveDeskCards(cards)
+        }
+        clearLiveThinkingBeat()
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {

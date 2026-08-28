@@ -35,6 +35,11 @@ final class LiveToolMouthTests: XCTestCase {
                 hasToolResult: true
             )
         )
+        XCTAssertFalse(
+            LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: false),
+            "59 parked cards at handleLiveUser start, before any tool report"
+        )
+        XCTAssertTrue(LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: true))
     }
 
     func testListenResumeStaysCreateResponseTrue() throws {
