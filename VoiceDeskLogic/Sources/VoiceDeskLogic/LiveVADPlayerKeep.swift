@@ -99,11 +99,6 @@ public struct LiveVADPlayerKeep: Equatable, Sendable {
         !responseInFlight
     }
 
-    /// Cards on the first assistant delta — not after glanceInbox.
-    public static func shouldAttachCardsOnFirstTranscriptDelta(liveVADTurn: Bool) -> Bool {
-        liveVADTurn
-    }
-
     /// c1cd758 walk: `eve speaks identity` + empty assistantReply.
     /// 83a5c6a spoke the identity line via write→player.
     public static func isEmptyEveSpeaksIdentityLie(

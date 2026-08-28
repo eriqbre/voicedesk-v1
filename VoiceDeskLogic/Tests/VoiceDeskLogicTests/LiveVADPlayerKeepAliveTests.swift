@@ -101,12 +101,6 @@ final class LiveVADPlayerKeepAliveTests: XCTestCase {
         XCTAssertTrue(
             LiveVADPlayerKeep.shouldSendPresenceSessionUpdate(responseInFlight: false)
         )
-        XCTAssertTrue(
-            LiveVADPlayerKeep.shouldAttachCardsOnFirstTranscriptDelta(liveVADTurn: true)
-        )
-        XCTAssertFalse(
-            LiveVADPlayerKeep.shouldAttachCardsOnFirstTranscriptDelta(liveVADTurn: false)
-        )
     }
 
     func testShowLatestFamilyGetsCardsNotABlob() {
