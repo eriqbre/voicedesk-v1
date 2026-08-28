@@ -141,10 +141,6 @@ public enum A2727B1Walk {
             || text.localizedCaseInsensitiveContains("unmute")
     }
 
-    public static func mentionsEveSpeaksIdentity(in records: [VoiceInteractionEntry] = window) -> Bool {
-        blob(records).localizedCaseInsensitiveContains("eve speaks identity")
-    }
-
     /// L417, L420, L421, L423, L424 — hard facts only.
     public static let bakedRestoreWalk: [VoiceInteractionEntry] = [
         {
