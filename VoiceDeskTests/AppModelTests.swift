@@ -210,25 +210,50 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
     }
 
+    /// AEEAB5CC leftover mouth required “retry” / “VoiceDesk” after fetch
+    /// error. Fetch still runs. Card stays. No canned park/retry speak.
     func testEmailDetailsFetchFailureRetriesInVoiceDesk() async {
         var email = SampleData.syncedEmail()
         email.fromName = "Murray Cole"
         email.providerID = "msg-murray"
         let sync = MockGoogleSync(result: DeskSnapshot(emails: [email]))
         sync.error = "network down"
+        let voice = MockVoiceService(label: "test", instant: true)
         let model = AppModel(
-            voice: MockVoiceService(label: "test", instant: true),
+            voice: voice,
             google: .mock(connected: true),
             cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [email])),
             sync: sync
         )
         await model.applyUserTurn("pull up details on Murray's email")
+        XCTAssertGreaterThan(sync.fetchCalls, 0, "must command the existing fetchMessage")
         let reply = model.turns.last?.text ?? ""
-        XCTAssertTrue(reply.lowercased().contains("retry"))
-        XCTAssertFalse(EmailSummary.containsUIChrome(reply))
-        XCTAssertTrue(reply.contains("VoiceDesk"))
+        XCTAssertFalse(
+            reply.localizedCaseInsensitiveContains("retry"),
+            "c819892 leftover mouth: \(reply)"
+        )
+        XCTAssertFalse(
+            reply.contains("VoiceDesk"),
+            "leftover canned VoiceDesk line: \(reply)"
+        )
+        XCTAssertFalse(
+            reply.localizedCaseInsensitiveContains("couldn’t load")
+                || reply.localizedCaseInsensitiveContains("couldn't load"),
+            reply
+        )
+        XCTAssertFalse(voice.spoken.contains {
+            $0.localizedCaseInsensitiveContains("retry")
+                || $0.contains("VoiceDesk")
+                || $0.localizedCaseInsensitiveContains("couldn’t load")
+                || $0.localizedCaseInsensitiveContains("couldn't load")
+        }, "\(voice.spoken)")
         XCTAssertFalse(reply.lowercased().contains("gmail"))
-        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
+        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(reply), reply)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Cole")
+        } else {
+            XCTFail("Murray card must stay")
+        }
         XCTAssertEqual(model.deskSnapshot.emails.first?.preview, email.preview)
     }
 

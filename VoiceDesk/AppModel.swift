@@ -1120,6 +1120,12 @@ final class AppModel {
             refreshEmailCards(email)
             if pendingThreadSummary || email.hasFullBody || email.hasEarlierMessages {
                 await applyLoadedEmail(email)
+            } else {
+                // Card stays. Do not speak the AEEAB5CC park/retry mouth.
+                appendAssistant(
+                    InboxGlance.onScreenTextHidingSpokenSummary(),
+                    cards: [.email(email)]
+                )
             }
         }
     }
