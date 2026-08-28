@@ -896,7 +896,10 @@ final class AppModel {
                 liveVADTurn: isLiveVADTurn
             )
         }
-        return ConversationPresence.wantsCalendarAsk(text) && deskSnapshot.events.isEmpty
+        if ConversationPresence.wantsCalendarAsk(text) {
+            return deskSnapshot.events.isEmpty || isLiveVADTurn
+        }
+        return false
     }
 
     private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
@@ -945,13 +948,15 @@ final class AppModel {
             await applyInboxGlance(evidence)
             return
         }
-        // Calendar overview: speak the short line after tools. Cards stay
-        // the visual. fd4a772 live VAD spoke "" and logged empty reply.
+        // Live list/show: cards + tools. Eve's mouth is endToolWaitCreate.
+        // 677abb9 spoke spokenCalendar via speakLiveReplyViaEve — the dump.
         if isLiveVADTurn {
             parkOrAttachLiveDeskCards(evidence.cards)
-        } else {
-            appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
+            refreshPresence()
+            pendingGeneralVoiceLog = true
+            return
         }
+        appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
         await speakDeskReply(evidence.text)
         logVoiceTurn(evidence: evidence, reply: evidence.text)
     }
@@ -961,29 +966,29 @@ final class AppModel {
             if case .email(let item) = card { return item }
             return nil
         }
-        let plan = isLiveVADTurn
-            ? InboxGlanceSpeakPlan.liveVAD(ask: lastUserUtterance, snapshot: deskSnapshot)
-            : InboxGlanceSpeakPlan.fromCachedEmails(
-                emails,
-                ask: lastUserUtterance,
-                fallbackText: evidence.text
-            )
+        if isLiveVADTurn {
+            // 677abb9 DD56F6A9: speakDeskReply(spokenInbox) then cards.
+            // That from/subject dump was the mouth. Wait for xaiGlance,
+            // park cards, refresh facts. Eve speaks after endToolWaitCreate.
+            _ = await emailSummarizer.glanceInbox(emails)
+            parkOrAttachLiveDeskCards(evidence.cards)
+            refreshPresence()
+            pendingGeneralVoiceLog = true
+            return
+        }
+        let plan = InboxGlanceSpeakPlan.fromCachedEmails(
+            emails,
+            ask: lastUserUtterance,
+            fallbackText: evidence.text
+        )
         let spoken = plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? evidence.text
             : plan.spokenText
-        // Cards are the list. Speak the short line after tools — not empty.
         let onScreen = emails.isEmpty
             ? spoken
             : InboxGlance.onScreenText(compactCardCount: emails.count)
-        if isLiveVADTurn {
-            parkOrAttachLiveDeskCards(evidence.cards)
-        } else {
-            appendAssistant(onScreen, cards: evidence.cards)
-        }
+        appendAssistant(onScreen, cards: evidence.cards)
         await speakDeskReply(spoken)
-        if isLiveVADTurn {
-            _ = await emailSummarizer.glanceInbox(emails)
-        }
         logVoiceTurn(
             evidence: evidence,
             reply: spoken,

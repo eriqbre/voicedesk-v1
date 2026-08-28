@@ -320,9 +320,10 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertEqual(inboxOnScreen, onScreen)
     }
 
-    /// fd4a772 8:26 latest emails / 8:27 calendar tomorrow: empty
-    /// assistantReply + correct cards. Production spoken line after tools.
-    func testFd4a772LatestEmailsAndCalendarTomorrowSpeakAfterTools() {
+    /// DD56F6A9 / 677abb9 leftover: spokenInbox is the from/subject dump
+    /// that was the live mouth, then cards. Not the product mouth.
+    /// fd4a772 was empty reply + cards. Live plan waits; Eve speaks.
+    func testFd4a772EmptyAnd677abb9GlanceAreNotTheLiveMouth() {
         let emails = [
             VoiceRegressionDesk.murray,
             VoiceRegressionDesk.steve,
@@ -330,12 +331,30 @@ final class InboxGlanceTests: XCTestCase {
             VoiceRegressionDesk.laren,
             VoiceRegressionDesk.ericGross
         ]
-        let latest = InboxGlance.spokenInbox(ask: "latest emails", emails: emails)
+        let latest = InboxGlance.spokenInbox(ask: "Show me my latest emails.", emails: emails)
         XCTAssertFalse(latest.isEmpty, "fd4a772 latest emails: empty reply + 5 cards")
-        XCTAssertTrue(InboxGlance.isShortSpokenSummary(latest), latest)
+        XCTAssertTrue(InboxGlance.isFromSubjectGlanceDump(latest), latest)
         XCTAssertFalse(InboxGlance.isShortSpokenAck(latest), latest)
         XCTAssertNotEqual(latest, "Here they are.")
         XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(latest), latest)
+
+        let tapeBlob = "joseph.loparo@cypressrun.com on Join Us Tomorrow Night for Lobster Rolls!, Bank of America on Zelle…, and more."
+        XCTAssertTrue(InboxGlance.isFromSubjectGlanceDump(tapeBlob), tapeBlob)
+
+        let plan = InboxGlanceSpeakPlan.liveVAD(
+            ask: "Show me my latest emails.",
+            snapshot: DeskSnapshot(emails: emails)
+        )
+        XCTAssertFalse(
+            InboxGlance.isFromSubjectGlanceDump(plan.spokenText),
+            "677abb9 live plan spoke the dump: \(plan.spokenText)"
+        )
+        XCTAssertNotEqual(plan.spokenText, latest)
+        XCTAssertTrue(plan.waitsOnGmailList)
+        XCTAssertTrue(plan.waitsOnModel)
+        XCTAssertEqual(plan.spokenSource, InboxGlanceSpeakPlan.eveSpokenSource)
+        XCTAssertFalse(InboxGlanceSpeakPlan.isSkippedGlanceListStub(plan))
+        XCTAssertNotEqual(plan.spokenText, "Here they are.")
 
         let events = [
             CalendarItem(title: "Walk the lot", whenLabel: "Tomorrow 9:00 AM"),
@@ -346,9 +365,8 @@ final class InboxGlanceTests: XCTestCase {
             events: events
         )
         XCTAssertFalse(calendar.isEmpty, "fd4a772 calendar tomorrow: empty reply + 2 cards")
-        XCTAssertTrue(InboxGlance.isShortSpokenSummary(calendar), calendar)
-        XCTAssertFalse(InboxGlance.isShortSpokenAck(calendar), calendar)
         XCTAssertNotEqual(calendar, "Here they are.")
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(calendar), calendar)
     }
 
     private static let newestClarifyPhrases = [

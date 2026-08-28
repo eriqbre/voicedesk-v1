@@ -86,7 +86,9 @@ public struct InboxGlanceSpeakPlan: Equatable, Sendable {
         var plan = InboxGlanceSpeakPlan(
             intent: replay.intent,
             spokenSource: eveSpokenSource,
-            spokenText: InboxGlance.spokenInbox(ask: ask, emails: emails),
+            // 677abb9 put spokenInbox here and AppModel spoke it. That
+            // from/subject dump was the live mouth. Eve speaks after tools.
+            spokenText: "",
             stagesBeforeFirstAudio: [gmailListStage, xaiGlanceStage],
             waitsOnGmailList: true,
             waitsOnModel: true,

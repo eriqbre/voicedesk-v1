@@ -2,9 +2,10 @@ import Foundation
 
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
 ///
-/// Cards are the on-screen list. List/show and summary speak one short
-/// sentence after tools — not empty, not “Here they are.” Never recite
-/// the cards.
+/// Cards are the on-screen list. `spokenInbox` is a from/subject dump —
+/// 677abb9 DD56F6A9 leftover when that string was the live mouth.
+/// Live list/show waits for tools; Eve speaks the real answer. Not this
+/// dump. Not empty. Not “Here they are.” Never recite the cards.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
     public static let snippetLimit = 80
@@ -198,6 +199,18 @@ public enum InboxGlance: Sendable {
             || lower == "here they are"
             || lower == "here you go."
             || lower == "here they are."
+    }
+
+    /// 677abb9 DD56F6A9 leftover mouth: "from@x on Subject, Bank on Zelle…, and more."
+    /// That string is `spokenInbox` / `spokenInboxSummary`. Not Eve's answer.
+    public static func isFromSubjectGlanceDump(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return false }
+        if isShortSpokenAck(trimmed) || isShortOnScreenLeadIn(trimmed) { return false }
+        let lower = trimmed.lowercased()
+        guard lower.contains(" on ") else { return false }
+        if lower.contains(", and more") { return true }
+        return trimmed.components(separatedBy: " on ").count >= 3
     }
 
     /// One-sentence overview summary — not a multiline card recitation.

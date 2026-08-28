@@ -1192,14 +1192,22 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
-    /// fd4a772 8:26 latest emails: live VAD empty assistantReply + cards.
-    /// Speak the short line after tools. Not Here they are. Not empty.
-    func testLiveLatestEmailsSpeaksAfterToolsNotEmptyReply() async {
+    /// DD56F6A9 8:56 "Show me my latest emails." 677abb9 spoke
+    /// InboxGlance.spokenInbox (from/subject dump) then 5 cards.
+    /// handleLiveUser must not client-speak that dump. Tools, then Eve
+    /// via endToolWaitCreate. Not empty-then-cards. Not Here they are.
+    func testLiveLatestEmailsDoesNotSpeakFromSubjectGlanceThenCards() async {
         let snapshot = DeskSnapshot(emails: [
             VoiceRegressionDesk.murray,
             VoiceRegressionDesk.steve,
             VoiceRegressionDesk.greenacre
         ])
+        let ask = "Show me my latest emails."
+        let dump = InboxGlance.spokenInbox(ask: ask, emails: snapshot.emails)
+        XCTAssertTrue(
+            InboxGlance.isFromSubjectGlanceDump(dump),
+            "677abb9 mouth was this dump: \(dump)"
+        )
         let fake = FakeLiveVoiceService()
         let model = AppModel(
             voice: fake,
@@ -1208,30 +1216,48 @@ final class AppModelTests: XCTestCase {
             sync: MockGoogleSync(result: snapshot)
         )
         _ = await fake.startListening()
-        fake.emitUser("latest emails")
+        fake.emitUser(ask)
         let deadline = ContinuousClock.now + .milliseconds(2000)
         while ContinuousClock.now < deadline {
-            if fake.spoken.contains(where: { InboxGlance.isShortSpokenSummary($0) }) {
-                break
-            }
+            if fake.endToolWaitCount > 0 { break }
             try? await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertTrue(
-            fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) },
-            "fd4a772 live latest emails spoke empty then cards: \(fake.spoken)"
+        XCTAssertGreaterThan(
+            fake.beginToolWaitCount,
+            0,
+            "fd4a772 empty-reply-then-cards never waited on tools"
+        )
+        XCTAssertGreaterThan(
+            fake.endToolWaitCount,
+            0,
+            "fd4a772 empty-reply-then-cards: no Eve create after tools"
+        )
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 glance-then-cards mouth: \(fake.spoken)"
+        )
+        XCTAssertFalse(
+            fake.spoken.contains(dump),
+            "677abb9 spoke spokenInbox then cards: \(fake.spoken)"
         )
         XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
         XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertTrue(
+            fake.spoken.allSatisfy { !InboxGlance.isFromSubjectGlanceDump($0) },
+            "\(fake.spoken)"
+        )
+        _ = model
     }
 
-    /// fd4a772 8:27 calendar tomorrow: live VAD empty assistantReply + cards.
-    /// Same handleLiveUser walk as latest emails. Calendar is applyDeskEvidence,
-    /// not applyInboxGlance. Speak the short line after tools. Not Here they are.
-    func testLiveCalendarTomorrowSpeaksAfterToolsNotEmptyReply() async {
+    /// Same leftover family on calendar overview. Do not lock
+    /// spokenCalendar as the live mouth.
+    func testLiveCalendarTomorrowDoesNotSpeakGlanceDumpThenCards() async {
         let snapshot = DeskSnapshot(events: [
             CalendarItem(title: "Walk the lot", whenLabel: "Tomorrow 9:00 AM"),
             CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
         ])
+        let ask = "what's on my calendar tomorrow"
+        let dump = InboxGlance.spokenCalendar(ask: ask, events: snapshot.events)
         let fake = FakeLiveVoiceService()
         let model = AppModel(
             voice: fake,
@@ -1240,20 +1266,24 @@ final class AppModelTests: XCTestCase {
             sync: MockGoogleSync(result: snapshot)
         )
         _ = await fake.startListening()
-        fake.emitUser("what's on my calendar tomorrow")
+        fake.emitUser(ask)
         let deadline = ContinuousClock.now + .milliseconds(2000)
         while ContinuousClock.now < deadline {
-            if fake.spoken.contains(where: { InboxGlance.isShortSpokenSummary($0) }) {
-                break
-            }
+            if fake.endToolWaitCount > 0 { break }
             try? await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertTrue(
-            fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) },
-            "fd4a772 live calendar tomorrow spoke empty then cards: \(fake.spoken)"
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "must wait on tools")
+        XCTAssertGreaterThan(
+            fake.endToolWaitCount,
+            0,
+            "fd4a772 empty-reply-then-cards: no Eve create after tools"
         )
-        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
+        XCTAssertFalse(
+            fake.spoken.contains(dump),
+            "677abb9 spoke spokenCalendar then cards: \(fake.spoken)"
+        )
         XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        _ = model
     }
 
     /// Live service path after version + glance write→player. Same loop
@@ -1508,6 +1538,17 @@ final class FakeLiveVoiceService: VoiceServicing {
         interruptCount += 1
         hasPendingPlayback = false
         listenLoopBargeConsumed = true
+    }
+
+    var beginToolWaitCount = 0
+    var endToolWaitCount = 0
+
+    func beginToolWaitCreate() {
+        beginToolWaitCount += 1
+    }
+
+    func endToolWaitCreate() {
+        endToolWaitCount += 1
     }
 }
 

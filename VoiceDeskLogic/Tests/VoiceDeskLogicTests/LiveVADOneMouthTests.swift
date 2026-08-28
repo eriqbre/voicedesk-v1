@@ -94,8 +94,15 @@ final class LiveVADOneMouthTests: XCTestCase {
             XCTAssertTrue(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.gmailListStage), ask)
             XCTAssertTrue(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.xaiGlanceStage), ask)
             XCTAssertEqual(plan.spokenSource, InboxGlanceSpeakPlan.eveSpokenSource, ask)
-            XCTAssertFalse(plan.spokenText.isEmpty, "fd4a772 \(ask) empty reply + cards")
-            XCTAssertTrue(InboxGlance.isShortSpokenSummary(plan.spokenText), "\(ask) → \(plan.spokenText)")
+            XCTAssertFalse(
+                InboxGlance.isFromSubjectGlanceDump(plan.spokenText),
+                "677abb9 \(ask) glance-then-cards mouth: \(plan.spokenText)"
+            )
+            XCTAssertNotEqual(
+                plan.spokenText,
+                InboxGlance.spokenInbox(ask: ask, emails: snapshot.emails),
+                ask
+            )
             XCTAssertFalse(InboxGlance.isShortSpokenAck(plan.spokenText), ask)
             XCTAssertNotEqual(plan.spokenText, "Here they are.", ask)
             XCTAssertGreaterThan(plan.cardCount, 0, ask)

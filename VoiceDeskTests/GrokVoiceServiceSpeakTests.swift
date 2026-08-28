@@ -306,6 +306,82 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         voice.cancel()
     }
 
+    /// DD56F6A9 677abb9: speakLiveReplyViaEve(spokenInbox) then cards.
+    /// handleLiveUser + loopback: no SPEAK_VERBATIM from/subject dump.
+    /// One response.create after tools. Not empty. Not Here they are.
+    func testShowLatestEmailsDoesNotVerbatimDumpFromSubjectThenCards() async throws {
+        let loopback = try await ListenLoopWebSocketLoopback.start()
+        defer { loopback.stop() }
+        let voice = try await openProductionSpeakSocket(
+            apiKey: "speak-677abb9-glance",
+            loopback: loopback
+        )
+        voice.startListenLoopAudioForTests()
+        voice.attachListenLoopClientTTSRecorderForTests()
+
+        let snapshot = DeskSnapshot(emails: [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre
+        ])
+        let ask = "Show me my latest emails."
+        let dump = InboxGlance.spokenInbox(ask: ask, emails: snapshot.emails)
+        XCTAssertTrue(InboxGlance.isFromSubjectGlanceDump(dump), dump)
+
+        let model = AppModel(
+            voice: voice,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+
+        let afterConnect = loopback.receivedTexts.count
+        loopback.sendPeerJSON(#"{"type":"input_audio_buffer.speech_started"}"#)
+        _ = await waitUntilNewReceived(loopback, after: afterConnect) {
+            GrokRealtime.createResponse(inSessionUpdate: $0) == false
+        }
+        loopback.sendPeerJSON(#"{"type":"input_audio_buffer.speech_stopped"}"#)
+        let afterSpeech = loopback.receivedTexts.count
+        loopback.sendPeerJSON(
+            #"{"type":"conversation.item.input_audio_transcription.completed","transcript":"Show me my latest emails.","item_id":"mail-677"}"#
+        )
+        let sawCreate = await waitUntilNewReceived(loopback, after: afterSpeech) {
+            LiveGrokVoiceClient.typeOfSend($0) == "response.create"
+        }
+        XCTAssertTrue(sawCreate, "one Eve mouth after tools")
+        let delivered = Array(loopback.receivedTexts.dropFirst(afterSpeech))
+        XCTAssertFalse(
+            delivered.contains { $0.contains("SPEAK_VERBATIM") && $0.contains(dump) },
+            "677abb9 glance-then-cards verbatim dump: \(delivered)"
+        )
+        XCTAssertFalse(
+            delivered.contains { payload in
+                guard GrokRealtime.isVerbatimSpeakPrompt(payload) else { return false }
+                return InboxGlance.isFromSubjectGlanceDump(payload)
+                    || payload.contains(dump)
+            },
+            "677abb9 SPEAK_VERBATIM from/subject dump: \(delivered)"
+        )
+        XCTAssertFalse(
+            voice.listenLoopClientTTSRecordedTexts.contains {
+                InboxGlance.isFromSubjectGlanceDump($0) || $0 == dump
+            },
+            "\(voice.listenLoopClientTTSRecordedTexts)"
+        )
+        let creates = delivered.filter { LiveGrokVoiceClient.typeOfSend($0) == "response.create" }
+        XCTAssertEqual(
+            creates.count,
+            1,
+            "exactly one Eve mouth after tools: \(creates)"
+        )
+        for blob in delivered.compactMap({ GrokRealtime.instructions(inSessionUpdate: $0) }) {
+            XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(blob), blob)
+            XCTAssertFalse(GrokRealtime.teachesNoTools(blob), blob)
+        }
+        _ = model
+        voice.cancel()
+    }
+
     private func openProductionSpeakSocket(
         apiKey: String,
         loopback: ListenLoopWebSocketLoopback
