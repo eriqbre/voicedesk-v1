@@ -40,6 +40,28 @@ final class LiveToolMouthTests: XCTestCase {
             "59 parked cards at handleLiveUser start, before any tool report"
         )
         XCTAssertTrue(LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: true))
+        let leftover = EmailItem.listCards([
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 4:10 PM",
+                subject: "Signature required 1650",
+                preview: "Please review and sign",
+                filterTag: "Inbox"
+            )
+        ])
+        let events: [ContentCard] = [
+            .calendar(CalendarItem(title: "20th anniversary", whenLabel: "Tomorrow 5:30 PM"))
+        ]
+        XCTAssertTrue(
+            LiveToolMouth.isStickyPriorDeskCards(visible: leftover, current: events),
+            "bdbace4 14B69B95: calendar spoken, Authentisign email cards still up"
+        )
+        XCTAssertFalse(LiveToolMouth.isStickyPriorDeskCards(visible: events, current: events))
+        XCTAssertTrue(
+            LiveToolMouth.isStickyPriorDeskCards(visible: leftover, current: []),
+            "empty calendar done must still replace leftover email cards"
+        )
     }
 
     func testListenResumeStaysCreateResponseTrue() throws {

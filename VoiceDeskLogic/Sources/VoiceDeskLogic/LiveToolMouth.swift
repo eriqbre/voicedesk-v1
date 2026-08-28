@@ -34,6 +34,20 @@ public enum LiveToolMouth: Sendable {
         hasToolResult
     }
 
+    /// bdbace4 walk 14B69B95: calendar was spoken, prior Authentisign
+    /// email cards stayed up. Visible cards after tool-done must be this
+    /// turn's rows, not leftover. Empty current still replaces leftover.
+    public static func isStickyPriorDeskCards(
+        visible: [ContentCard],
+        current: [ContentCard]
+    ) -> Bool {
+        let currentKinds = Set(current.map(\.kind))
+        if currentKinds.isEmpty {
+            return visible.contains { $0.kind == .email || $0.kind == .calendar }
+        }
+        return visible.contains { !currentKinds.contains($0.kind) }
+    }
+
     public static let deskGlanceToolName = "deskGlance"
 
     /// Same rows the cards draw. Not `spokenInbox` ("Name on subject, and more.").

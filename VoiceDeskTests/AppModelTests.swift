@@ -1341,6 +1341,125 @@ final class AppModelTests: XCTestCase {
         _ = model
     }
 
+    /// bdbace4 walk 14B69B95: leftover Authentisign cards already on
+    /// screen, then live latest-emails, then live calendar while Eve
+    /// still had playback. yieldGrokInterruptAnswer returned before
+    /// fulfill — mouth moved, cards stayed email, tape never wrote
+    /// user/reply/cardsAttached. Tool-done must replace cards AND write
+    /// the calendar tape. Not a log-only paper.
+    func testLiveCalendarAfterLatestEmailsReplacesEmailCards() async throws {
+        VoiceInteractionLog.resetForTests()
+        let leftoverEmails = [
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 4:10 PM",
+                subject: "Signature required 1650",
+                preview: "Please review and sign",
+                filterTag: "Inbox"
+            ),
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 3:02 PM",
+                subject: "Documents ready for signature",
+                preview: "Your packet is ready",
+                filterTag: "Inbox"
+            ),
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 1:18 PM",
+                subject: "Reminder: signature requested",
+                preview: "Still waiting on a signature",
+                filterTag: "Inbox"
+            )
+        ]
+        let snapshot = DeskSnapshot(
+            emails: leftoverEmails,
+            events: [
+                CalendarItem(title: "20th anniversary", whenLabel: "Tomorrow 5:30 PM"),
+                CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
+            ]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        model.turns.append(
+            ConversationTurn(
+                role: .assistant,
+                text: "",
+                cards: EmailItem.listCards(leftoverEmails)
+            )
+        )
+        _ = await fake.startListening()
+        fake.emitUser("Show me my latest emails.")
+        var deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.endToolWaitCount, 0)
+        let afterMail = model.turns.last?.cards ?? []
+        XCTAssertTrue(afterMail.contains { $0.kind == .email }, "\(afterMail)")
+
+        let creates = fake.endToolWaitCount
+        fake.hasPendingPlayback = true
+        fake.emitUser("what's on my calendar tomorrow")
+        deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > creates { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.endToolWaitCount,
+            creates,
+            "bdbace4 yield returned before fulfill — calendar never parked"
+        )
+        XCTAssertEqual(fake.interruptCount, 1, "command barge still drops leftover playback")
+        XCTAssertTrue(fake.sentResponseCreate, "fd4a772 create-without-words")
+        let visible = model.turns.last?.cards ?? []
+        let calendarCards = snapshot.events.map { ContentCard.calendar($0) }
+        XCTAssertFalse(
+            LiveToolMouth.isStickyPriorDeskCards(visible: visible, current: calendarCards),
+            "bdbace4 leftover Authentisign cards after calendar mouth: \(visible)"
+        )
+        XCTAssertFalse(visible.contains { $0.kind == .email }, "\(visible)")
+        XCTAssertTrue(visible.contains { $0.kind == .calendar }, "\(visible)")
+        XCTAssertTrue(
+            model.turns.contains { $0.role == .user && $0.text == "what's on my calendar tomorrow" },
+            "spoken calendar vanished from the transcript: \(model.turns.map(\.text))"
+        )
+        let tape = VoiceInteractionLog.snapshot().filter {
+            !$0.userTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let calendarTape = tape.filter {
+            $0.userTranscript.localizedCaseInsensitiveContains("calendar")
+        }
+        XCTAssertFalse(
+            calendarTape.isEmpty,
+            "bdbace4 vanished calendar tape (spoken-loop phantom only): \(VoiceInteractionLog.snapshot().map { $0.userTranscript })"
+        )
+        XCTAssertTrue(
+            calendarTape.contains { entry in
+                entry.cardsAttached.contains { $0.hasPrefix("calendar:") }
+                    && !entry.cardsAttached.contains { $0.hasPrefix("email:") }
+            },
+            "calendar tape must attach calendar cards, not leftover email: \(calendarTape.map(\.cardsAttached))"
+        )
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "\(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        _ = model
+        VoiceInteractionLog.resetForTests()
+    }
+
     /// Live service path after version + glance write→player. Same loop
     /// as `FirstHearTapLoop.versionThenGlanceWritePlayerThenThird`.
     func testVersionThenGlanceWritePlayerStayLiveThirdCommandIsATurn() async {

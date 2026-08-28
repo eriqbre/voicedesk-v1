@@ -434,9 +434,10 @@ final class AppModel {
                 hasFocusedEmail: lastFocusedEmail != nil,
                 pendingSenderRefine: pendingSenderRefine
             ) {
-                if yieldGrokInterruptAnswer {
-                    return
-                }
+                // bdbace4 14B69B95: yieldGrokInterruptAnswer returned here.
+                // Eve spoke calendar from presence; leftover email cards
+                // stayed; tape never got user/reply/cardsAttached. Interrupt
+                // still drops playback. Desk tools still fulfill and park.
                 // Live VAD already has Eve's mouth. Do not claimLocal —
                 // that drops her in-flight audio. Cards and tools still run.
                 // 12:14: create_response false while tools run; one create after.
@@ -528,12 +529,11 @@ final class AppModel {
     }
 
     private func parkOrAttachLiveDeskCards(_ cards: [ContentCard]) {
-        guard !cards.isEmpty else { return }
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
             turns[index].cards = cards
             pendingLiveDeskCards = []
             requestScroll(
-                ConversationScrollPolicy.afterAssistant(turnID: turns[index].id, hasCards: true)
+                ConversationScrollPolicy.afterAssistant(turnID: turns[index].id, hasCards: !cards.isEmpty)
             )
             return
         }
@@ -937,7 +937,11 @@ final class AppModel {
         if isLiveVADTurn {
             finishLiveTool(cards: evidence.cards)
             refreshPresence()
-            pendingGeneralVoiceLog = true
+            logVoiceTurn(
+                evidence: evidence,
+                reply: InboxGlance.onScreenText(for: evidence),
+                cards: evidence.cards
+            )
             return
         }
         appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
@@ -957,7 +961,11 @@ final class AppModel {
             _ = await emailSummarizer.glanceInbox(emails)
             finishLiveTool(cards: evidence.cards)
             refreshPresence()
-            pendingGeneralVoiceLog = true
+            logVoiceTurn(
+                evidence: evidence,
+                reply: InboxGlance.onScreenText(for: evidence),
+                cards: evidence.cards
+            )
             return
         }
         let plan = InboxGlanceSpeakPlan.fromCachedEmails(
@@ -1000,13 +1008,22 @@ final class AppModel {
     }
 
     /// Tool-done on Eve's wire, then the same rows draw. Not before.
+    /// Replace leftover prior-turn cards when this turn's done lands.
     private func finishLiveTool(cards: [ContentCard]) {
         let payload = LiveToolMouth.cardPayload(cards)
         voice.reportToolResult(payload)
-        if LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: !payload.isEmpty) {
-            parkOrAttachLiveDeskCards(cards)
+        pendingLiveDeskCards = []
+        if let id = liveThinkingBeatID, let index = turns.firstIndex(where: { $0.id == id }) {
+            turns[index].text = InboxGlance.onScreenText(compactCardCount: cards.count)
+            turns[index].cards = cards
+            liveThinkingBeatID = nil
+            liveAssistantID = id
+            requestScroll(
+                ConversationScrollPolicy.afterAssistant(turnID: id, hasCards: !cards.isEmpty)
+            )
+            return
         }
-        clearLiveThinkingBeat()
+        parkOrAttachLiveDeskCards(cards)
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {
