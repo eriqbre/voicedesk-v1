@@ -25,16 +25,17 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(digest.localizedCaseInsensitiveContains("please do not reply"), digest)
         XCTAssertFalse(digest.localizedCaseInsensitiveContains("hello bridget"), digest)
         XCTAssertFalse(digest.contains("Need you to notarize the closing package"), digest)
-        XCTAssertTrue(spoken.isEmpty, "83a5c6a inboxOverviewCopy spoke Here they are.: \(spoken)")
+        XCTAssertFalse(spoken.isEmpty, "fd4a772 list/show spoke empty then cards: \(spoken)")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(spoken), spoken)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(spoken), spoken)
         XCTAssertNotEqual(spoken, "Here they are.")
         XCTAssertFalse(spoken.localizedCaseInsensitiveContains("here they are"), spoken)
         XCTAssertFalse(InboxGlance.isMultiline(spoken), spoken)
-        XCTAssertFalse(spoken.contains("Murray"), spoken)
         XCTAssertFalse(spoken.contains("—"), spoken)
     }
 
-    /// 83a5c6a leftover first mouth: list/show spoke “Here they are.”
-    /// before tools. Production path is empty — cards are the list.
+    /// fd4a772 leftover: list/show logged empty assistantReply + cards.
+    /// 83a5c6a first mouth was “Here they are.” Speak a short line after tools.
     func testListShowDoesNotSpeakHereTheyAre() {
         let emails = [
             VoiceRegressionDesk.murray,
@@ -45,11 +46,13 @@ final class InboxGlanceTests: XCTestCase {
         ]
         for ask in ["show me my emails", "see my latest emails", "what's in my inbox?"] {
             let spoken = InboxGlance.spokenInbox(ask: ask, emails: emails)
-            XCTAssertTrue(spoken.isEmpty, "\(ask) → \(spoken)")
+            XCTAssertFalse(spoken.isEmpty, "fd4a772 \(ask) empty reply + cards: \(spoken)")
+            XCTAssertTrue(InboxGlance.isShortSpokenSummary(spoken), "\(ask) → \(spoken)")
+            XCTAssertFalse(InboxGlance.isShortSpokenAck(spoken), ask)
             XCTAssertNotEqual(spoken, "Here they are.", ask)
             XCTAssertFalse(spoken.localizedCaseInsensitiveContains("here they are"), ask)
             let overview = ConversationPresence.inboxOverviewCopy(emails, ask: ask)
-            XCTAssertTrue(overview.isEmpty, "\(ask) overview → \(overview)")
+            XCTAssertFalse(overview.isEmpty, "\(ask) overview → \(overview)")
             XCTAssertFalse(overview.localizedCaseInsensitiveContains("here they are"), ask)
             let plan = InboxGlanceSpeakPlan.fromCachedEmails(
                 emails,
@@ -59,7 +62,9 @@ final class InboxGlanceTests: XCTestCase {
             XCTAssertNotEqual(plan.spokenText, "Here they are.", ask)
             XCTAssertFalse(plan.spokenText.localizedCaseInsensitiveContains("here they are"), ask)
         }
-        XCTAssertTrue(InboxGlance.spokenCalendar(ask: "show my calendar", events: events).isEmpty)
+        let calendarSpoken = InboxGlance.spokenCalendar(ask: "show my calendar", events: events)
+        XCTAssertFalse(calendarSpoken.isEmpty, "fd4a772 calendar list empty reply + cards")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(calendarSpoken), calendarSpoken)
         let leftoverFollowUp = ConversationPresence.notSeeingCardsReply(hasInbox: true)
         XCTAssertTrue(
             leftoverFollowUp.isEmpty,
@@ -247,11 +252,13 @@ final class InboxGlanceTests: XCTestCase {
         XCTAssertFalse(onScreen.contains("—"), onScreen)
 
         let spoken = InboxGlance.spokenInbox(ask: "see my latest emails", emails: emails)
-        XCTAssertTrue(spoken.isEmpty, spoken)
+        XCTAssertFalse(spoken.isEmpty, "fd4a772 latest emails empty reply + cards")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(spoken), spoken)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(spoken), spoken)
         XCTAssertNotEqual(spoken, "Here they are.")
         XCTAssertFalse(InboxGlance.isMultiline(spoken), spoken)
         XCTAssertFalse(spoken.contains("—"), spoken)
-        XCTAssertNil(DeskReplySpeech.textToSpeak(spoken, lastSpoken: nil))
+        XCTAssertNotNil(DeskReplySpeech.textToSpeak(spoken, lastSpoken: nil))
         XCTAssertNotEqual(spoken, glance)
 
         let evidence = ConversationPresence.deskEvidence(
@@ -260,7 +267,8 @@ final class InboxGlanceTests: XCTestCase {
         )
         XCTAssertEqual(evidence?.shouldGlanceInbox, true)
         XCTAssertEqual(evidence?.cards.count, 3)
-        XCTAssertTrue((evidence?.text ?? "").isEmpty, evidence?.text ?? "")
+        XCTAssertFalse((evidence?.text ?? "").isEmpty, "fd4a772 empty reply + cards: \(evidence?.text ?? "")")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(evidence?.text ?? ""), evidence?.text ?? "")
         XCTAssertNotEqual(evidence?.text, "Here they are.")
         XCTAssertFalse(InboxGlance.isMultiline(evidence?.text ?? ""), evidence?.text ?? "")
         let bubble = InboxGlance.onScreenText(compactCardCount: evidence?.cards.count ?? 0)
@@ -310,6 +318,37 @@ final class InboxGlanceTests: XCTestCase {
         let inboxOnScreen = InboxGlance.onScreenText(compactCardCount: 3)
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(inboxOnScreen), inboxOnScreen)
         XCTAssertEqual(inboxOnScreen, onScreen)
+    }
+
+    /// fd4a772 8:26 latest emails / 8:27 calendar tomorrow: empty
+    /// assistantReply + correct cards. Production spoken line after tools.
+    func testFd4a772LatestEmailsAndCalendarTomorrowSpeakAfterTools() {
+        let emails = [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre,
+            VoiceRegressionDesk.laren,
+            VoiceRegressionDesk.ericGross
+        ]
+        let latest = InboxGlance.spokenInbox(ask: "latest emails", emails: emails)
+        XCTAssertFalse(latest.isEmpty, "fd4a772 latest emails: empty reply + 5 cards")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(latest), latest)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(latest), latest)
+        XCTAssertNotEqual(latest, "Here they are.")
+        XCTAssertFalse(GrokRealtime.teachesLeftoverDeskRouting(latest), latest)
+
+        let events = [
+            CalendarItem(title: "Walk the lot", whenLabel: "Tomorrow 9:00 AM"),
+            CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
+        ]
+        let calendar = InboxGlance.spokenCalendar(
+            ask: "what's on my calendar tomorrow",
+            events: events
+        )
+        XCTAssertFalse(calendar.isEmpty, "fd4a772 calendar tomorrow: empty reply + 2 cards")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(calendar), calendar)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(calendar), calendar)
+        XCTAssertNotEqual(calendar, "Here they are.")
     }
 
     private static let newestClarifyPhrases = [

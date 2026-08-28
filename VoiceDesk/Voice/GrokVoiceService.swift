@@ -210,6 +210,7 @@ final class GrokVoiceService: VoiceServicing {
         client.sendJSON(GrokRealtime.verbatimSpeakSessionUpdateObject(voice: voiceID, text: text))
         client.sendJSON(GrokRealtime.textItemObject(GrokRealtime.verbatimSpeakUserText(text: text)))
         client.sendJSON(GrokRealtime.responseCreateObject())
+        createdThisUserTurn = true
         verbatimSpeakResponseID = nil
         awaitingVerbatimSpeakID = true
         logSpokenLoop(

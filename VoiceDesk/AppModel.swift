@@ -945,15 +945,15 @@ final class AppModel {
             await applyInboxGlance(evidence)
             return
         }
-        // Calendar overview (and any other cards-only evidence): speak `text`,
-        // don’t reprint it in the bubble. Cards are the visual — same as inbox.
+        // Calendar overview: speak the short line after tools. Cards stay
+        // the visual. fd4a772 live VAD spoke "" and logged empty reply.
         if isLiveVADTurn {
             parkOrAttachLiveDeskCards(evidence.cards)
         } else {
             appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
         }
-        await speakDeskReply(isLiveVADTurn ? "" : evidence.text)
-        logVoiceTurn(evidence: evidence, reply: isLiveVADTurn ? "" : evidence.text)
+        await speakDeskReply(evidence.text)
+        logVoiceTurn(evidence: evidence, reply: evidence.text)
     }
 
     private func applyInboxGlance(_ evidence: ConversationPresence.DeskEvidence) async {
@@ -968,12 +968,10 @@ final class AppModel {
                 ask: lastUserUtterance,
                 fallbackText: evidence.text
             )
-        let spoken = isLiveVADTurn
-            ? ""
-            : (plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? evidence.text
-                : plan.spokenText)
-        // Cards are the list. Live VAD: Eve speaks; do not stub first audio.
+        let spoken = plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? evidence.text
+            : plan.spokenText
+        // Cards are the list. Speak the short line after tools — not empty.
         let onScreen = emails.isEmpty
             ? spoken
             : InboxGlance.onScreenText(compactCardCount: emails.count)

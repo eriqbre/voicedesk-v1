@@ -75,9 +75,13 @@ final class VoiceRegressionReplayTests: XCTestCase {
                             "\(ask) spoken: \(replay.reply)"
                         )
                     } else if !ConversationPresence.wantsInboxCount(ask) {
-                        XCTAssertTrue(
+                        XCTAssertFalse(
                             replay.reply.isEmpty,
-                            "\(ask) list/show: \(replay.reply)"
+                            "fd4a772 \(ask) empty reply + cards"
+                        )
+                        XCTAssertTrue(
+                            InboxGlance.isShortSpokenSummary(replay.reply),
+                            "\(ask) spoken: \(replay.reply)"
                         )
                         XCTAssertNotEqual(replay.reply, "Here they are.", ask)
                     }

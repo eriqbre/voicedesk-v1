@@ -2,8 +2,9 @@ import Foundation
 
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
 ///
-/// Cards are the on-screen list. List/show asks speak empty. Summary
-/// asks speak one short sentence. Never recite the cards.
+/// Cards are the on-screen list. List/show and summary speak one short
+/// sentence after tools — not empty, not “Here they are.” Never recite
+/// the cards.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
     public static let snippetLimit = 80
@@ -14,10 +15,7 @@ public enum InboxGlance: Sendable {
     public static func spokenInbox(ask: String, emails: [EmailItem]) -> String {
         let window = Array(emails.prefix(overviewLimit))
         guard !window.isEmpty else { return "" }
-        if ConversationPresence.wantsInboxSummary(ask) {
-            return spokenInboxSummary(window)
-        }
-        return ""
+        return spokenInboxSummary(window)
     }
 
     /// One short spoken summary — not five recited Name — topic lines.
@@ -33,10 +31,7 @@ public enum InboxGlance: Sendable {
 
     public static func spokenCalendar(ask: String, events: [CalendarItem]) -> String {
         guard !events.isEmpty else { return "" }
-        if ConversationPresence.wantsCalendarSummary(ask) {
-            return spokenCalendarSummary(events)
-        }
-        return ""
+        return spokenCalendarSummary(events)
     }
 
     public static func spokenCalendarSummary(_ events: [CalendarItem]) -> String {

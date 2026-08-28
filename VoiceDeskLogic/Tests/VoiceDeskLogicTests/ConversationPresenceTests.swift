@@ -598,10 +598,11 @@ final class ConversationPresenceTests: XCTestCase {
             let onScreen = InboxGlance.onScreenText(for: evidence!)
             XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(onScreen), "\(ask) on-screen: \(onScreen)")
             XCTAssertFalse(onScreen.contains("Massimo"), ask)
-            XCTAssertTrue((evidence?.text ?? "").isEmpty, "\(ask) spoken: \(evidence?.text ?? "")")
+            XCTAssertFalse((evidence?.text ?? "").isEmpty, "fd4a772 \(ask) empty reply + cards")
+            XCTAssertTrue(InboxGlance.isShortSpokenSummary(evidence?.text ?? ""), "\(ask) spoken: \(evidence?.text ?? "")")
+            XCTAssertFalse(InboxGlance.isShortSpokenAck(evidence?.text ?? ""), ask)
             XCTAssertNotEqual(evidence?.text, "Here they are.", ask)
-            XCTAssertFalse((evidence?.text ?? "").contains("Massimo"), ask)
-            XCTAssertNil(DeskReplySpeech.textToSpeak(evidence?.text ?? "", lastSpoken: nil), ask)
+            XCTAssertNotNil(DeskReplySpeech.textToSpeak(evidence?.text ?? "", lastSpoken: nil), ask)
         }
     }
 
@@ -622,9 +623,10 @@ final class ConversationPresenceTests: XCTestCase {
         let context = DeskContext(isConnected: true, snapshot: snapshot)
         let plan = ConversationPresence.plan(for: "What's in my inbox?", context: context)
         XCTAssertEqual(plan.topic, .inbox)
-        XCTAssertTrue(plan.text.isEmpty, "83a5c6a spoke Here they are.: \(plan.text)")
+        XCTAssertFalse(plan.text.isEmpty, "fd4a772 empty reply + cards: \(plan.text)")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(plan.text), plan.text)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(plan.text), plan.text)
         XCTAssertNotEqual(plan.text, "Here they are.")
-        XCTAssertFalse(plan.text.contains("Ada Cole"), "cards are the list: \(plan.text)")
         XCTAssertFalse(plan.text.lowercased().contains("jordan"))
         let cards = ConversationPresence.cards(for: .inbox, context: context)
         XCTAssertEqual(cards.count, 1)
@@ -797,9 +799,10 @@ final class ConversationPresenceTests: XCTestCase {
                 XCTAssertTrue(InboxGlance.isShortSpokenSummary(reply), "\(ask) → \(reply)")
                 XCTAssertFalse(InboxGlance.isShortSpokenAck(reply), ask)
             } else {
-                XCTAssertTrue(reply.isEmpty, "\(ask) → \(reply)")
+                XCTAssertFalse(reply.isEmpty, "fd4a772 \(ask) empty reply + cards")
+                XCTAssertTrue(InboxGlance.isShortSpokenSummary(reply), "\(ask) → \(reply)")
+                XCTAssertFalse(InboxGlance.isShortSpokenAck(reply), ask)
                 XCTAssertNotEqual(reply, "Here they are.", ask)
-                XCTAssertFalse(reply.contains("Murray Mitchell"), "cards are the list: \(ask) → \(reply)")
             }
             XCTAssertFalse(InboxGlance.isMultiline(reply), "\(ask) → \(reply)")
             XCTAssertFalse(reply.contains("—"), ask)
@@ -809,11 +812,7 @@ final class ConversationPresenceTests: XCTestCase {
             let onScreen = InboxGlance.onScreenText(compactCardCount: evidence?.cards.count ?? 0)
             XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(onScreen), "\(ask) on-screen: \(onScreen)")
             XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), ask)
-            if ConversationPresence.wantsInboxSummary(ask) {
-                XCTAssertEqual(DeskReplySpeech.textToSpeak(reply, lastSpoken: nil), reply, ask)
-            } else {
-                XCTAssertNil(DeskReplySpeech.textToSpeak(reply, lastSpoken: nil), ask)
-            }
+            XCTAssertEqual(DeskReplySpeech.textToSpeak(reply, lastSpoken: nil), reply, ask)
         }
 
         let murrayAsk = "summarize the Murray email"
@@ -856,9 +855,11 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertEqual(overview?.resetsFocusedEmail, true)
         XCTAssertNotEqual(overview?.shouldFetchBody, true)
         let digest = overview?.text ?? ""
-        XCTAssertTrue(digest.isEmpty, digest)
+        XCTAssertFalse(digest.isEmpty, "fd4a772 latest emails empty reply + cards")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(digest), digest)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(digest), digest)
         XCTAssertNotEqual(digest, "Here they are.")
-        XCTAssertNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
+        XCTAssertNotNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta(digest))
 
         let follow = "summarize that email from John Madison"

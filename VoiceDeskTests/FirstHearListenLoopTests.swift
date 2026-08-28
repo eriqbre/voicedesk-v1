@@ -26,7 +26,7 @@ final class FirstHearListenLoopTests: XCTestCase {
             fake.emitUser("Murray")
         }
         await model.applyUserTurn("show me my emails")
-        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) })
         XCTAssertTrue(fake.tapLive, "client TTS must not tear down the tap")
         XCTAssertTrue(fake.stayLiveAfterSpeak)
         XCTAssertTrue(fake.listenArmedAfterSpeak)
@@ -60,7 +60,7 @@ final class FirstHearListenLoopTests: XCTestCase {
             }
             await model.applyUserTurn("show me my emails")
             XCTAssertTrue(
-                fake.spoken.contains { InboxGlance.isShortSpokenAck($0) },
+                fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) },
                 "client TTS must speak so the inject is during/after speak: \(line)"
             )
             XCTAssertEqual(injects, 1, line)

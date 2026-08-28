@@ -86,7 +86,7 @@ public struct InboxGlanceSpeakPlan: Equatable, Sendable {
         var plan = InboxGlanceSpeakPlan(
             intent: replay.intent,
             spokenSource: eveSpokenSource,
-            spokenText: "",
+            spokenText: InboxGlance.spokenInbox(ask: ask, emails: emails),
             stagesBeforeFirstAudio: [gmailListStage, xaiGlanceStage],
             waitsOnGmailList: true,
             waitsOnModel: true,

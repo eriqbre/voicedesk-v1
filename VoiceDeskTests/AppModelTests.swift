@@ -306,8 +306,8 @@ final class AppModelTests: XCTestCase {
             InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
             "calendar overview is cards-only: \(model.turns.last?.text ?? "")"
         )
-        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
-        XCTAssertFalse(fake.spoken.contains { $0.contains("Dinner reservation") })
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) })
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertTrue(fake.sentTurns.isEmpty, "calendar is on-device TTS; Grok stays in listen")
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.notes, "Window table, party of 4.")
@@ -1114,7 +1114,8 @@ final class AppModelTests: XCTestCase {
         await model.applyUserTurn("see my latest emails")
         XCTAssertEqual(fake.spoken.count, 1, "inbox-overview digest must Eve-speak")
         let glance = fake.spoken.last ?? ""
-        XCTAssertTrue(InboxGlance.isShortSpokenAck(glance), glance)
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(glance), glance)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(glance), glance)
         XCTAssertFalse(InboxGlance.isMultiline(glance), glance)
         XCTAssertFalse(glance.contains("Murray Mitchell"), glance)
         XCTAssertFalse(glance.localizedCaseInsensitiveContains("please do not reply"), glance)
@@ -1168,8 +1169,8 @@ final class AppModelTests: XCTestCase {
         )
         await model.applyUserTurn("see my latest emails")
         let afterGlance = model.turns.count
-        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
-        XCTAssertFalse(fake.spoken.contains { $0.contains("Murray Mitchell") })
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) })
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
 
         fake.hasPendingPlayback = true
         fake.emitPartial("radio in the other room")
@@ -1189,6 +1190,38 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(fake.hasPendingPlayback)
         XCTAssertGreaterThan(model.turns.count, afterGlance, "command-shaped ask is the next turn")
         XCTAssertTrue(fake.sentTurns.isEmpty)
+    }
+
+    /// fd4a772 8:26 latest emails: live VAD empty assistantReply + cards.
+    /// Speak the short line after tools. Not Here they are. Not empty.
+    func testLiveLatestEmailsSpeaksAfterToolsNotEmptyReply() async {
+        let snapshot = DeskSnapshot(emails: [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre
+        ])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        _ = await fake.startListening()
+        fake.emitUser("latest emails")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.spoken.contains(where: { InboxGlance.isShortSpokenSummary($0) }) {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(
+            fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) },
+            "fd4a772 live latest emails spoke empty then cards: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
     }
 
     /// Live service path after version + glance write→player. Same loop
@@ -1213,7 +1246,8 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(fake.startCount, 0)
 
         await model.applyUserTurn("show me my emails")
-        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) })
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertTrue(fake.stayLiveAfterSpeak, "glance write→player must stayLive")
         XCTAssertTrue(fake.listenArmedAfterSpeak)
         XCTAssertFalse(fake.parkedSpeaking, "leftover created/done must not park speaking")
@@ -1954,8 +1988,8 @@ final class GoogleSliceTests: XCTestCase {
             "cards are the list; bubble must not reprint Eve: \(model.turns.last?.text ?? "")"
         )
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Massimo showing"))
-        XCTAssertTrue(voice.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(voice.spoken)")
-        XCTAssertFalse(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
+        XCTAssertTrue(voice.spoken.contains { InboxGlance.isShortSpokenSummary($0) }, "\(voice.spoken)")
+        XCTAssertFalse(voice.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(voice.spoken)")
         XCTAssertEqual(model.turns.last?.cards.count, 1)
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.title, "Massimo showing")
@@ -1991,8 +2025,8 @@ final class GoogleSliceTests: XCTestCase {
             "cards are the list; bubble must not reprint Eve: \(model.turns.last?.text ?? "")"
         )
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Massimo showing"))
-        XCTAssertTrue(voice.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(voice.spoken)")
-        XCTAssertFalse(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
+        XCTAssertTrue(voice.spoken.contains { InboxGlance.isShortSpokenSummary($0) }, "\(voice.spoken)")
+        XCTAssertFalse(voice.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(voice.spoken)")
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.title, "Massimo showing")
         } else {
