@@ -465,8 +465,15 @@ final class AppModel {
             focusedEmail: lastFocusedEmail,
             priorSearchAsk: lastSearchAsk
         ) {
+            // 59 parked email/calendar rows here before any function_call.
+            // Delete that paint. Connect cards are not that leftover.
             if isLiveVADTurn {
-                parkOrAttachLiveDeskCards(evidence.cards)
+                let paintsDeskRows = evidence.cards.contains {
+                    $0.kind == .email || $0.kind == .calendar
+                }
+                if !paintsDeskRows {
+                    parkOrAttachLiveDeskCards(evidence.cards)
+                }
             }
             if yieldGrokInterruptAnswer {
                 return
@@ -529,7 +536,12 @@ final class AppModel {
     }
 
     private func parkOrAttachLiveDeskCards(_ cards: [ContentCard]) {
-        if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+        if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }),
+           LiveToolMouth.shouldAttachCardsOntoTurn(
+               role: turns[index].role,
+               text: turns[index].text,
+               hasToolResult: true
+           ) {
             turns[index].cards = cards
             pendingLiveDeskCards = []
             requestScroll(
@@ -912,8 +924,11 @@ final class AppModel {
             )
             return
         }
-        // Live VAD: cards + function_call_output. Do not speak a desk
-        // answer (Costco body, glance dump) before that report.
+        // Live VAD: function_call already started on handleLiveUser when
+        // needsClientTools. Report the same rows as the cards. Do not
+        // speak a desk answer (Costco body, glance dump) before that
+        // report. Do not paint last turn / log empty onScreenText —
+        // 65C7B25F / AEEAB5CC latest-emails empty mouth + 5 cards.
         // AEEAB5CC: snippet card is not a park/retry mouth — fetch first.
         if isLiveVADTurn {
             var cards = evidence.cards
@@ -926,13 +941,19 @@ final class AppModel {
                     lastFocusedEmail = updated
                 }
             }
-            finishLiveTool(cards: cards)
+            if LiveToolMouth.needsClientTools(
+                ask: lastUserUtterance,
+                snapshot: deskSnapshot,
+                isConnected: google.isConnected,
+                isOnline: isOnline,
+                hasFocusedEmail: lastFocusedEmail != nil,
+                pendingSearchClarify: pendingSearchClarify,
+                hasClarifyMatches: !lastSearchMatches.isEmpty
+            ) {
+                finishLiveTool(cards: cards)
+                pendingGeneralVoiceLog = true
+            }
             refreshPresence()
-            logVoiceTurn(
-                evidence: evidence,
-                reply: InboxGlance.onScreenText(for: evidence),
-                cards: cards
-            )
             return
         }
         if evidence.shouldSearchGmail, let query = evidence.gmailQuery, !query.isEmpty {
@@ -971,14 +992,11 @@ final class AppModel {
             // 677abb9 spoke spokenInbox. Delete that mouth. Tool start is
             // already on the wire. Done carries the same rows as the cards.
             // Eve translates once. Client thinking indicator, not spoken.
+            // Do not log empty onScreenText as her mouth.
             _ = await emailSummarizer.glanceInbox(emails)
             finishLiveTool(cards: evidence.cards)
+            pendingGeneralVoiceLog = true
             refreshPresence()
-            logVoiceTurn(
-                evidence: evidence,
-                reply: InboxGlance.onScreenText(for: evidence),
-                cards: evidence.cards
-            )
             return
         }
         let plan = InboxGlanceSpeakPlan.fromCachedEmails(
@@ -1004,15 +1022,20 @@ final class AppModel {
         )
     }
 
-    /// Tool-done on Eve's wire, then the same rows draw. Not before.
+    /// Tool-done on Eve's wire, then the same rows draw on her mouth.
     /// Do not append a looking-mouth. Do not write empty `onScreenText`
-    /// onto a leftover assistant. Cards land on the last turn.
+    /// onto a leftover assistant. Do not paint the user bubble.
     private func finishLiveTool(cards: [ContentCard]) {
         let payload = LiveToolMouth.cardPayload(cards)
         voice.reportToolResult(payload)
         pendingLiveDeskCards = []
         guard !payload.isEmpty else { return }
-        if let index = turns.indices.last {
+        if let index = turns.indices.last,
+           LiveToolMouth.shouldAttachCardsOntoTurn(
+               role: turns[index].role,
+               text: turns[index].text,
+               hasToolResult: true
+           ) {
             turns[index].cards = cards
             requestScroll(
                 ConversationScrollPolicy.afterAssistant(
@@ -1022,7 +1045,8 @@ final class AppModel {
             )
             return
         }
-        parkOrAttachLiveDeskCards(cards)
+        guard LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: true) else { return }
+        pendingLiveDeskCards = cards
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {

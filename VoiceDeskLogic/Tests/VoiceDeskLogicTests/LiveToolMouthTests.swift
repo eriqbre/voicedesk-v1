@@ -173,6 +173,116 @@ final class LiveToolMouthTests: XCTestCase {
         XCTAssertTrue(output.contains(VoiceRegressionDesk.murray.fromName), output)
     }
 
+    /// 65C7B25F / AEEAB5CC 1:41:53 walk: “latest emails” painted 5 cards
+    /// and logged empty assistantReply. Live path (handleLiveUser →
+    /// needsClientTools → beginToolWaitCreate → applyDeskEvidence) must
+    /// command deskGlance. Cards do not land on the user bubble or an
+    /// empty mouth. Appointments-tonight still has no table — do not
+    /// invent one.
+    func testLiveLatestEmailsCommandsGlanceToolAndDoesNotPaintEmptyMouth() throws {
+        let inbox = [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre,
+            VoiceRegressionDesk.laren,
+            VoiceRegressionDesk.ericGross
+        ]
+        XCTAssertEqual(inbox.count, 5)
+        let snapshot = DeskSnapshot(emails: inbox)
+        let context = DeskContext(isConnected: true, snapshot: snapshot)
+        let ask = "latest emails"
+
+        XCTAssertTrue(
+            ConversationPresence.wantsInboxOverview(ask),
+            "existing glance/list family — not a new synonym table"
+        )
+        XCTAssertTrue(
+            ConversationPresence.ownsConnectedDeskTurn(ask),
+            "65C7B25F: desk must own so the existing tool can run"
+        )
+        XCTAssertTrue(
+            LiveToolMouth.needsClientTools(
+                ask: ask,
+                snapshot: snapshot,
+                isConnected: true,
+                isOnline: true
+            ),
+            "AEEAB5CC 1:41:53 tape had zero function_call"
+        )
+
+        let evidence = ConversationPresence.deskEvidence(for: ask, context: context)
+        XCTAssertEqual(evidence?.shouldGlanceInbox, true)
+        XCTAssertEqual(evidence?.cards.filter { $0.kind == .email }.count, 5)
+        let onScreen = InboxGlance.onScreenText(for: evidence!)
+        XCTAssertTrue(
+            onScreen.isEmpty,
+            "cd4a8b1 logged this empty onScreenText as assistantReply"
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldAttachCardsOntoTurn(
+                role: .assistant,
+                text: onScreen,
+                hasToolResult: true
+            ),
+            "65C7B25F empty mouth + 5 cards"
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldAttachCardsOntoTurn(
+                role: .user,
+                text: ask,
+                hasToolResult: true
+            ),
+            "finishLiveTool painted the user bubble before Eve’s mouth"
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldAttachCardsOntoTurn(
+                role: .assistant,
+                text: "Murray on the walk-through, and more.",
+                hasToolResult: false
+            ),
+            "cards without function_call_output"
+        )
+        XCTAssertTrue(
+            LiveToolMouth.shouldAttachCardsOntoTurn(
+                role: .assistant,
+                text: "Murray on the walk-through, and more.",
+                hasToolResult: true
+            ),
+            "cards and Eve’s mouth together after function_call_output"
+        )
+        XCTAssertFalse(
+            LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: false),
+            "59 parked cards at handleLiveUser start, before any tool report"
+        )
+
+        let start = GrokRealtime.functionCallItemObject(
+            name: LiveToolMouth.deskGlanceToolName,
+            callID: "call-latest"
+        )
+        let startData = try JSONSerialization.data(withJSONObject: start)
+        let startRaw = try XCTUnwrap(String(data: startData, encoding: .utf8))
+        XCTAssertEqual(GrokRealtime.conversationItemType(inCreate: startRaw), "function_call")
+
+        let tonight = "Do I have any appointments tonight?"
+        XCTAssertFalse(
+            ConversationPresence.wantsCalendarAsk(tonight),
+            "no appointments∩tonight table — leftover-exhausted on that half"
+        )
+        XCTAssertFalse(
+            LiveToolMouth.needsClientTools(
+                ask: tonight,
+                snapshot: DeskSnapshot(
+                    emails: inbox,
+                    events: [
+                        CalendarItem(title: "Massimo showing", whenLabel: "Tonight 5:30 PM")
+                    ]
+                ),
+                isConnected: true,
+                isOnline: true
+            )
+        )
+    }
+
     /// 9cf53c4 9B23C3AA leftover inbound `response.created`, then newest
     /// emails. finishLiveTool wrote empty onScreenText + 5 cards.
     /// Leftover inbound is not alreadyCreated. Not a planted empty turn.
