@@ -1196,7 +1196,7 @@ final class AppModelTests: XCTestCase {
     /// InboxGlance.spokenInbox (from/subject dump) then 5 cards.
     /// handleLiveUser must not client-speak that dump. Tools, then Eve
     /// via endToolWaitCreate. Not empty-then-cards. Not Here they are.
-    func testLiveLatestEmailsDoesNotSpeakFromSubjectGlanceThenCards() async {
+    func testLiveLatestEmailsDoesNotSpeakFromSubjectGlanceThenCards() async throws {
         let snapshot = DeskSnapshot(emails: [
             VoiceRegressionDesk.murray,
             VoiceRegressionDesk.steve,
@@ -1265,7 +1265,7 @@ final class AppModelTests: XCTestCase {
 
     /// Same leftover family on calendar overview. Do not lock
     /// spokenCalendar as the live mouth.
-    func testLiveCalendarTomorrowDoesNotSpeakGlanceDumpThenCards() async {
+    func testLiveCalendarTomorrowDoesNotSpeakGlanceDumpThenCards() async throws {
         let snapshot = DeskSnapshot(events: [
             CalendarItem(title: "Walk the lot", whenLabel: "Tomorrow 9:00 AM"),
             CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
