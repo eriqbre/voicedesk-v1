@@ -891,11 +891,6 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             sendResponseCreateIfNeeded()
         case .responseCreated(let id):
             responseCreatedCountForTests += 1
-            // Leftover VAD inbound create is not the desk mouth.
-            // createdThisUserTurn is set when we send response.create.
-            if awaitingVerbatimSpeakID || liveToolResultOnSession {
-                createdThisUserTurn = true
-            }
             currentResponseID = GrokRealtime.nonemptyID(id)
             lastCreatedResponseID = GrokRealtime.nonemptyID(id)
             if awaitingVerbatimSpeakID {

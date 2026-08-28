@@ -44,9 +44,6 @@ final class AppModel {
     /// Client loading bubble at tool start. Removed when cards / tool-done land.
     /// Not a spoken mouth.
     private var liveThinkingBeatID: UUID?
-    /// This user turn already reported function_call_output. Leftover VAD
-    /// text is not the desk mouth until that report.
-    private var liveToolReportedThisTurn = false
     /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
     private var lastFocusedEmail: EmailItem?
     private var pendingThreadSummary = false
@@ -430,19 +427,13 @@ final class AppModel {
         }
         if google.isConnected {
             let awaitingClarify = consumeSearchClarify()
-            liveToolReportedThisTurn = false
-            let ownsDesk = ConversationPresence.ownsConnectedDeskTurn(
+            if ConversationPresence.ownsConnectedDeskTurn(
                 text,
                 pendingSearchClarify: awaitingClarify,
                 hasClarifyMatches: !lastSearchMatches.isEmpty,
                 hasFocusedEmail: lastFocusedEmail != nil,
                 pendingSenderRefine: pendingSenderRefine
-            )
-            // 9B23C3AA leftover VAD already opened an empty mouth
-            // (`response.created` leftover). That create is not the
-            // desk answer — wait on it. Do not regex Costco / tonight.
-            let leftoverVADMouth = isLiveVADTurn && leftoverVADEmptyMouth
-            if ownsDesk || leftoverVADMouth {
+            ) {
                 // bdbace4 14B69B95: yieldGrokInterruptAnswer returned here.
                 // Eve spoke calendar from presence; leftover email cards
                 // stayed; tape never got user/reply/cardsAttached. Interrupt
@@ -452,7 +443,7 @@ final class AppModel {
                 // 12:14: create_response false while tools run; one create after.
                 // Do not park cards here — 59 parked before tools, so a
                 // bare create attached rows to an empty mouth (fd4a772).
-                if isLiveVADTurn, leftoverVADMouth || LiveToolMouth.needsClientTools(
+                if isLiveVADTurn, LiveToolMouth.needsClientTools(
                     ask: text,
                     snapshot: deskSnapshot,
                     isConnected: true,
@@ -462,11 +453,7 @@ final class AppModel {
                     liveThinkingBeatID = appendThinkingBeat()
                 }
                 Task {
-                    if ownsDesk {
-                        await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
-                    } else {
-                        clearLiveThinkingBeat()
-                    }
+                    await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
                     voice.endToolWaitCreate()
                 }
                 return
@@ -502,18 +489,14 @@ final class AppModel {
             || ConversationPresence.replyMentionsCard(text) {
             return
         }
-        // Leftover VAD mouth is not a desk answer. Wait for
-        // function_call_output. 9B23C3AA Costco/calendar spoke here.
-        if isLiveVADTurn, leftoverVADEmptyMouth, !liveToolReportedThisTurn {
-            return
-        }
         if text.isEmpty, isFinal {
-            // Leftover VAD empty create — not a desk frame. Do not
-            // attach cards onto an empty leftover assistant.
+            // Leftover inbound create / empty final is not a desk frame.
+            // Do not attach cards onto an empty leftover assistant.
+            if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+                liveAssistantID = nil
+                finishGeneralVoiceLog(reply: turns[index].text)
+            }
             return
-        }
-        if liveToolReportedThisTurn, !text.isEmpty {
-            clearLiveThinkingBeat()
         }
 
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
@@ -1026,32 +1009,16 @@ final class AppModel {
 
     /// Tool-done on Eve's wire, then the same rows draw. Not before.
     /// Replace leftover prior-turn cards when this turn's done lands.
+    /// Do not write `onScreenText` (empty) onto the thinking beat —
+    /// 9cf53c4 leftover inbound then newest emails was empty + cards.
+    /// Chrome can stay. Cards land with function_call_output. One
+    /// done mouth after that report; do not force a looking-mouth.
     private func finishLiveTool(cards: [ContentCard]) {
         let payload = LiveToolMouth.cardPayload(cards)
         voice.reportToolResult(payload)
-        if !payload.isEmpty {
-            liveToolReportedThisTurn = true
-        }
         pendingLiveDeskCards = []
-        if leftoverVADEmptyMouth,
-           !LiveToolMouth.shouldAttachCardsOntoMouth(
-                mouthEmpty: true,
-                hasToolResult: !payload.isEmpty
-           ) {
-            // Leftover VAD empty mouth is not a desk frame. Keep
-            // thinking chrome; do not draw onto the leftover assistant.
-            if let id = liveThinkingBeatID, let index = turns.firstIndex(where: { $0.id == id }) {
-                turns[index].cards = cards
-                requestScroll(
-                    ConversationScrollPolicy.afterAssistant(turnID: id, hasCards: !cards.isEmpty)
-                )
-                return
-            }
-            pendingLiveDeskCards = cards
-            return
-        }
+        guard !payload.isEmpty else { return }
         if let id = liveThinkingBeatID, let index = turns.firstIndex(where: { $0.id == id }) {
-            turns[index].text = InboxGlance.onScreenText(compactCardCount: cards.count)
             turns[index].cards = cards
             liveThinkingBeatID = nil
             liveAssistantID = id
@@ -1061,22 +1028,6 @@ final class AppModel {
             return
         }
         parkOrAttachLiveDeskCards(cards)
-    }
-
-    /// 9B23C3AA leftover VAD: `response.created` leftover empty mouth
-    /// already on screen when this user bubble started. Not a planted
-    /// createdThisUserTurn flag.
-    private var leftoverVADEmptyMouth: Bool {
-        let beforeUser: Array<ConversationTurn>.SubSequence
-        if let lastUser = turns.lastIndex(where: { $0.role == .user }) {
-            beforeUser = turns.prefix(lastUser)
-        } else {
-            beforeUser = turns[turns.startIndex..<turns.endIndex]
-        }
-        guard let last = beforeUser.last(where: { $0.role == .assistant }) else {
-            return false
-        }
-        return last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {

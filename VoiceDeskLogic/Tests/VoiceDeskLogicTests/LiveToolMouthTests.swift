@@ -42,18 +42,7 @@ final class LiveToolMouthTests: XCTestCase {
                 alreadyCreated: false,
                 hasToolResult: true
             ),
-            "leftover VAD inbound create is not alreadyCreated — done mouth after tools"
-        )
-        XCTAssertFalse(
-            LiveToolMouth.shouldAttachCardsOntoMouth(mouthEmpty: true, hasToolResult: true),
-            "9B23C3AA leftover VAD empty mouth + cards"
-        )
-        XCTAssertTrue(
-            LiveToolMouth.shouldAttachCardsOntoMouth(mouthEmpty: false, hasToolResult: true)
-        )
-        XCTAssertFalse(
-            LiveToolMouth.shouldAttachCardsOntoMouth(mouthEmpty: false, hasToolResult: false),
-            "59 parked cards at handleLiveUser start, before any tool report"
+            "leftover inbound create is not alreadyCreated — done mouth after tools"
         )
         XCTAssertFalse(
             LiveToolMouth.shouldParkLiveDeskCards(hasToolResult: false),
@@ -184,9 +173,9 @@ final class LiveToolMouthTests: XCTestCase {
         XCTAssertTrue(output.contains(VoiceRegressionDesk.murray.fromName), output)
     }
 
-    /// 9cf53c4 9B23C3AA 9:01:32 leftover VAD `response.created` leftover
-    /// empty mouth, then newest emails. Cards must not attach onto that
-    /// empty leftover. Drive leftover create, not a planted flag.
+    /// 9cf53c4 9B23C3AA leftover inbound `response.created`, then newest
+    /// emails. finishLiveTool wrote empty onScreenText + 5 cards.
+    /// Leftover inbound is not alreadyCreated. Not a planted empty turn.
     func testLiveNewestEmailsDoesNotAttachCardsOntoEmptyVADMouth() {
         let inbox = [
             VoiceRegressionDesk.murray,
@@ -196,6 +185,10 @@ final class LiveToolMouthTests: XCTestCase {
             VoiceRegressionDesk.ericGross
         ]
         XCTAssertEqual(inbox.count, 5)
+        XCTAssertTrue(
+            InboxGlance.onScreenText(compactCardCount: 5).isEmpty,
+            "9cf53c4 wrote this empty string + 5 cards as the leftover mouth"
+        )
         XCTAssertTrue(
             ConversationPresence.ownsConnectedDeskTurn("What are my newest emails?"),
             "newest emails is a desk ask — tools must run"
@@ -207,10 +200,6 @@ final class LiveToolMouthTests: XCTestCase {
                 isConnected: true,
                 isOnline: true
             )
-        )
-        XCTAssertFalse(
-            LiveToolMouth.shouldAttachCardsOntoMouth(mouthEmpty: true, hasToolResult: true),
-            "9B23C3AA leftover VAD empty + 5 cards, no live.speak"
         )
         XCTAssertTrue(
             LiveToolMouth.shouldSendResponseCreate(

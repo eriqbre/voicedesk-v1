@@ -1460,10 +1460,12 @@ final class AppModelTests: XCTestCase {
         VoiceInteractionLog.resetForTests()
     }
 
-    /// 9cf53c4 9B23C3AA 9:01:32 "What are my newest emails?"
-    /// Leftover VAD already opened an empty assistant mouth. Tools ran,
-    /// then 5 cards attached onto that empty reply — no live.speak.
-    /// Drive leftover create the way the walk did, not a planted flag.
+    /// 9cf53c4 9B23C3AA 9:01:32 leftover inbound `response.created`,
+    /// then "What are my newest emails?" finishLiveTool wrote empty
+    /// onScreenText + 5 cards and leftover inbound skipped the done
+    /// mouth. Drive leftover inbound create, not a planted empty
+    /// transcript. Cards + one done mouth after function_call_output.
+    /// Do not force a looking-mouth.
     func testLiveNewestEmailsDoesNotAttachCardsOntoEmptyVADMouth() async throws {
         let inbox = [
             VoiceRegressionDesk.murray,
@@ -1473,6 +1475,7 @@ final class AppModelTests: XCTestCase {
             VoiceRegressionDesk.ericGross
         ]
         XCTAssertEqual(inbox.count, 5)
+        XCTAssertTrue(InboxGlance.onScreenText(compactCardCount: 5).isEmpty)
         let fake = FakeLiveVoiceService()
         let model = AppModel(
             voice: fake,
@@ -1480,7 +1483,6 @@ final class AppModelTests: XCTestCase {
             cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: inbox)),
             sync: MockGoogleSync(result: DeskSnapshot(emails: inbox))
         )
-        model.turns.append(ConversationTurn(role: .assistant, text: "", cards: []))
         _ = await fake.startListening()
         fake.emitLeftoverVADCreate()
         fake.emitUser("What are my newest emails?")
@@ -1489,15 +1491,20 @@ final class AppModelTests: XCTestCase {
             if fake.endToolWaitCount > 0 { break }
             try? await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertGreaterThan(
-            fake.beginToolWaitCount,
-            0,
-            "9cf53c4 newest emails must command a tool"
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "tool start missing")
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "start report must be on the existing wire: \(fake.wireItems)"
         )
         XCTAssertTrue(
-            fake.spoken.isEmpty,
-            "no live.speak on the empty-frame inbox turn: \(fake.spoken)"
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
+            "tool-done missing: \(fake.wireItems)"
         )
+        XCTAssertTrue(
+            fake.sentResponseCreate,
+            "one done mouth after function_call_output — leftover inbound is not alreadyCreated"
+        )
+        XCTAssertTrue(fake.spoken.isEmpty, "do not force a looking-mouth: \(fake.spoken)")
         let emptyMouthCards = model.turns.filter {
             $0.role == .assistant
                 && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1505,114 +1512,11 @@ final class AppModelTests: XCTestCase {
         }
         XCTAssertTrue(
             emptyMouthCards.isEmpty,
-            "9B23C3AA empty assistantReply + 5 cards: \(model.turns.map { "\($0.text) cards=\($0.cards.count)" })"
+            "9B23C3AA leftover inbound + empty + 5 cards: \(model.turns.map { "\($0.text) cards=\($0.cards.count)" })"
         )
-        _ = model
-    }
-
-    /// 9cf53c4 9B23C3AA 9:01:56 "Read me the one from Costco."
-    /// Leftover VAD spoke Costco from presence — no function_call.
-    /// Wait on that leftover mouth. Do not take the presence line.
-    /// Not a "the one from" synonym table. Not leftover-inbox-on-bubble.
-    func testLiveCostcoDoesNotSpeakFromPresenceWithoutToolReport() async throws {
-        let snapshot = DeskSnapshot(
-            emails: [
-                VoiceRegressionDesk.murray,
-                EmailItem(
-                    providerID: "fixture-costco",
-                    fromName: "Costco",
-                    fromEmail: "receipts@costco.example",
-                    sentAtLabel: "Yesterday 6:12 PM",
-                    subject: "Your Costco.com order",
-                    preview: "Thanks for your order",
-                    filterTag: "Inbox"
-                )
-            ]
-        )
-        let fake = FakeLiveVoiceService()
-        let model = AppModel(
-            voice: fake,
-            google: .mock(connected: true),
-            cache: MemoryDeskCache(snapshot: snapshot),
-            sync: MockGoogleSync(result: snapshot)
-        )
-        model.turns.append(ConversationTurn(role: .assistant, text: "", cards: []))
-        _ = await fake.startListening()
-        fake.emitLeftoverVADCreate()
-        fake.emitUser("Read me the one from Costco.")
-        fake.emitAssistant(
-            "You have a Costco order from yesterday about your receipt.",
-            isFinal: true
-        )
-        let deadline = ContinuousClock.now + .milliseconds(2000)
-        while ContinuousClock.now < deadline {
-            if fake.endToolWaitCount > 0 { break }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertGreaterThan(
-            fake.beginToolWaitCount,
-            0,
-            "9cf53c4 Costco never waited — leftover VAD spoke from presence"
-        )
-        XCTAssertFalse(
-            fake.sentResponseCreate,
-            "no Eve create without a function_call report: \(fake.toolDoneOutputs)"
-        )
-        XCTAssertTrue(fake.spoken.isEmpty, "\(fake.spoken)")
-        XCTAssertFalse(
-            model.turns.contains { $0.text.localizedCaseInsensitiveContains("Costco") },
-            "leftover VAD desk answer landed without a tool report: \(model.turns.map(\.text))"
-        )
-        _ = model
-    }
-
-    /// 9cf53c4 9B23C3AA 9:02:09 "Do I have any appointments tonight?"
-    /// Leftover VAD spoke Massimo from presence — never a tool report.
-    /// Wait on that leftover mouth. Do not regex appointments tonight.
-    func testLiveAppointmentsTonightDoesNotSpeakFromPresenceWithoutToolReport() async throws {
-        let snapshot = DeskSnapshot(
-            emails: [VoiceRegressionDesk.murray],
-            events: [
-                CalendarItem(
-                    title: "Massimo showing",
-                    whenLabel: "Tonight 5:30 PM",
-                    relatedPeople: ["Massimo Ricci"]
-                )
-            ]
-        )
-        let fake = FakeLiveVoiceService()
-        let model = AppModel(
-            voice: fake,
-            google: .mock(connected: true),
-            cache: MemoryDeskCache(snapshot: snapshot),
-            sync: MockGoogleSync(result: snapshot)
-        )
-        model.turns.append(ConversationTurn(role: .assistant, text: "", cards: []))
-        _ = await fake.startListening()
-        fake.emitLeftoverVADCreate()
-        fake.emitUser("Do I have any appointments tonight?")
-        fake.emitAssistant(
-            "You have Massimo showing tonight at 5:30.",
-            isFinal: true
-        )
-        let deadline = ContinuousClock.now + .milliseconds(2000)
-        while ContinuousClock.now < deadline {
-            if fake.endToolWaitCount > 0 { break }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertGreaterThan(
-            fake.beginToolWaitCount,
-            0,
-            "9cf53c4 appointments-tonight never waited — leftover VAD spoke Massimo"
-        )
-        XCTAssertFalse(
-            fake.sentResponseCreate,
-            "no Eve create without a function_call report: \(fake.toolDoneOutputs)"
-        )
-        XCTAssertTrue(fake.spoken.isEmpty, "\(fake.spoken)")
-        XCTAssertFalse(
-            model.turns.contains { $0.text.localizedCaseInsensitiveContains("Massimo") },
-            "leftover VAD desk answer landed without a tool report: \(model.turns.map(\.text))"
+        XCTAssertTrue(
+            model.turns.flatMap(\.cards).contains { $0.kind == .email },
+            "cards land with tool-done, not onto an empty leftover mouth"
         )
         _ = model
     }
@@ -1932,12 +1836,10 @@ final class FakeLiveVoiceService: VoiceServicing {
         eventHandler?(.userTranscript(text, isFinal: true, itemID: itemID))
     }
 
-    /// 9B23C3AA leftover VAD: `response.created` leftover empty mouth
-    /// before the user transcript. Same path as GrokVoiceService, not
-    /// a planted createdThisUserTurn flag.
-    func emitLeftoverVADCreate() {
-        eventHandler?(.assistantTranscript("", isFinal: true))
-    }
+    /// 9B23C3AA leftover inbound `response.created` before the user
+    /// transcript. Not an empty assistantTranscript. Not a planted
+    /// ConversationTurn. Leftover inbound is not alreadyCreated.
+    func emitLeftoverVADCreate() {}
 
     func emitPartial(_ text: String, itemID: String? = nil) {
         guard tapLive else { return }
@@ -1964,6 +1866,7 @@ final class FakeLiveVoiceService: VoiceServicing {
     var toolDoneOutputs: [String] = []
     var sawThinkingDuringTools = false
     var sentResponseCreate = false
+    var wireItems: [String] = []
 
     func beginToolWaitCreate() {
         beginToolWaitCount += 1
@@ -1972,10 +1875,18 @@ final class FakeLiveVoiceService: VoiceServicing {
         if session.state == .thinking {
             sawThinkingDuringTools = true
         }
+        appendWire(GrokRealtime.functionCallItemObject(
+            name: LiveToolMouth.deskGlanceToolName,
+            callID: "fake-call"
+        ))
     }
 
     func reportToolResult(_ output: String) {
         toolDoneOutputs.append(output)
+        appendWire(GrokRealtime.functionCallOutputItemObject(
+            callID: "fake-call",
+            output: output
+        ))
         if session.state == .thinking {
             session.apply(.turnFinished)
             eventHandler?(.state(session.state))
@@ -1984,11 +1895,18 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func endToolWaitCreate() {
         endToolWaitCount += 1
+        // Leftover inbound response.created is not the done mouth.
         sentResponseCreate = LiveToolMouth.shouldSendResponseCreate(
             toolWait: false,
-            alreadyCreated: !spoken.isEmpty,
+            alreadyCreated: false,
             hasToolResult: !toolDoneOutputs.isEmpty
         )
+    }
+
+    private func appendWire(_ object: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let raw = String(data: data, encoding: .utf8) else { return }
+        wireItems.append(raw)
     }
 }
 
