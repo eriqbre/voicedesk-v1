@@ -66,8 +66,12 @@ final class CalendarOverviewSynonymTests: XCTestCase {
             XCTAssertFalse(InboxGlance.repeatsGlanceLines(replay.onScreen), ask)
             XCTAssertFalse(replay.onScreen.contains("Massimo"), "\(ask) printed: \(replay.onScreen)")
             XCTAssertFalse(replay.onScreen.contains("Next up"), "\(ask) printed: \(replay.onScreen)")
-            XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
-            XCTAssertEqual(DeskReplySpeech.textToSpeak(replay.reply, lastSpoken: nil), replay.reply, ask)
+            XCTAssertFalse(replay.reply.isEmpty, "fd4a772 \(ask) empty reply + cards")
+            XCTAssertTrue(InboxGlance.isShortSpokenSummary(replay.reply), "\(ask) → \(replay.reply)")
+            XCTAssertFalse(InboxGlance.isShortSpokenAck(replay.reply), ask)
+            XCTAssertNotEqual(replay.reply, "Here they are.", ask)
+            XCTAssertFalse(replay.reply.contains("Next up"), ask)
+            XCTAssertNotNil(DeskReplySpeech.textToSpeak(replay.reply, lastSpoken: nil), ask)
             XCTAssertNil(DeskReplySpeech.textToSpeak(replay.onScreen, lastSpoken: nil), ask)
         }
     }

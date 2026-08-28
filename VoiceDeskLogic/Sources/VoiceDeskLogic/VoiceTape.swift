@@ -87,6 +87,14 @@ public enum VoiceTape: Sendable {
 
     public static let secondAskPair = ("show-my-latest-emails", "my-latest-emails")
 
+    /// Composed live loop: talk, barge-in command, talk-again after the
+    /// interrupt answer. Catalog [0], [1], [2].
+    public static let composedLoopTriple = (
+        secondAskPair.0,
+        secondAskPair.1,
+        "okay-show-me-my-latest-emails"
+    )
+
     public static func context(named: String) -> DeskContext {
         switch named {
         case "massimoCalendar":

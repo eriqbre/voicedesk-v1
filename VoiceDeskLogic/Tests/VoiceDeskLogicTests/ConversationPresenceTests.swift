@@ -524,16 +524,114 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertFalse((evidence?.text ?? "").contains("Greenacre"))
     }
 
-    func testMurraySeveralInCacheAsksWhichOne() {
+    func testMurraySeveralInCacheAttachesNewestNotCannedWhichOne() {
         let ask = "Give me a summary of Murray's last email."
         let evidence = ConversationPresence.deskEvidence(
             for: ask,
             context: DeskContext(isConnected: true, snapshot: VoiceRegressionDesk.murraySeveralSnapshot)
         )
-        XCTAssertEqual(evidence?.text, ConversationPresence.gmailSearchSeveralReply)
-        XCTAssertEqual(evidence?.cards.filter { $0.kind == .email }.count, 3)
-        XCTAssertTrue(evidence?.awaitsSearchClarify == true)
-        XCTAssertNil(evidence?.focusedEmail, "must not silently attach newest Murray")
+        XCTAssertNotEqual(evidence?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertFalse(evidence?.awaitsSearchClarify == true)
+        XCTAssertEqual(evidence?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(evidence?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(evidence?.shouldFetchBody, true)
+        XCTAssertEqual(evidence?.cards.filter { $0.kind == .email }.count, 1)
+    }
+
+    /// 65C7B25F c42cadc: Murray cache hit spoke canned which-one; “summarize
+    /// his” became inbox-overview; “yes” was live Grok wait-for-full-note.
+    func testMurrayLastEmailStaysOnPersonThroughSummarizeHisAndYes() {
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: VoiceRegressionDesk.murraySeveralSnapshot
+        )
+        let find = "Can you find the last email from Murray?"
+        let hit = ConversationPresence.deskEvidence(for: find, context: context)
+        XCTAssertNotEqual(hit?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertEqual(hit?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(hit?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(hit?.shouldFetchBody, true)
+        XCTAssertFalse(hit?.awaitsSearchClarify == true)
+
+        let summarizeHis = "Can you summarize his email?"
+        XCTAssertFalse(
+            ConversationPresence.wantsInboxOverview(summarizeHis),
+            "c42cadc leftover: summarize-his was inbox-overview and cleared Murray"
+        )
+        XCTAssertTrue(ConversationPresence.ownsConnectedDeskTurn(summarizeHis))
+        let follow = ConversationPresence.deskEvidence(
+            for: summarizeHis,
+            context: context,
+            focusedEmail: hit?.focusedEmail
+        )
+        XCTAssertEqual(follow?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(follow?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(follow?.shouldFetchBody, true)
+        XCTAssertNotEqual(follow?.shouldGlanceInbox, true)
+        XCTAssertFalse(follow?.resetsFocusedEmail == true)
+        XCTAssertNotEqual(follow?.text, ConversationPresence.gmailSearchSeveralReply)
+
+        let yes = "Yes, please."
+        XCTAssertTrue(
+            ConversationPresence.ownsConnectedDeskTurn(yes, hasFocusedEmail: true),
+            "c42cadc leftover: yes after Murray hit was live Grok"
+        )
+        XCTAssertTrue(ConversationPresence.isLeftoverPersonContinue(yes))
+        XCTAssertFalse(
+            ConversationPresence.isLeftoverPersonContinue("did John Wick get released"),
+            "do not stack John Wick calendar bleed"
+        )
+        XCTAssertFalse(
+            ConversationPresence.ownsConnectedDeskTurn(
+                "did John Wick get released",
+                hasFocusedEmail: true
+            )
+        )
+        XCTAssertTrue(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                summarizeHis,
+                focused: hit?.focusedEmail
+            ),
+            "live AppModel must not drop Murray cards on summarize-his"
+        )
+        XCTAssertTrue(
+            ConversationPresence.staysOnLeftoverNamedPerson(yes, focused: hit?.focusedEmail)
+        )
+        XCTAssertFalse(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                "see my latest emails",
+                focused: hit?.focusedEmail
+            ),
+            "inbox-overview still leaves the person"
+        )
+        XCTAssertFalse(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                "what's on my calendar",
+                focused: hit?.focusedEmail
+            )
+        )
+        XCTAssertFalse(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                "did John Wick get released",
+                focused: hit?.focusedEmail
+            )
+        )
+        XCTAssertFalse(
+            ConversationPresence.staysOnLeftoverNamedPerson(
+                "Give me a summary of Lauren's latest email.",
+                focused: hit?.focusedEmail
+            ),
+            "new named sender yields Murray"
+        )
+        let stay = ConversationPresence.deskEvidence(
+            for: yes,
+            context: context,
+            focusedEmail: hit?.focusedEmail
+        )
+        XCTAssertEqual(stay?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(stay?.shouldFetchBody, true)
+        XCTAssertFalse((stay?.text ?? "").localizedCaseInsensitiveContains("full note"))
+        XCTAssertFalse((stay?.text ?? "").localizedCaseInsensitiveContains("comes through"))
     }
 
     func testNamedMurrayMissDoesNotSubstituteGreenacre() {
@@ -598,7 +696,11 @@ final class ConversationPresenceTests: XCTestCase {
             let onScreen = InboxGlance.onScreenText(for: evidence!)
             XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(onScreen), "\(ask) on-screen: \(onScreen)")
             XCTAssertFalse(onScreen.contains("Massimo"), ask)
-            XCTAssertEqual(DeskReplySpeech.textToSpeak(evidence?.text ?? "", lastSpoken: nil), evidence?.text, ask)
+            XCTAssertFalse((evidence?.text ?? "").isEmpty, "fd4a772 \(ask) empty reply + cards")
+            XCTAssertTrue(InboxGlance.isShortSpokenSummary(evidence?.text ?? ""), "\(ask) spoken: \(evidence?.text ?? "")")
+            XCTAssertFalse(InboxGlance.isShortSpokenAck(evidence?.text ?? ""), ask)
+            XCTAssertNotEqual(evidence?.text, "Here they are.", ask)
+            XCTAssertNotNil(DeskReplySpeech.textToSpeak(evidence?.text ?? "", lastSpoken: nil), ask)
         }
     }
 
@@ -619,7 +721,10 @@ final class ConversationPresenceTests: XCTestCase {
         let context = DeskContext(isConnected: true, snapshot: snapshot)
         let plan = ConversationPresence.plan(for: "What's in my inbox?", context: context)
         XCTAssertEqual(plan.topic, .inbox)
-        XCTAssertTrue(plan.text.contains("Ada Cole"))
+        XCTAssertFalse(plan.text.isEmpty, "fd4a772 empty reply + cards: \(plan.text)")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(plan.text), plan.text)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(plan.text), plan.text)
+        XCTAssertNotEqual(plan.text, "Here they are.")
         XCTAssertFalse(plan.text.lowercased().contains("jordan"))
         let cards = ConversationPresence.cards(for: .inbox, context: context)
         XCTAssertEqual(cards.count, 1)
@@ -788,9 +893,17 @@ final class ConversationPresenceTests: XCTestCase {
                 "inbox-overview must attach compact rows, not full readers: \(ask)"
             )
             let reply = evidence?.text ?? ""
-            XCTAssertTrue(reply.contains("Murray Mitchell") || reply.contains("Steve Brown"), ask)
-            XCTAssertTrue(reply.contains("Closing") || reply.contains("Inspection"), ask)
-            XCTAssertTrue(InboxGlance.isMultiline(reply) || reply.contains("\n"), "glance must not mash emails onto one line: \(ask) → \(reply)")
+            if ConversationPresence.wantsInboxSummary(ask) {
+                XCTAssertTrue(InboxGlance.isShortSpokenSummary(reply), "\(ask) → \(reply)")
+                XCTAssertFalse(InboxGlance.isShortSpokenAck(reply), ask)
+            } else {
+                XCTAssertFalse(reply.isEmpty, "fd4a772 \(ask) empty reply + cards")
+                XCTAssertTrue(InboxGlance.isShortSpokenSummary(reply), "\(ask) → \(reply)")
+                XCTAssertFalse(InboxGlance.isShortSpokenAck(reply), ask)
+                XCTAssertNotEqual(reply, "Here they are.", ask)
+            }
+            XCTAssertFalse(InboxGlance.isMultiline(reply), "\(ask) → \(reply)")
+            XCTAssertFalse(reply.contains("—"), ask)
             XCTAssertFalse(reply.contains("Need you to notarize the closing package"), "must not recite the Murray body: \(ask)")
             XCTAssertFalse(reply.localizedCaseInsensitiveContains("please do not reply"), ask)
             XCTAssertEqual(evidence?.shouldGlanceInbox, true, ask)
@@ -840,7 +953,11 @@ final class ConversationPresenceTests: XCTestCase {
         XCTAssertEqual(overview?.resetsFocusedEmail, true)
         XCTAssertNotEqual(overview?.shouldFetchBody, true)
         let digest = overview?.text ?? ""
-        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+        XCTAssertFalse(digest.isEmpty, "fd4a772 latest emails empty reply + cards")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(digest), digest)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(digest), digest)
+        XCTAssertNotEqual(digest, "Here they are.")
+        XCTAssertNotNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
         XCTAssertFalse(ConversationPresence.isGrokDeskMeta(digest))
 
         let follow = "summarize that email from John Madison"

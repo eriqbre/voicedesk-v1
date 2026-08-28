@@ -374,10 +374,13 @@ public enum GmailSearchQuery: Sendable {
         }
 
         let only = groups.values.first ?? []
-        // Same sender, several threads, no topic: ask which one.
-        // “The last one.” after that clarify is EmailRecency, not this pick.
+        // Same sender, several threads, no topic: the last one. Asking
+        // which-one after “last email from Murray” was leftover canned mouth.
+        // Different senders still clarify (Lauren / Alex & Laren).
         if only.count > 1, plan.subjectTokens.isEmpty {
-            return .several(Array(EmailRecency.newestFirst(only.map(\.email)).prefix(3)))
+            if let newest = EmailRecency.newest(only.map(\.email)) {
+                return .one(newest)
+            }
         }
         if let best = only.max(by: { $0.score < $1.score }) {
             return .one(best.email)

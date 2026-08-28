@@ -12,6 +12,9 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
     public var nextAccepted: Bool
     public var voiceState: VoiceState
     public var ttsFinished: Bool
+    /// Next ask cancelled leftover on-device desk TTS only if Eve
+    /// already treats it as a command.
+    public var cancelledSpeak: Bool
 
     public init(
         spokenIntent: String,
@@ -21,7 +24,8 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         nextIntent: String,
         nextAccepted: Bool,
         voiceState: VoiceState,
-        ttsFinished: Bool = true
+        ttsFinished: Bool = true,
+        cancelledSpeak: Bool = false
     ) {
         self.spokenIntent = spokenIntent
         self.listenArmed = listenArmed
@@ -31,80 +35,67 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         self.nextAccepted = nextAccepted
         self.voiceState = voiceState
         self.ttsFinished = ttsFinished
+        self.cancelledSpeak = cancelledSpeak
     }
 
-    /// Speak started; AVSpeech has not reported didFinish / cancelled.
-    /// Echo window stays open. Listen is not armed yet.
+    /// Client TTS is playing. Mic stays in listen. Next ask is heard
+    /// when listen is armed. Playback cancel is Eve (`ListenInterrupt`).
     public static func whileClientTTSSpeaking(
         ask: String,
         spokenLine: String,
         nextAsk: String,
         context: DeskContext,
         socketConnected: Bool = true,
-        captureRunning: Bool = false,
         userWantsVoiceOff: Bool = false
     ) -> DeskSpeakListenResume {
+        _ = spokenLine
         var session = VoiceSession()
         session.apply(.tapTalk)
-        session.apply(.listenFinished)
-        session.apply(.speakStarted)
 
-        var gate = EchoTranscriptGate()
-        gate.beginSpeaking(spokenLine)
-
-        let pending = ListenResumePolicy.afterClientTTS(
-            ttsFinished: false,
+        let pending = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: userWantsVoiceOff,
-            socketConnected: socketConnected,
-            captureRunning: captureRunning
+            socketConnected: socketConnected
         )
         let spoken = VoiceTurnReplay.play(utterance: ask, context: context)
-        let next = gate.decide(nextAsk, voiceState: session.state, context: context)
-        let listenArmed = ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false)
-            && ListenResumePolicy.isListenArmed(state: session.state)
+        let next = VoiceTurnReplay.play(utterance: nextAsk, context: context)
+        let listenArmed = !userWantsVoiceOff && ListenResumePolicy.isListenArmed(state: session.state)
+        let trimmed = nextAsk.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return DeskSpeakListenResume(
             spokenIntent: spoken.intent,
             listenArmed: listenArmed,
-            captureArmed: listenArmed && pending.map(ListenResumePolicy.isArmed) == true,
-            decision: pending ?? .stayIdle,
+            captureArmed: listenArmed && ListenResumePolicy.isArmed(pending),
+            decision: pending,
             nextIntent: next.intent,
-            nextAccepted: !next.isDropped,
+            nextAccepted: listenArmed && !trimmed.isEmpty,
             voiceState: session.state,
-            ttsFinished: false
+            ttsFinished: false,
+            cancelledSpeak: ListenInterrupt.isCommand(nextAsk, context: context)
         )
     }
 
-    /// Live session → desk speak → TTS reports done → listen/capture armed
-    /// → a later real ask is accepted (not eaten as echo / leftover).
+    /// Live session → desk speak → TTS reports done → listen armed
+    /// → a later real ask is accepted (not eaten by a leftover gate).
     public static func afterCompletedDeskSpeak(
         ask: String,
         spokenLine: String,
         nextAsk: String,
         context: DeskContext,
         socketConnected: Bool = true,
-        captureRunningAfterSpeak: Bool = false,
         userWantsVoiceOff: Bool = false
     ) -> DeskSpeakListenResume {
+        _ = spokenLine
         var session = VoiceSession()
         session.apply(.tapTalk)
-        session.apply(.listenFinished)
-        session.apply(.speakStarted)
 
-        var gate = EchoTranscriptGate()
-        gate.beginSpeaking(spokenLine)
-        gate.finishSpeaking()
-        ListenResumePolicy.applySessionAfterDeskSpeak(&session)
-
-        let decision = ListenResumePolicy.afterClientTTS(
-            ttsFinished: true,
+        let decision = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: userWantsVoiceOff,
-            socketConnected: socketConnected,
-            captureRunning: captureRunningAfterSpeak
-        ) ?? .stayIdle
+            socketConnected: socketConnected
+        )
         let spoken = VoiceTurnReplay.play(utterance: ask, context: context)
-        let next = gate.decide(nextAsk, voiceState: session.state, context: context)
+        let next = VoiceTurnReplay.play(utterance: nextAsk, context: context)
         let listenArmed = ListenResumePolicy.isListenArmed(state: session.state)
+        let trimmed = nextAsk.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return DeskSpeakListenResume(
             spokenIntent: spoken.intent,
@@ -112,48 +103,41 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
             captureArmed: listenArmed && ListenResumePolicy.isArmed(decision),
             decision: decision,
             nextIntent: next.intent,
-            nextAccepted: !next.isDropped,
+            nextAccepted: listenArmed && !trimmed.isEmpty,
             voiceState: session.state
         )
     }
 
     /// Walk 2 (2026-08-25 ~12:17 ET): several desk speaks, then calendar.
-    /// Capture must still arm after the last TTS even if the engine reports running.
+    /// The tap stays up after the last TTS. No rearm.
     public static func afterSequentialDeskSpeaks(
         turns: [(ask: String, spoken: String)],
         nextAsk: String,
         context: DeskContext,
         socketConnected: Bool = true,
-        captureRunningAfterSpeak: Bool = true,
         userWantsVoiceOff: Bool = false
     ) -> DeskSpeakListenResume {
         var session = VoiceSession()
         session.apply(.tapTalk)
-        var gate = EchoTranscriptGate()
         var lastAsk = ""
         for turn in turns {
             lastAsk = turn.ask
-            session.apply(.listenFinished)
-            session.apply(.speakStarted)
-            gate.beginSpeaking(turn.spoken)
-            gate.finishSpeaking()
-            ListenResumePolicy.applySessionAfterDeskSpeak(&session)
         }
         let decision = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: userWantsVoiceOff,
-            socketConnected: socketConnected,
-            captureRunning: captureRunningAfterSpeak
+            socketConnected: socketConnected
         )
         let spoken = VoiceTurnReplay.play(utterance: lastAsk, context: context)
-        let next = gate.decide(nextAsk, voiceState: session.state, context: context)
+        let next = VoiceTurnReplay.play(utterance: nextAsk, context: context)
         let listenArmed = ListenResumePolicy.isListenArmed(state: session.state)
+        let trimmed = nextAsk.trimmingCharacters(in: .whitespacesAndNewlines)
         return DeskSpeakListenResume(
             spokenIntent: spoken.intent,
             listenArmed: listenArmed,
             captureArmed: listenArmed && ListenResumePolicy.isArmed(decision),
             decision: decision,
             nextIntent: next.intent,
-            nextAccepted: !next.isDropped,
+            nextAccepted: listenArmed && !trimmed.isEmpty,
             voiceState: session.state
         )
     }
@@ -216,8 +200,7 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
                 ("What's on my calendar for the week?", "Massimo’s on Thursday.")
             ],
             nextAsk: nextAsk,
-            context: context,
-            captureRunningAfterSpeak: true
+            context: context
         )
         var session = VoiceSession(state: .idle)
         let shouldStay = ListenResumePolicy.sessionShouldStayLive(
@@ -233,15 +216,16 @@ public struct DeskSpeakListenResume: Equatable, Sendable {
         if ListenResumePolicy.isArmed(close) {
             ListenResumePolicy.applySessionAfterDeskSpeak(&session)
         }
-        let next = EchoTranscriptGate().decide(nextAsk, voiceState: session.state, context: context)
+        let next = VoiceTurnReplay.play(utterance: nextAsk, context: context)
+        let trimmed = nextAsk.trimmingCharacters(in: .whitespacesAndNewlines)
+        let listenArmed = ListenResumePolicy.isListenArmed(state: session.state)
         return DeskSpeakListenResume(
             spokenIntent: before.spokenIntent,
-            listenArmed: ListenResumePolicy.isListenArmed(state: session.state),
-            captureArmed: ListenResumePolicy.isListenArmed(state: session.state)
-                && ListenResumePolicy.isArmed(close),
+            listenArmed: listenArmed,
+            captureArmed: listenArmed && ListenResumePolicy.isArmed(close),
             decision: close,
             nextIntent: next.intent,
-            nextAccepted: !next.isDropped,
+            nextAccepted: listenArmed && !trimmed.isEmpty,
             voiceState: session.state
         )
     }

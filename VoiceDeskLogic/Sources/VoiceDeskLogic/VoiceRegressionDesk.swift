@@ -38,7 +38,7 @@ public enum VoiceRegressionDesk: Sendable {
         filterTag: "Inbox"
     )
 
-    /// Multi-match Murray cards after “I found a few matches. Which one?”
+    /// Same-sender Murray threads. Last-email asks attach newest, not which-one.
     public static var murraySeveralMatches: [EmailItem] {
         [murrayOlder, murray, murrayNewest]
     }

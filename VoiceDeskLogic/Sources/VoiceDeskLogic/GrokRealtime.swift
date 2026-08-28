@@ -16,9 +16,14 @@ public enum GrokRealtime {
     /// Disconnected / first-run sample desk. Do not use after Google is connected.
     public static let presenceInstructions = presenceInstructions(for: .disconnected)
 
-    /// Second-person VoiceDesk presence. Cards attach in the iOS app from desk evidence;
-    /// this prompt only shapes spoken Grok. No tools are registered this slice.
-    public static func presenceInstructions(for context: DeskContext) -> String {
+    /// Second-person VoiceDesk presence. Eve speaks the reply from
+    /// last-synced facts. Do not teach leftover desk-routing language
+    /// ("the app will take this", "stay silent, the client owns it")
+    /// or leftover no-tools ("you have no tools this slice").
+    public static func presenceInstructions(
+        for context: DeskContext,
+        identity: BuildIdentity = .unknown
+    ) -> String {
         let deskBlock: String
         if context.isConnected {
             deskBlock = connectedDeskFacts(context.snapshot)
@@ -31,11 +36,11 @@ public enum GrokRealtime {
         }
 
         let deskObjective = context.isConnected
-            ? "When the topic is their desk, stay silent. The iOS app owns every Gmail, calendar, and task ask, including full email, body, and summary. You will not handle those turns. The client interrupts you."
+            ? "You own intent and the spoken reply."
             : "When the topic is their desk, stay concrete about the sample evidence. When it is not, just talk. Never pretend a message was sent."
 
         let deskFlow = context.isConnected
-            ? "If they ask about inbox, calendar, tasks, a full email, a body, or a summary, do not answer. Stay silent. The client owns those turns. Do not mention any sample listing or sample inbox as if it were live mail. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER say you are searching, will search, can search Gmail, or are looking anything up. NEVER describe mail as snippet-only. NEVER narrate routing. NEVER say you’ll let the app handle that, you’ll look that up in the app, or that you’re handing the turn off."
+            ? "If a body is not on the wire yet, wait in this same turn — in your own words. Do not speak a placeholder, an empty turn, or that you don't know. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. Do not mention any sample listing or sample inbox as if it were live mail. NEVER mention an Email card, Calendar card, or that a message is waiting on a card. NEVER say pull-to-refresh. NEVER paste a full email body, quoted history, or raw URLs into the conversation. NEVER say open it in Gmail. NEVER say they need Gmail for the rest. NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, that all you have is the latest note, or that you only have a snippet. NEVER describe mail as snippet-only."
             : "If they ask about inbox, Beach Drive, a reply, or Florida disclosure, you may refer to the sample desk facts. Do not invent live Gmail, calendar, or MLS data. Do not claim you sent mail. NEVER say open it in Gmail. NEVER say they need Gmail for the rest."
 
         let googleConnectGuard: String
@@ -55,6 +60,7 @@ public enum GrokRealtime {
         You are VoiceDesk — a person who already knows this realtor’s world. You talk like a colleague sitting next to them, not a command menu. You answer anything they ask, desk or not.
 
         \(deskBlock)
+        \(identityFacts(identity))
 
         ## Objective
         Be someone they can talk to about anything. \(deskObjective)
@@ -63,51 +69,61 @@ public enum GrokRealtime {
         Listen. Answer in a few spoken sentences. \(deskFlow)
 
         ## Guardrails & Escalation
-        NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You have no tools this slice — do not pretend to call functions. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
+        NEVER say an email was sent or a write happened. Confirm-before-act: drafts wait for the person. You are not a lawyer. If they mention self-harm or a crisis, respond with care and point them to emergency services or 988.
         \(googleConnectGuard)
 
         ## Voice & Communication Style
         Spoken word only: no markdown, no bullets, no emojis. One or two short sentences unless they want more. Warm, direct, English. Vary phrasing.
 
         ## CRITICAL INSTRUCTIONS
-        NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above. The iOS app attaches evidence cards separately — you just talk.
+        NEVER report a send as delivered. NEVER invent live inbox or MLS facts beyond the desk facts above.
         NEVER tell them to open Settings, Account, or Integrations. Those screens do not exist.
         NEVER say you cannot connect Google. NEVER bounce them to Gmail for a message body.
-        NEVER mention an Email card or that a full message is waiting on a card. The client attaches cards. NEVER say pull-to-refresh.
+        NEVER mention an Email card or that a full message is waiting on a card. NEVER say pull-to-refresh.
         NEVER paste a full email body or quoted thread into the conversation.
-        NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, or that all you have is a snippet. The client fetches full bodies.
-        NEVER say you are searching, will search, can search Gmail, or are looking anything up. The client handles all Gmail reads.
-        NEVER narrate routing. NEVER say you’ll let the app handle that or that you’ll look that up in the app. Stay silent on desk turns.
-        If they ask for a full email, summary, or body, stay silent. Body pulls are client-owned.
+        NEVER say you cannot pull a thread or the full email, that a thread is not in the last sync, or that all you have is a snippet.
+        If the body is not there yet, wait in this same turn and speak once, in your own words — do not say you don't know and do not speak an empty placeholder. Do not invent the body.
         \(context.isConnected
             ? "If they ask to connect Google, say exactly: You’re already connected as \(context.auth.email ?? context.snapshot.accountEmail ?? "their Google account"). Use Disconnect on the card if you need to switch."
             : "How to connect Google — say exactly: Tap Connect Google on the card below.")
         """
     }
 
+    public static func identityFacts(_ identity: BuildIdentity) -> String {
+        if identity.spokenLine == BuildIdentity.unknownSpokenLine, identity.shortSHA.isEmpty {
+            return "Build identity is unknown."
+        }
+        let sha = identity.shortSHA.isEmpty ? "unknown" : identity.shortSHA
+        return "Build identity: \(identity.spokenLine) SHA \(sha)."
+    }
+
     public static func connectedDeskFacts(_ snapshot: DeskSnapshot) -> String {
         var lines: [String] = [
-            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts: from, subject, and when only. The client handles all Gmail reads, including full body and summary. You do not search. You do not look anything up. Do not invent mail. Do not say a message is not synced or that you only have a snippet. If they ask for a full email, summary, or body, stay silent — the client interrupts you."
+            "Google is connected\(snapshot.accountEmail.map { " as \($0)" } ?? ""). These are last-synced facts: from, subject, and when, plus a body when it is here. Do not invent mail. Do not say a message is not synced or that you only have a snippet."
         ]
         if let synced = snapshot.lastSyncedAt {
             lines.append("Last synced: \(DeskSnapshot.timeLabel(synced)).")
         }
         if snapshot.emails.isEmpty {
-            lines.append("Inbox list is empty. If they ask about mail, stay silent; the client owns the turn.")
+            lines.append("Inbox list is empty.")
         } else {
-            lines.append("Inbox (from / subject / when only — no bodies, no snippets):")
+            lines.append("Inbox (from / subject / when; body when fetched):")
             for email in snapshot.emails.prefix(8) {
-                lines.append("- \(email.fromName): \(email.subject) (\(email.sentAtLabel)).")
+                var line = "- \(email.fromName): \(email.subject) (\(email.sentAtLabel))."
+                if email.hasFullBody {
+                    let body = (email.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !body.isEmpty {
+                        let clipped = body.count > 400 ? String(body.prefix(400)).trimmingCharacters(in: .whitespaces) + "…" : body
+                        line += " Body: \(clipped)"
+                    }
+                }
+                lines.append(line)
             }
         }
-        if snapshot.events.isEmpty {
-            lines.append("Calendar: nothing upcoming in the last sync.")
-        } else {
-            lines.append("Calendar (only these):")
-            for event in snapshot.events.prefix(8) {
-                lines.append("- \(event.title) — \(event.whenLabel)")
-            }
-        }
+        // Calendar rows used to be injected here so leftover VAD could
+        // speak Massimo without a function_call (9B23C3AA appointments
+        // tonight). Those rows land on function_call_output after she
+        // commands. Do not restack a second facts channel.
         if snapshot.tasks.isEmpty {
             lines.append("Tasks: no open tasks in the last sync.")
         } else {
@@ -197,6 +213,51 @@ public enum GrokRealtime {
         )
     }
 
+    /// 12:14: do not auto-create a spoken mouth while client tools run.
+    public static let createResponseWhileToolsRun = false
+
+    public static func toolWaitSessionUpdateObject(
+        voice: String = defaultVoice,
+        instructions: String = presenceInstructions
+    ) -> [String: Any] {
+        sessionUpdateObject(
+            voice: voice,
+            instructions: instructions,
+            interruptResponse: true,
+            createResponse: createResponseWhileToolsRun
+        )
+    }
+
+    /// Server VAD creates on speech_stopped when the flag is true or omitted.
+    public static func vadCreatesOnSpeechStopped(createResponse: Bool?) -> Bool {
+        createResponse != false
+    }
+
+    /// Instructions string from a delivered `session.update`. Nil if
+    /// this is not that type or the field is missing.
+    public static func instructions(inSessionUpdate raw: String) -> String? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "session.update",
+              let session = object["session"] as? [String: Any],
+              let text = session["instructions"] as? String
+        else { return nil }
+        return text
+    }
+
+    /// `nil` if this is not a session.update or the flag was omitted.
+    public static func createResponse(inSessionUpdate raw: String) -> Bool? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "session.update",
+              let session = object["session"] as? [String: Any],
+              let turn = session["turn_detection"] as? [String: Any],
+              turn["create_response"] != nil
+        else { return nil }
+        if let flag = turn["create_response"] as? Bool { return flag }
+        return (turn["create_response"] as? NSNumber)?.boolValue
+    }
+
     public static func sessionUpdateJSON(
         voice: String = defaultVoice,
         instructions: String = presenceInstructions
@@ -209,33 +270,352 @@ public enum GrokRealtime {
         #"{"type":"input_audio_buffer.append","audio":"\#(base64)"}"#
     }
 
-    public static func responseCancelObject() -> [String: Any] {
-        ["type": "response.cancel"]
+    /// Unscoped cancel races the next `response.created` and kills the
+    /// interrupt answer — leftover created, pending 0. Barge-in must
+    /// pass the playing response's id.
+    public static func responseCancelObject(responseID: String? = nil) -> [String: Any] {
+        var object: [String: Any] = ["type": "response.cancel"]
+        if let responseID, !responseID.isEmpty {
+            object["response_id"] = responseID
+        }
+        return object
+    }
+
+    /// Cancel the answer that is on the player. Do not fall back to
+    /// `currentResponseID` — that is already the next created.
+    public static func responseIDToCancel(playingResponseID: String?) -> String? {
+        nonemptyID(playingResponseID)
+    }
+
+    /// What barge-in may do to the one-engine player.
+    ///
+    /// Server VAD often creates the interrupt answer before the user
+    /// transcript arrives. Sending `response.cancel` — even scoped to
+    /// the old id — can kill that in-flight created on xAI (leftover
+    /// created, pending 0). Local drop is the player. Do not drop if
+    /// the interrupt answer is already scheduled.
+    public struct BargeInDecision: Equatable, Sendable {
+        public var cancelResponseID: String?
+        public var dropLocal: Bool
+
+        public init(cancelResponseID: String?, dropLocal: Bool) {
+            self.cancelResponseID = cancelResponseID
+            self.dropLocal = dropLocal
+        }
+    }
+
+    /// `created` / `scheduled` / `cancel` ids plus post-barge deltas.
+    /// Leftover created with deltas=0 is a silent / cancelled answer.
+    public static func bargeProofLine(
+        createdID: String?,
+        scheduledID: String?,
+        cancelID: String?,
+        audioDeltaCount: Int
+    ) -> String {
+        let created = nonemptyID(createdID) ?? "-"
+        let scheduled = nonemptyID(scheduledID) ?? "-"
+        let cancel = nonemptyID(cancelID) ?? "-"
+        return "created=\(created) scheduled=\(scheduled) cancel=\(cancel) deltas=\(audioDeltaCount)"
+    }
+
+    public static func bargeInDecision(
+        hasPendingPlayback: Bool,
+        alreadyBarged: Bool,
+        playingResponseID: String?,
+        interruptTargetID: String?,
+        currentResponseID: String?,
+        createdCountAtLatch: Int,
+        createdCountNow: Int
+    ) -> BargeInDecision {
+        guard hasPendingPlayback, !alreadyBarged else {
+            return BargeInDecision(cancelResponseID: nil, dropLocal: false)
+        }
+        if shouldKeepInterruptAnswerOnPlayer(
+            playingResponseID: playingResponseID,
+            interruptTargetID: interruptTargetID,
+            currentResponseID: currentResponseID,
+            createdCountAtLatch: createdCountAtLatch,
+            createdCountNow: createdCountNow
+        ) {
+            return BargeInDecision(cancelResponseID: nil, dropLocal: false)
+        }
+        return BargeInDecision(cancelResponseID: nil, dropLocal: true)
+    }
+
+    /// Client-side latch when Grok omits `response_id` on PCM.
+    public static func playbackEpochLatch(_ epoch: Int) -> String {
+        "playback-epoch-\(epoch)"
+    }
+
+    /// First answer is on the player. Copy `response.created` onto the
+    /// schedule latch. If that id is also empty, use the playback epoch.
+    /// Never return nil — leftover inject needs this id.
+    /// A real first-answer latch must stay. Interrupt `response.created`
+    /// after drain-before-transcript must not overwrite it or leftover
+    /// inject captures the interrupt id (aa62555 leftover paper).
+    public static func latchWhenFirstAnswerPlaying(
+        existingScheduledID: String?,
+        createdID: String?,
+        playbackEpoch: Int
+    ) -> String {
+        if let existing = nonemptyID(existingScheduledID), !isPlaybackEpochLatch(existing) {
+            return existing
+        }
+        return nonemptyID(createdID)
+            ?? nonemptyID(existingScheduledID)
+            ?? playbackEpochLatch(playbackEpoch)
+    }
+
+    public static func isPlaybackEpochLatch(_ id: String?) -> Bool {
+        guard let id = nonemptyID(id) else { return false }
+        return id.hasPrefix("playback-epoch-")
+    }
+
+    /// No-id leftover leftover fills lastCreated. Do not overwrite a
+    /// real first-answer latch with that fill. JSON `response_id` may
+    /// replace it — that is the interrupt answer, not leftover leftover.
+    public static func shouldOverwriteScheduledLatch(
+        existingScheduledID: String?,
+        taggedID: String?,
+        deltaResponseID: String?,
+        cancelledResponseID: String?
+    ) -> Bool {
+        guard let tagged = nonemptyID(taggedID) else { return false }
+        if let cancelled = nonemptyID(cancelledResponseID), tagged == cancelled {
+            return false
+        }
+        let existing = nonemptyID(existingScheduledID)
+        if existing == nil { return true }
+        if nonemptyID(deltaResponseID) != nil { return true }
+        if existing == tagged { return true }
+        return isPlaybackEpochLatch(existing)
+    }
+
+    /// Leftover reject arms only after an answer actually scheduled
+    /// on the player. `lastCreated` alone is the first answer arriving
+    /// — claimLocal / speech_started at pending 0 must not stamp that
+    /// as cancelled or the first PCM is eaten.
+    /// pending > 0: arm (and drop). pending 0 + lastScheduled/playing:
+    /// arm leftover, nothing to drop. pending 0 + only lastCreated:
+    /// do not arm.
+    public static func shouldArmCommandBargeLatch(
+        alreadyBarged: Bool,
+        hasPendingPlayback: Bool,
+        lastScheduledResponseID: String?,
+        playingResponseID: String?
+    ) -> Bool {
+        guard !alreadyBarged else { return false }
+        if hasPendingPlayback { return true }
+        return nonemptyID(lastScheduledResponseID) != nil
+            || nonemptyID(playingResponseID) != nil
+    }
+
+    /// Any listen-loop player schedule must leave lastScheduled set.
+    /// Write when the latch is empty (binary/JSON `nil != nil` skipped
+    /// noteScheduled, or write→player). After barge, do not overwrite
+    /// a latch that already names the cancelled first answer.
+    public static func shouldWriteScheduledLatchOnPlay(
+        existingScheduledID: String?,
+        bargeConsumed: Bool
+    ) -> Bool {
+        nonemptyID(existingScheduledID) == nil || !bargeConsumed
+    }
+
+    /// lastScheduled means an answer actually hit the player.
+    /// First-answer `response.done` is the leftover window — keep
+    /// the id so command barge after drain can arm leftover.
+    /// Only a different id in `noteScheduledResponse` (or teardown)
+    /// replaces it.
+    public static func keepScheduledLatchAfterResponseDone(
+        existingScheduledID: String?
+    ) -> String? {
+        nonemptyID(existingScheduledID)
+    }
+
+    /// First-answer id that barge dropped. Leftover deltas with this
+    /// id must not raise pending after `interruptPlayback`.
+    /// `lastCreated` is the first `response.created` when Grok PCM
+    /// omitted `response_id` — scheduled/playing can stay nil.
+    public static func cancelledPlaybackResponseID(
+        interruptTargetID: String?,
+        lastScheduledResponseID: String?,
+        playingResponseID: String?,
+        lastCreatedResponseID: String? = nil
+    ) -> String? {
+        nonemptyID(interruptTargetID)
+            ?? nonemptyID(lastScheduledResponseID)
+            ?? nonemptyID(playingResponseID)
+            ?? nonemptyID(lastCreatedResponseID)
+    }
+
+    /// Tag a scheduled buffer when the delta omitted `response_id`.
+    public static func scheduledResponseID(
+        deltaResponseID: String?,
+        createdAwaitingAudioID: String?,
+        lastCreatedResponseID: String?
+    ) -> String? {
+        nonemptyID(deltaResponseID)
+            ?? nonemptyID(createdAwaitingAudioID)
+            ?? nonemptyID(lastCreatedResponseID)
+    }
+
+    /// Newer created after barge. Not the cancelled first answer.
+    public static func interruptAnswerID(
+        createdAwaitingAudioID: String?,
+        lastCreatedResponseID: String?,
+        cancelledResponseID: String?
+    ) -> String? {
+        let cancelled = nonemptyID(cancelledResponseID)
+        if let awaiting = nonemptyID(createdAwaitingAudioID), awaiting != cancelled {
+            return awaiting
+        }
+        if let created = nonemptyID(lastCreatedResponseID), created != cancelled {
+            return created
+        }
+        return nil
+    }
+
+    /// First-answer `response.done` after barge sees pending 0
+    /// (`interruptPlayback` just zeroed the player). That done is not
+    /// the interrupt answer. Keep the cancelled latch until a
+    /// *different* id actually scheduled as the interrupt answer.
+    /// A done that still names the cancelled first answer must not
+    /// clear the leftover-inject id.
+    public static func shouldResetBargeAfterResponseDone(
+        bargeConsumed: Bool,
+        interruptAnswerScheduled: Bool,
+        lastScheduledResponseID: String?,
+        cancelledResponseID: String?,
+        doneResponseID: String? = nil
+    ) -> Bool {
+        guard bargeConsumed, interruptAnswerScheduled else { return false }
+        let scheduled = nonemptyID(lastScheduledResponseID)
+        let cancelled = nonemptyID(cancelledResponseID)
+        let done = nonemptyID(doneResponseID)
+        guard let scheduled else { return false }
+        if let cancelled, scheduled == cancelled { return false }
+        if let done, let cancelled, done == cancelled { return false }
+        return true
+    }
+
+    /// After barge, reject leftover that carries the cancelled
+    /// first-answer id. A nil latch or a delta without `response_id`
+    /// must still schedule — that is R2. Do not eat the interrupt answer.
+    /// Command barge `interruptResponse` may lag drain (Grok
+    /// transcribes after pending is 0). Leftover of lastScheduled
+    /// after drain must still reject — 1488 can pass on lastScheduled
+    /// while cancelled/bargeConsumed are still unset.
+    public static func shouldScheduleAfterBarge(
+        bargeConsumed: Bool,
+        deltaResponseID: String?,
+        cancelledResponseID: String?,
+        interruptAnswerID: String? = nil,
+        playingResponseID: String? = nil,
+        lastScheduledResponseID: String? = nil,
+        hasPendingPlayback: Bool = true
+    ) -> Bool {
+        _ = interruptAnswerID
+        _ = playingResponseID
+        let delta = nonemptyID(deltaResponseID)
+        let cancelled = nonemptyID(cancelledResponseID)
+        let scheduled = nonemptyID(lastScheduledResponseID)
+        if let delta, let cancelled, delta == cancelled {
+            return false
+        }
+        if !hasPendingPlayback, let delta, let scheduled, delta == scheduled {
+            return false
+        }
+        _ = bargeConsumed
+        return true
+    }
+
+    /// The interrupt created already scheduled. Dropping local wipes
+    /// it — leftover created, pending 0.
+    public static func shouldKeepInterruptAnswerOnPlayer(
+        playingResponseID: String?,
+        interruptTargetID: String?,
+        currentResponseID: String?,
+        createdCountAtLatch: Int,
+        createdCountNow: Int
+    ) -> Bool {
+        let playing = nonemptyID(playingResponseID)
+        let current = nonemptyID(currentResponseID)
+        let target = nonemptyID(interruptTargetID)
+        guard createdCountNow > createdCountAtLatch, let playing, let current else {
+            return false
+        }
+        return playing == current && playing != target
+    }
+
+    /// First `speech_started` / first scheduled buffer latches the
+    /// answer that barge-in may cancel. Do not overwrite with the next
+    /// created.
+    public static func latchedInterruptTarget(
+        existing: String?,
+        scheduledResponseID: String?
+    ) -> String? {
+        nonemptyID(existing) ?? nonemptyID(scheduledResponseID)
+    }
+
+    public static func nonemptyID(_ id: String?) -> String? {
+        guard let id = id?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            return nil
+        }
+        return id
     }
 
     public static func clearBufferObject() -> [String: Any] {
         ["type": "input_audio_buffer.clear"]
     }
 
+    /// Close a queued utterance after a dead-socket flush. The speaker
+    /// already stopped. Server VAD will not see trailing silence.
+    public static func commitAudioBufferObject() -> [String: Any] {
+        ["type": "input_audio_buffer.commit"]
+    }
+
     public static let speakVerbatimMarker = "SPEAK_VERBATIM"
 
-    /// Desk replies use on-device TTS. Always false — do not inject a fake
-    /// user turn + `response.create` so Grok can speak a local line.
+    /// Live Talk (socket up): Eve's VAD turn is the mouth.
+    /// Do not stack a verbatim `response.create`. ClientVoiceSpeech
+    /// stays for a down socket (typed / offline).
     public static func shouldSpeakViaRealtime(
         usesLiveLoop: Bool,
         isConnected: Bool,
         userWantsVoiceOff: Bool
     ) -> Bool {
-        _ = usesLiveLoop
-        _ = isConnected
-        _ = userWantsVoiceOff
+        usesLiveLoop && isConnected && !userWantsVoiceOff
+    }
+
+    /// Connected presence must not teach stay-silent / app-owns routing.
+    public static func teachesLeftoverDeskRouting(_ instructions: String) -> Bool {
+        let lower = instructions.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+        if lower.contains("stay silent") { return true }
+        if lower.contains("let the app handle") { return true }
+        if lower.contains("the ios app owns") { return true }
+        if lower.contains("the client owns those turns") { return true }
+        if lower.contains("the client handles all gmail") { return true }
+        if lower.contains("the client interrupts you") { return true }
+        return false
+    }
+
+    /// 12:14 leftover: no-tools on session.update made Eve's first VAD
+    /// mouth empty / I-don't-know before client tools landed. 83a5c6a
+    /// still sends these sentences. Detector only — not a mute.
+    public static func teachesNoTools(_ instructions: String) -> Bool {
+        let lower = instructions.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+        if lower.contains("you have no tools") { return true }
+        if lower.contains("do not pretend to call functions") { return true }
+        if lower.contains("don't pretend to call functions") { return true }
         return false
     }
 
     public static func verbatimSpeakInstructions(text: String) -> String {
         """
         Speak the SPEAK_VERBATIM block word-for-word. No other words. No greeting. No paraphrase.
-        Do not say you will let the app handle anything. After you finish, stay silent.
+        After you finish, do not add more.
 
         SPEAK_VERBATIM
         \(text)
@@ -249,6 +629,56 @@ public enum GrokRealtime {
 
     public static func isVerbatimSpeakPrompt(_ raw: String) -> Bool {
         raw.contains(speakVerbatimMarker)
+    }
+
+    /// Client tool start on Eve's session. No audio. She is the translator.
+    public static func functionCallItemObject(
+        name: String,
+        callID: String,
+        arguments: String = "{}"
+    ) -> [String: Any] {
+        [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "function_call",
+                "name": name,
+                "call_id": callID,
+                "arguments": arguments
+            ] as [String: Any]
+        ]
+    }
+
+    /// Tool done. Output is the same card payload the UI draws.
+    public static func functionCallOutputItemObject(
+        callID: String,
+        output: String
+    ) -> [String: Any] {
+        [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "function_call_output",
+                "call_id": callID,
+                "output": output
+            ] as [String: Any]
+        ]
+    }
+
+    public static func conversationItemType(inCreate raw: String) -> String? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "conversation.item.create",
+              let item = object["item"] as? [String: Any]
+        else { return nil }
+        return item["type"] as? String
+    }
+
+    public static func functionCallOutput(inCreate raw: String) -> String? {
+        guard conversationItemType(inCreate: raw) == "function_call_output",
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let item = object["item"] as? [String: Any]
+        else { return nil }
+        return item["output"] as? String
     }
 
     public static func textItemObject(_ text: String) -> [String: Any] {
@@ -315,8 +745,7 @@ public enum GrokRealtime {
             guard let text = userText(in: json), !text.isEmpty else { return .ignored }
             return .userTranscript(text: text, itemID: itemID(in: json))
         case "response.created":
-            let id = (json["response"] as? [String: Any])?["id"] as? String ?? ""
-            return .responseCreated(id: id)
+            return .responseCreated(id: responseID(in: json) ?? "")
         case "response.output_audio_transcript.delta", "response.audio_transcript.delta":
             return .assistantTranscriptDelta((json["delta"] as? String) ?? "", source: .audio)
         case "response.output_text.delta":
@@ -324,7 +753,8 @@ public enum GrokRealtime {
         case "response.output_audio_transcript.done", "response.audio_transcript.done":
             return .assistantTranscriptDone
         case "response.output_audio.delta", "response.audio.delta":
-            return .outputAudioDelta((json["delta"] as? String) ?? "")
+            let delta = (json["delta"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return .outputAudioDelta(delta ?? (json["audio"] as? String) ?? "")
         case "response.output_audio.done", "response.audio.done":
             return .outputAudioDone
         case "response.done":

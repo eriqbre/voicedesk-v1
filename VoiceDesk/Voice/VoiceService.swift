@@ -32,20 +32,35 @@ protocol VoiceServicing: AnyObject {
     var needsCredentials: Bool { get }
     var usesLiveLoop: Bool { get }
     var eventHandler: ((VoiceServiceEvent) -> Void)? { get set }
+    /// Live player still has scheduled desk / Grok PCM. Ambient speech must
+    /// not cancel it; only a command does.
+    var hasPendingPlayback: Bool { get }
 
     func startListening() async -> String
     func speak(_ text: String) async
     func sendTextTurn(_ text: String) async
     func updatePresenceInstructions(_ text: String)
     func interruptResponse()
-    func suppressAssistantOutput(_ suppress: Bool)
+    /// 12:14: `create_response` false while tools run; one create after.
+    func beginToolWaitCreate()
+    func endToolWaitCreate()
+    /// Tool done on Eve's wire. Same payload as the cards. Then create.
+    func reportToolResult(_ output: String)
     func cancel()
     /// Open live Grok + audio session after first paint so the first tap can hear.
     func warmUp() async
+    /// First barge-in already dropped local. claimLocal must yield that
+    /// turn so the interrupt answer can schedule on the one-engine player.
+    var listenLoopBargeConsumed: Bool { get }
 }
 
 extension VoiceServicing {
     func warmUp() async {}
+    var hasPendingPlayback: Bool { false }
+    var listenLoopBargeConsumed: Bool { false }
+    func beginToolWaitCreate() {}
+    func endToolWaitCreate() {}
+    func reportToolResult(_ output: String) { _ = output }
 }
 
 enum VoiceRuntime {
@@ -75,6 +90,8 @@ final class VoiceBox {
     let usesLiveLoop: Bool
 
     var transcriptHandler: ((VoiceTranscript) -> Void)?
+    var hasPendingPlayback: Bool { service.hasPendingPlayback }
+    var listenLoopBargeConsumed: Bool { service.listenLoopBargeConsumed }
 
     private let service: any VoiceServicing
 
@@ -115,8 +132,16 @@ final class VoiceBox {
         service.interruptResponse()
     }
 
-    func suppressAssistantOutput(_ suppress: Bool) {
-        service.suppressAssistantOutput(suppress)
+    func beginToolWaitCreate() {
+        service.beginToolWaitCreate()
+    }
+
+    func endToolWaitCreate() {
+        service.endToolWaitCreate()
+    }
+
+    func reportToolResult(_ output: String) {
+        service.reportToolResult(output)
     }
 
     func cancel() {
@@ -197,10 +222,6 @@ final class MockVoiceService: VoiceServicing {
 
     func interruptResponse() {}
 
-    func suppressAssistantOutput(_ suppress: Bool) {
-        _ = suppress
-    }
-
     func cancel() {
         apply(.cancel)
     }
@@ -244,10 +265,6 @@ final class UnconfiguredVoiceService: VoiceServicing {
     }
 
     func interruptResponse() {}
-
-    func suppressAssistantOutput(_ suppress: Bool) {
-        _ = suppress
-    }
 
     func cancel() {
         state = .idle

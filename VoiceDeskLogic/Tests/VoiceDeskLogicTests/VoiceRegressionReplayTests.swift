@@ -68,14 +68,35 @@ final class VoiceRegressionReplayTests: XCTestCase {
                 XCTAssertEqual(replay.cardLabels, fixture.cardsAttached, ask)
             }
             if fixture.shouldAssertReply {
-                XCTAssertEqual(replay.reply, fixture.assistantReply, ask)
+                if fixture.intent == "inbox-overview" {
+                    if ConversationPresence.wantsInboxSummary(ask) {
+                        XCTAssertTrue(
+                            InboxGlance.isShortSpokenSummary(replay.reply),
+                            "\(ask) spoken: \(replay.reply)"
+                        )
+                    } else if !ConversationPresence.wantsInboxCount(ask) {
+                        XCTAssertFalse(
+                            replay.reply.isEmpty,
+                            "fd4a772 \(ask) empty reply + cards"
+                        )
+                        XCTAssertTrue(
+                            InboxGlance.isShortSpokenSummary(replay.reply),
+                            "\(ask) spoken: \(replay.reply)"
+                        )
+                        XCTAssertNotEqual(replay.reply, "Here they are.", ask)
+                    }
+                } else {
+                    XCTAssertEqual(replay.reply, fixture.assistantReply, ask)
+                }
             }
             if replay.evidence?.hidesSpokenSummaryOnScreen == true {
                 XCTAssertTrue(
                     InboxGlance.isShortOnScreenLeadIn(replay.onScreen),
                     "\(ask): cards-only must not print Eve: \(replay.onScreen)"
                 )
-                XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
+                if !replay.reply.isEmpty {
+                    XCTAssertNotEqual(replay.onScreen, replay.reply, ask)
+                }
             }
 
             let haystack = (replay.notes + replay.cardLabels + [replay.gmailQuery ?? "", replay.reply, replay.intent])
@@ -248,6 +269,47 @@ final class VoiceRegressionReplayTests: XCTestCase {
             replay.notes.contains(where: { $0.contains("from:lauren") }),
             "\(replay.notes)"
         )
+    }
+
+    /// 65C7B25F c42cadc tape: named Murray last-email cache hit must
+    /// fetch newest, then “summarize his” / “yes” stay on Murray.
+    func testMurrayLastEmailTapeStaysOnPersonNotInboxOrLiveGrok() {
+        let context = DeskContext(
+            isConnected: true,
+            snapshot: VoiceRegressionDesk.murraySeveralSnapshot
+        )
+        let find = VoiceTurnReplay.play(
+            utterance: "Can you find the last email from Murray?",
+            context: context
+        )
+        XCTAssertTrue(find.ownsDeskTurn)
+        XCTAssertNotEqual(find.reply, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertEqual(find.evidence?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(find.evidence?.shouldFetchBody, true)
+        XCTAssertFalse(find.notes.contains("live Grok"))
+
+        let summarize = VoiceTurnReplay.play(
+            utterance: "Can you summarize his email?",
+            context: context,
+            focusedEmail: VoiceRegressionDesk.murrayNewest
+        )
+        XCTAssertTrue(summarize.ownsDeskTurn)
+        XCTAssertNotEqual(summarize.intent, "inbox-overview")
+        XCTAssertEqual(summarize.evidence?.focusedEmail?.providerID, "fixture-murray-new")
+        XCTAssertEqual(summarize.evidence?.shouldFetchBody, true)
+        XCTAssertFalse(summarize.stickyCleared)
+        XCTAssertFalse(summarize.notes.contains("live Grok"))
+
+        let yes = VoiceTurnReplay.play(
+            utterance: "Yes, please.",
+            context: context,
+            focusedEmail: VoiceRegressionDesk.murrayNewest
+        )
+        XCTAssertTrue(yes.ownsDeskTurn)
+        XCTAssertNotEqual(yes.intent, "general")
+        XCTAssertEqual(yes.evidence?.focusedEmail?.fromName, "Murray Mitchell")
+        XCTAssertEqual(yes.evidence?.shouldFetchBody, true)
+        XCTAssertFalse(yes.notes.contains("live Grok"))
     }
 
     func testNamedMurrayWithNoCacheHitSearchesAndDoesNotAttachGreenacre() {

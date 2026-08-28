@@ -2,14 +2,46 @@ import Foundation
 
 /// Brief AI / local inbox glance. One short line per email — never a mashed recitation.
 ///
-/// Eve **speaks** these lines. Cards are the on-screen list — do not also print the
-/// spoken glance, a single-email AI summary, or a calendar-overview line in the bubble.
+/// Cards are the on-screen list. `spokenInbox` is a from/subject dump —
+/// 677abb9 DD56F6A9 leftover when that string was the live mouth.
+/// Live list/show waits for tools; Eve speaks the real answer. Not this
+/// dump. Not empty. Not “Here they are.” Never recite the cards.
 public enum InboxGlance: Sendable {
     public static let overviewLimit = 5
     public static let snippetLimit = 80
     public static let lineLimit = 90
     /// Allowed on-screen stand-in when cards already list the inbox. Empty is preferred.
     public static let onScreenLeadIn = "Here are the latest."
+
+    public static func spokenInbox(ask: String, emails: [EmailItem]) -> String {
+        let window = Array(emails.prefix(overviewLimit))
+        guard !window.isEmpty else { return "" }
+        return spokenInboxSummary(window)
+    }
+
+    /// One short spoken summary — not five recited Name — topic lines.
+    public static func spokenInboxSummary(_ emails: [EmailItem]) -> String {
+        let window = Array(emails.prefix(overviewLimit))
+        guard !window.isEmpty else { return "" }
+        let bits = window.prefix(2).map { "\(glanceName($0.fromName)) on \(glanceTopic($0.subject))" }
+        if window.count <= 2 {
+            return bits.joined(separator: ", ") + "."
+        }
+        return bits.joined(separator: ", ") + ", and more."
+    }
+
+    public static func spokenCalendar(ask: String, events: [CalendarItem]) -> String {
+        guard !events.isEmpty else { return "" }
+        return spokenCalendarSummary(events)
+    }
+
+    public static func spokenCalendarSummary(_ events: [CalendarItem]) -> String {
+        guard let first = events.first else { return "" }
+        if events.count == 1 {
+            return "\(first.title), \(first.whenLabel)."
+        }
+        return "\(first.title), \(first.whenLabel), and more."
+    }
 
     public static let systemPrompt = """
         You write a voice-assistant inbox glance. One short line per email, same order.
@@ -114,7 +146,7 @@ public enum InboxGlance: Sendable {
 
     /// Chat-bubble copy when email or calendar-overview cards are attached.
     /// Cards **are** the visual. Empty (no bubble) or `onScreenLeadIn` — never the
-    /// spoken glance, single-email summary, or calendar “Next up” line.
+    /// spoken overview beat, single-email summary, or calendar titles.
     /// Clarify / not-found / connect / error / calendar-details replies must still
     /// be passed through as the bubble; they are the message.
     public static func onScreenText(compactCardCount: Int) -> String {
@@ -148,6 +180,46 @@ public enum InboxGlance: Sendable {
         return lower == onScreenLeadIn.lowercased()
             || lower == "here are the latest"
             || lower.hasPrefix("here are")
+            || lower.hasPrefix("here's")
+            || lower.hasPrefix("here they")
+            || lower.hasPrefix("here you")
+    }
+
+    /// List/show spoken ack — short, no card reprint.
+    public static func isShortSpokenAck(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed.contains("\n") { return false }
+        if trimmed.contains("—") || trimmed.contains("–") { return false }
+        if trimmed.count > 40 { return false }
+        let lower = trimmed.lowercased()
+        return lower.hasPrefix("here they")
+            || lower.hasPrefix("here you")
+            || lower.hasPrefix("here we")
+            || lower == "here you go"
+            || lower == "here they are"
+            || lower == "here you go."
+            || lower == "here they are."
+    }
+
+    /// 677abb9 DD56F6A9 leftover mouth: "from@x on Subject, Bank on Zelle…, and more."
+    /// That string is `spokenInbox` / `spokenInboxSummary`. Not Eve's answer.
+    public static func isFromSubjectGlanceDump(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return false }
+        if isShortSpokenAck(trimmed) || isShortOnScreenLeadIn(trimmed) { return false }
+        let lower = trimmed.lowercased()
+        guard lower.contains(" on ") else { return false }
+        if lower.contains(", and more") { return true }
+        return trimmed.components(separatedBy: " on ").count >= 3
+    }
+
+    /// One-sentence overview summary — not a multiline card recitation.
+    public static func isShortSpokenSummary(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return false }
+        if isMultiline(trimmed) || repeatsGlanceLines(trimmed) { return false }
+        if isShortSpokenAck(trimmed) || isShortOnScreenLeadIn(trimmed) { return false }
+        return trimmed.count <= 160
     }
 
     /// Spoken glance leaked into the bubble (two or more Name — topic lines).

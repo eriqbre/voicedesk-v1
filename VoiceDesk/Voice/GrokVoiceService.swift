@@ -21,7 +21,39 @@ final class GrokVoiceService: VoiceServicing {
     private let model: String
 
     private var currentResponseID: String?
+    /// The response that actually scheduled player buffers. Barge-in
+    /// cancel must target this id, not the next `response.created`.
+    private var playingResponseID: String?
+    /// Latched when that answer first scheduled (or on speech_started).
+    /// A late transcript must not cancel a newer created already playing.
+    private var interruptTargetID: String?
+    /// Last id that scheduled buffers. Survives `response.done` so
+    /// speech_started can latch the old answer after its id was cleared.
+    private var lastScheduledResponseID: String?
+    /// `response.created` while the player was empty. Used only to tag
+    /// the first buffer of that answer — not the next created.
+    private var createdAwaitingAudioID: String?
+    /// Server VAD heard speech. Keep the latched target across done.
+    private var speechStartedBarge = false
+    /// First barge-in already dropped local / cancelled the old answer.
+    /// claimLocal and a late second transcript must not fire again.
+    private var bargeConsumed = false
+    /// Interrupt-answer audio arrived after the barge. Reset consumed
+    /// only after this drains — R1 `response.done` must not unlock
+    /// a second cancel of the new created.
+    private var interruptAnswerScheduled = false
+    /// `response.created` count when the barge target was latched.
+    /// A later created is the interrupt answer — do not cancel it.
+    private var createdCountAtBarge = 0
     private var audioDeltaCount = 0
+    /// Last live created / scheduled / barge-cancel ids. Proof only.
+    private var lastCreatedResponseID: String?
+    private var lastBargeCancelSentID: String?
+    /// First-answer id dropped on barge. Leftover deltas with this id
+    /// must not raise pending after `interruptPlayback`.
+    private var cancelledPlaybackResponseID: String?
+    /// Leftover first-answer deltas rejected after barge. Tests only.
+    private var rejectedCancelledDeltaCount = 0
     private var assistantGate = AssistantTranscriptGate()
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var isTearingDown = false
@@ -30,11 +62,6 @@ final class GrokVoiceService: VoiceServicing {
     /// User tap-stop / cancel / explicit voice off. Blocks auto-reconnect and
     /// auto `startListening` until the next Tap to talk.
     private var userWantsVoiceOff = false
-    private var dropAssistantTranscript = false
-    private var dropAssistantAudio = false
-    /// Same leftover-echo families as AppModel. Lives here so `speech_started`
-    /// can drop before `interruptAssistant` — AppModel never sees the cancel.
-    private var echoGate = EchoTranscriptGate()
     private var instructions = GrokRealtime.presenceInstructions
     /// In-flight `connectAndConfigure` so warmup and first tap share one handshake.
     private var connectingTask: Task<Void, Error>?
@@ -43,8 +70,42 @@ final class GrokVoiceService: VoiceServicing {
     /// First Tap to talk armed this live loop. Cleared only on user stop.
     /// Independent of VoiceSession flipping idle after TTS / timeout.
     private var liveSessionArmed = false
+    /// True only while offline `speak()` is writing and the player is draining.
+    /// Cleared in `returnToListenAfterDeskTTS`. Live Talk never sets this —
+    /// Eve PCM is the mouth. stayLive after drain is armed + running audio.
+    private var clientTTSInFlight = false
+    /// Presence text changed while A was in flight. Do not
+    /// `session.update` mid-reply — that cut c1cd758 after the first
+    /// delta and stalled transcripts. Flush when idle.
+    private var pendingPresenceSessionUpdate = false
+    /// 12:14: `create_response` false while tools run; one create after.
+    private var liveToolWait = false
+    private var liveToolCallID: String?
+    private var liveToolResultOnSession = false
+    private var createdThisUserTurn = false
+    /// Bound to the speak's `response.created`. Foreign `response.done`
+    /// must not restore listen / clear verbatim mode.
+    private var awaitingVerbatimSpeakID = false
+    private var verbatimSpeakResponseID: String?
+    /// How many times socket recover ran. Tests only — not a second loop.
+    private var recoverAfterDropCount = 0
+    /// Live `response.created` events. Tests only — not a second loop.
+    private var responseCreatedCountForTests = 0
+    /// Live `response.done` events. Tests only — not a second loop.
+    private var responseDoneCountForTests = 0
+    /// Times `speak()` entered ClientVoiceSpeech. Tests only.
+    private var clientTTSSpeakCountForTests = 0
+    /// Same frames the live tap sends to Grok. Tests only — not a second loop.
+    /// The HAL tap is Sendable; this box is captured like `socket`, not read
+    /// off `self` inside that closure.
+    private var spokenLoopLoggedFirstAudio = false
+    private let micFrames = ListenLoopMicFrames()
+    var onMicFrame: (@Sendable (Data) -> Void)? {
+        didSet { micFrames.set(onMicFrame) }
+    }
 
     var state: VoiceState { session.state }
+    var hasPendingPlayback: Bool { audio.hasPendingPlayback }
 
     init(apiKey: String, voiceID: String = VoiceDeskSecrets.voiceID, model: String = VoiceDeskSecrets.model) {
         self.apiKey = apiKey
@@ -105,11 +166,110 @@ final class GrokVoiceService: VoiceServicing {
     func speak(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        echoGate.beginSpeaking(trimmed)
-        apply(.speakStarted)
-        await ClientVoiceSpeech.shared.speak(trimmed)
-        echoGate.finishSpeaking()
-        armListenIfSessionLive(reason: "client tts")
+        let plan = LiveEveSpeak.plan(
+            text: trimmed,
+            socketConnected: client.isConnected,
+            liveSessionArmed: liveSessionArmed,
+            usesLiveLoop: usesLiveLoop,
+            userWantsVoiceOff: userWantsVoiceOff
+        )
+        logSpokenLoop(SpokenLoopLog.liveSpeakStart(sessionID: SpokenLoopLog.currentSessionID))
+        if plan.mouth == .eve {
+            if speakLiveReplyViaEve(trimmed) {
+                return
+            }
+            logSpokenLoop(
+                SpokenLoopLog.liveSpeakSkipped(
+                    sessionID: SpokenLoopLog.currentSessionID,
+                    reason: "socket"
+                )
+            )
+        }
+        if !audio.isRunning, !userWantsVoiceOff {
+            startAudioIfNeeded()
+        }
+        clientTTSInFlight = true
+        clientTTSSpeakCountForTests += 1
+        await ClientVoiceSpeech.shared.speak(trimmed) { [weak self] pcm in
+            guard let self else { return }
+            self.audio.playPCM16(pcm)
+            self.noteFirstAnswerPlaying()
+        }
+        await waitUntilPlaybackDrained()
+        returnToListenAfterDeskTTS()
+    }
+
+    /// Socket up + live Talk: Eve says the line. Interrupt + clear
+    /// first so residual mic does not stack a second Eve mouth.
+    /// Guard-return is a skip log + caller fallback — never swallow.
+    @discardableResult
+    private func speakLiveReplyViaEve(_ text: String) -> Bool {
+        // 83a5c6a chose Eve on opened && armed, then void-returned
+        // or send no-op'd and speak() returned with zero ClientTTS.
+        guard client.isConnected, client.hasProductionSendTask else { return false }
+        interruptAssistant(sendCancel: true)
+        client.sendJSON(GrokRealtime.clearBufferObject())
+        client.sendJSON(GrokRealtime.verbatimSpeakSessionUpdateObject(voice: voiceID, text: text))
+        client.sendJSON(GrokRealtime.textItemObject(GrokRealtime.verbatimSpeakUserText(text: text)))
+        client.sendJSON(GrokRealtime.responseCreateObject())
+        createdThisUserTurn = true
+        verbatimSpeakResponseID = nil
+        awaitingVerbatimSpeakID = true
+        logSpokenLoop(
+            SpokenLoopLog.liveSpeakSent(
+                sessionID: SpokenLoopLog.currentSessionID,
+                responseID: nil
+            )
+        )
+        return true
+    }
+
+    /// After write→player drain. Leftover created/done must not park
+    /// speaking. Session back to listening. No second start.
+    private func returnToListenAfterDeskTTS() {
+        let result = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: userWantsVoiceOff,
+            liveSessionArmed: liveSessionArmed,
+            captureRunning: audio.isRunning
+        )
+        clientTTSInFlight = false
+        eventHandler?(.state(session.state))
+        // One tap. Do not rearm after drain. 552ef0c's drain-time
+        // reinstall left the live tap silent (no PCM, no sendRaw)
+        // while stayLive stayed true. Best part is no part.
+        logListenResume(
+            note: "after desk tts drain listenArmed=\(result.listenArmed) stayLive=\(result.stayLive) \(result.close1000) startAgain=\(result.startAgain) state=\(session.state.rawValue)"
+        )
+        logSpokenLoop(
+            SpokenLoopLog.deskTTSDrain(
+                sessionID: SpokenLoopLog.currentSessionID,
+                listenArmed: result.listenArmed,
+                stayLive: result.stayLive,
+                state: session.state.rawValue
+            )
+        )
+    }
+
+    private func waitUntilPlaybackDrained() async {
+        if !audio.hasPendingPlayback { return }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            var resumed = false
+            let finish = {
+                guard !resumed else { return }
+                resumed = true
+                self.audio.onPlaybackDrained = nil
+                cont.resume()
+            }
+            audio.onPlaybackDrained = finish
+            Task { @MainActor in
+                let deadline = ContinuousClock.now + .seconds(8)
+                while self.audio.hasPendingPlayback, ContinuousClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(40))
+                }
+                finish()
+            }
+        }
     }
 
     func sendTextTurn(_ text: String) async {
@@ -129,30 +289,138 @@ final class GrokVoiceService: VoiceServicing {
 
     func updatePresenceInstructions(_ text: String) {
         instructions = text
-        if client.isConnected {
+        guard client.isConnected else { return }
+        if LiveVADPlayerKeep.shouldSendPresenceSessionUpdate(
+            responseInFlight: isLiveResponseInFlight
+        ) {
+            pendingPresenceSessionUpdate = false
             sendSessionUpdate()
+        } else {
+            pendingPresenceSessionUpdate = true
         }
+    }
+
+    private var isLiveResponseInFlight: Bool {
+        currentResponseID != nil
+            || createdAwaitingAudioID != nil
+            || audioDeltaCount > 0
+            || audio.hasPendingPlayback
+    }
+
+    private func flushPresenceSessionUpdateIfIdle() {
+        guard pendingPresenceSessionUpdate, client.isConnected else { return }
+        guard LiveVADPlayerKeep.shouldSendPresenceSessionUpdate(
+            responseInFlight: isLiveResponseInFlight
+        ) else { return }
+        pendingPresenceSessionUpdate = false
+        sendSessionUpdate()
+    }
+
+    func beginToolWaitCreate() {
+        liveToolWait = true
+        liveToolResultOnSession = false
+        createdThisUserTurn = false
+        let callID = UUID().uuidString
+        liveToolCallID = callID
+        sendToolWaitSessionUpdate()
+        if client.isConnected, !userWantsVoiceOff {
+            client.sendJSON(
+                GrokRealtime.functionCallItemObject(
+                    name: LiveToolMouth.deskGlanceToolName,
+                    callID: callID
+                )
+            )
+        }
+        apply(.listenFinished)
+    }
+
+    func reportToolResult(_ output: String) {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if client.isConnected, !userWantsVoiceOff {
+            client.sendJSON(
+                GrokRealtime.functionCallOutputItemObject(
+                    callID: liveToolCallID ?? UUID().uuidString,
+                    output: trimmed
+                )
+            )
+        }
+        liveToolResultOnSession = true
+        if session.state == .thinking {
+            apply(.turnFinished)
+        }
+    }
+
+    func endToolWaitCreate() {
+        liveToolWait = false
+        sendResponseCreateIfNeeded()
+        liveToolCallID = nil
+    }
+
+    private func sendToolWaitSessionUpdate() {
+        guard client.isConnected, !userWantsVoiceOff else { return }
+        client.sendJSON(
+            GrokRealtime.toolWaitSessionUpdateObject(voice: voiceID, instructions: instructions)
+        )
+    }
+
+    private func sendResponseCreateIfNeeded() {
+        guard client.isConnected, !userWantsVoiceOff else { return }
+        guard LiveToolMouth.shouldSendResponseCreate(
+            toolWait: liveToolWait,
+            alreadyCreated: createdThisUserTurn,
+            hasToolResult: liveToolResultOnSession
+        ) else { return }
+        client.sendJSON(GrokRealtime.responseCreateObject())
+        createdThisUserTurn = true
     }
 
     func interruptResponse() {
-        interruptAssistant(sendCancel: true)
-    }
-
-    func suppressAssistantOutput(_ suppress: Bool) {
-        if suppress {
-            dropAssistantTranscript = true
-            dropAssistantAudio = true
-            interruptAssistant(sendCancel: true)
-            return
+        // Latch leftover only after an answer scheduled on the player.
+        // lastCreated at pending 0 is first-answer audio about to
+        // arrive — claimLocal must not stamp that as cancelled.
+        // Drop buffers only if something is still on the player.
+        // Do not send response.cancel.
+        guard !bargeConsumed else { return }
+        let hasPending = audio.hasPendingPlayback
+        guard GrokRealtime.shouldArmCommandBargeLatch(
+            alreadyBarged: false,
+            hasPendingPlayback: hasPending,
+            lastScheduledResponseID: lastScheduledResponseID,
+            playingResponseID: playingResponseID
+        ) else { return }
+        let knownCancelled = GrokRealtime.cancelledPlaybackResponseID(
+            interruptTargetID: interruptTargetID,
+            lastScheduledResponseID: lastScheduledResponseID,
+            playingResponseID: playingResponseID,
+            lastCreatedResponseID: lastCreatedResponseID
+        )
+        let decision = GrokRealtime.bargeInDecision(
+            hasPendingPlayback: hasPending,
+            alreadyBarged: false,
+            playingResponseID: playingResponseID,
+            interruptTargetID: interruptTargetID,
+            currentResponseID: currentResponseID,
+            createdCountAtLatch: createdCountAtBarge,
+            createdCountNow: responseCreatedCountForTests
+        )
+        bargeConsumed = true
+        if !spokenLoopLoggedFirstAudio {
+            logSpokenLoopFirstAudio(.absent)
         }
-        dropAssistantTranscript = false
-        dropAssistantAudio = false
+        lastBargeCancelSentID = decision.cancelResponseID
+        cancelledPlaybackResponseID = GrokRealtime.nonemptyID(lastScheduledResponseID)
+            ?? knownCancelled
+            ?? GrokRealtime.playbackEpochLatch(audio.playbackEpoch)
+        if decision.dropLocal {
+            interruptAssistant(sendCancel: false)
+        }
     }
 
     func cancel() {
         userWantsVoiceOff = true
         liveSessionArmed = false
-        echoGate.cancelSpeaking()
+        clientTTSInFlight = false
         teardown(sendCancel: true)
     }
 
@@ -230,7 +498,16 @@ final class GrokVoiceService: VoiceServicing {
     }
 
     private func sendSessionUpdate() {
-        client.sendJSON(GrokRealtime.sessionUpdateObject(voice: voiceID, instructions: instructions))
+        // Omitted create_response is VAD-create (fd4a772 / 83a5c6a noon).
+        // Presence must not re-arm a mouth while the next ask may need tools.
+        // listen-resume still sends true after verbatim when not waiting.
+        client.sendJSON(
+            GrokRealtime.sessionUpdateObject(
+                voice: voiceID,
+                instructions: instructions,
+                createResponse: GrokRealtime.createResponseWhileToolsRun
+            )
+        )
     }
 
     private func sendListenResumeSessionUpdate() {
@@ -242,45 +519,33 @@ final class GrokVoiceService: VoiceServicing {
     private func startAudioIfNeeded() {
         guard !userWantsVoiceOff, !audio.isRunning else { return }
         let socket = client
+        let frames = micFrames
         let logs = audio.start(echoCancellation: true) { base64 in
             socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
+            if let pcm = Data(base64Encoded: base64) {
+                frames.emit(pcm)
+            }
         }
         if audio.isRunning {
             liveSessionArmed = true
         }
+        SpokenLoopLog.beginSession()
+        spokenLoopLoggedFirstAudio = false
         logListenResume(
             note: "audio.start \(logs.joined(separator: "; ")) running=\(audio.isRunning)",
             errors: audio.isRunning ? [] : logs
         )
     }
 
-    /// Desk TTS can leave `engine.isRunning == true` with a silent tap.
-    /// Always reinstall the tap when the policy says resume.
-    private func resumeCaptureAfterDeskSpeak() {
-        guard !userWantsVoiceOff else { return }
-        let socket = client
-        let logs = audio.resumeCapture(echoCancellation: true) { base64 in
-            socket.sendRaw(GrokRealtime.appendAudioJSON(base64: base64))
-        }
-        logListenResume(
-            note: "audio.resume \(logs.joined(separator: "; ")) running=\(audio.isRunning)",
-            errors: audio.isRunning ? [] : logs
-        )
-    }
-
-    /// After on-device desk TTS (or a socket recover): keep hearing.
-    /// Do not send a session.update — desk speak never left listen mode.
-    /// Resume the mic tap if AVSpeech left it silent; reconnect if the
-    /// socket dropped and the user did not tap stop.
+    /// Socket recover only. Client TTS never leaves listen and must not
+    /// reinstall the mic tap.
     private func armListenIfSessionLive(reason: String) {
         guard !userWantsVoiceOff, !isTearingDown else { return }
-        echoGate.finishSpeaking()
         ListenResumePolicy.applySessionAfterDeskSpeak(&session)
         eventHandler?(.state(session.state))
         let decision = ListenResumePolicy.afterDeskSpeak(
             userWantsVoiceOff: userWantsVoiceOff,
-            socketConnected: client.isConnected,
-            captureRunning: audio.isRunning
+            socketConnected: client.isConnected
         )
         logListenResume(
             note: "after \(reason): \(decision) state=\(session.state.rawValue) capture=\(audio.isRunning)"
@@ -288,12 +553,12 @@ final class GrokVoiceService: VoiceServicing {
         switch decision {
         case .stayIdle:
             return
-        case .keepListening, .resumeCapture:
+        case .keepListening:
             reconnectsUsed = 0
-            resumeCaptureAfterDeskSpeak()
+            startAudioIfNeeded()
         case .reconnect:
             guard !isRecovering else {
-                resumeCaptureAfterDeskSpeak()
+                startAudioIfNeeded()
                 return
             }
             Task { await recoverAfterDrop(reason: "listen resume after \(reason)") }
@@ -304,7 +569,8 @@ final class GrokVoiceService: VoiceServicing {
         ListenResumePolicy.sessionShouldStayLive(
             userWantsVoiceOff: userWantsVoiceOff,
             liveSessionArmed: liveSessionArmed,
-            audioStarted: audio.isRunning || didConnectThisLaunch
+            audioStarted: audio.isRunning || didConnectThisLaunch,
+            clientTTSInFlight: clientTTSInFlight
         )
     }
 
@@ -317,24 +583,90 @@ final class GrokVoiceService: VoiceServicing {
         VoiceCloudDogfoodClient.shared.enqueue(entry)
     }
 
-    /// Gate first. Dropped echo never cancels Eve or reaches Grok as a turn.
-    private func applyBargeInIfNeeded(event: GrokRealtime.EventKind) {
-        guard EchoBargeIn.shouldCancelSpeak(
-            event: event,
-            gate: echoGate,
-            voiceState: session.state
-        ) else { return }
-        echoGate.cancelSpeaking()
-        interruptAssistant(sendCancel: true)
+    private func logSpokenLoop(_ entry: VoiceInteractionEntry) {
+        guard VoiceDogfoodGate.allowsLogging else { return }
+        #if DEBUG
+        DebugVoiceLogFile.append(entry)
+        #endif
+        VoiceCloudDogfoodClient.shared.enqueue(entry)
     }
 
-    private func interruptAssistant(sendCancel: Bool) {
-        if sendCancel, currentResponseID != nil || session.state == .speaking {
-            client.sendJSON(GrokRealtime.responseCancelObject())
+    private func logSpokenLoopFirstAudio(_ status: SpokenLoopLog.FirstAudio) {
+        guard !spokenLoopLoggedFirstAudio else { return }
+        spokenLoopLoggedFirstAudio = true
+        logSpokenLoop(
+            SpokenLoopLog.firstAudio(
+                sessionID: SpokenLoopLog.currentSessionID,
+                status: status
+            )
+        )
+    }
+
+    private func shouldPlayBargeAudio(deltaResponseID: String?) -> Bool {
+        let allow = LiveVADPlayerKeep.shouldPlayBargeAudio(
+            bargeConsumed: bargeConsumed,
+            deltaResponseID: deltaResponseID,
+            cancelledResponseID: cancelledPlaybackResponseID,
+            createdAwaitingAudioID: createdAwaitingAudioID,
+            lastCreatedResponseID: lastCreatedResponseID,
+            playingResponseID: playingResponseID,
+            lastScheduledResponseID: lastScheduledResponseID,
+            hasPendingPlayback: audio.hasPendingPlayback
+        )
+        if !allow, GrokRealtime.nonemptyID(deltaResponseID) != nil {
+            rejectedCancelledDeltaCount += 1
+            logSpokenLoopFirstAudio(.absent)
+        }
+        return allow
+    }
+
+    private func noteScheduledResponse(_ id: String?) {
+        guard let id = GrokRealtime.nonemptyID(id) else { return }
+        lastScheduledResponseID = id
+        if bargeConsumed {
+            if id != cancelledPlaybackResponseID {
+                interruptAnswerScheduled = true
+            }
+            return
+        }
+        if interruptTargetID == nil {
+            createdCountAtBarge = responseCreatedCountForTests
+        }
+        interruptTargetID = GrokRealtime.latchedInterruptTarget(
+            existing: interruptTargetID,
+            scheduledResponseID: id
+        )
+    }
+
+    /// Grok PCM often omits `response_id`. Copy `response.created` (or
+    /// the playback epoch) onto lastScheduled while the first answer
+    /// is on the player so barge can latch leftover. If the play path
+    /// raised pending without a tag (`nil != nil` skip), still write.
+    private func noteFirstAnswerPlaying() {
+        guard GrokRealtime.shouldWriteScheduledLatchOnPlay(
+            existingScheduledID: lastScheduledResponseID,
+            bargeConsumed: bargeConsumed
+        ) else { return }
+        let id = GrokRealtime.latchWhenFirstAnswerPlaying(
+            existingScheduledID: lastScheduledResponseID,
+            createdID: lastCreatedResponseID ?? createdAwaitingAudioID ?? currentResponseID,
+            playbackEpoch: audio.playbackEpoch
+        )
+        noteScheduledResponse(id)
+        logSpokenLoopFirstAudio(.present)
+    }
+
+    private func interruptAssistant(sendCancel: Bool, responseID: String? = nil) {
+        let target = responseID ?? playingResponseID
+        if sendCancel, let id = GrokRealtime.responseIDToCancel(playingResponseID: target) {
+            lastBargeCancelSentID = id
+            client.sendJSON(GrokRealtime.responseCancelObject(responseID: id))
         }
         ClientVoiceSpeech.shared.stop()
         audio.interruptPlayback()
+        playingResponseID = nil
         currentResponseID = nil
+        createdAwaitingAudioID = nil
         audioDeltaCount = 0
         if session.state == .speaking || session.state == .thinking {
             apply(.turnFinished)
@@ -353,8 +685,22 @@ final class GrokVoiceService: VoiceServicing {
         audio.interruptPlayback()
         audio.stop()
         client.disconnect()
+        client.dropOutbound()
+        playingResponseID = nil
         currentResponseID = nil
+        interruptTargetID = nil
+        lastScheduledResponseID = nil
+        createdAwaitingAudioID = nil
+        speechStartedBarge = false
+        bargeConsumed = false
+        interruptAnswerScheduled = false
+        createdCountAtBarge = 0
+        cancelledPlaybackResponseID = nil
+        rejectedCancelledDeltaCount = 0
         audioDeltaCount = 0
+        pendingPresenceSessionUpdate = false
+        awaitingVerbatimSpeakID = false
+        verbatimSpeakResponseID = nil
         apply(.cancel)
         isTearingDown = false
     }
@@ -382,8 +728,8 @@ final class GrokVoiceService: VoiceServicing {
         _ = reason
         guard !userWantsVoiceOff, !isTearingDown, !isRecovering else { return }
         isRecovering = true
+        recoverAfterDropCount += 1
         client.disconnect()
-        audio.interruptPlayback()
         do {
             try await connectAndConfigure()
             guard !userWantsVoiceOff else {
@@ -394,14 +740,16 @@ final class GrokVoiceService: VoiceServicing {
             }
             reconnectsUsed = 0
             eventHandler?(.recovered)
-            sendListenResumeSessionUpdate()
             armListenIfSessionLive(reason: "socket recover")
             isRecovering = false
         } catch {
             isRecovering = false
             guard !userWantsVoiceOff else { return }
             eventHandler?(.failed(error.localizedDescription))
-            teardown(sendCancel: false)
+            guard sessionShouldStayLive || liveSessionArmed || audio.isRunning else {
+                teardown(sendCancel: false)
+                return
+            }
         }
     }
 }
@@ -409,7 +757,11 @@ final class GrokVoiceService: VoiceServicing {
 extension GrokVoiceService: LiveGrokVoiceClientDelegate {
     func grokWebSocketDidOpen() {
         didConnectThisLaunch = true
-        sendSessionUpdate()
+        // fd4a772 sent listen-resume create_response true here. Server
+        // VAD created I-don't-have on speech_stopped before speech_started
+        // tool-wait could apply. First listen waits; one create after
+        // transcript or tools. listen-resume true stays for verbatim leave.
+        sendToolWaitSessionUpdate()
         startAudioIfNeeded()
     }
 
@@ -420,10 +772,19 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             userWantsVoiceOff: userWantsVoiceOff,
             sessionShouldStayLive: stayLive,
             closeCode: code,
-            voiceState: session.state
+            voiceState: session.state,
+            liveSessionArmed: liveSessionArmed
         )
         logListenResume(
             note: "session close code=\(code) reason=\(reason ?? "") state=\(session.state.rawValue) stayLive=\(stayLive) \(decision)"
+        )
+        logSpokenLoop(
+            SpokenLoopLog.sessionClose(
+                sessionID: SpokenLoopLog.currentSessionID,
+                code: code,
+                stayLive: stayLive,
+                stayIdle: decision == .stayIdle
+            )
         )
         guard !isTearingDown, !isRecovering else { return }
         let detail = "Grok disconnected"
@@ -439,14 +800,11 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         }
         guard stayLive else { return }
         eventHandler?(.failed(detail))
-        teardown(sendCancel: false)
     }
 
     func grokWebSocketDidFail(error: String, httpStatus: Int?) {
         let detail = httpStatus.map { "\($0) \(error)" } ?? error
-        if !isRecovering {
-            failReady(GrokVoiceError.connectFailed(detail))
-        }
+        failReady(GrokVoiceError.connectFailed(detail))
         guard !isTearingDown, !isRecovering else { return }
         guard !userWantsVoiceOff else { return }
         if VoiceSocketRecovery.shouldReconnect(
@@ -459,69 +817,197 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
             return
         }
         eventHandler?(.failed(detail))
-        teardown(sendCancel: false)
+        guard sessionShouldStayLive || liveSessionArmed || audio.isRunning else {
+            teardown(sendCancel: false)
+            return
+        }
     }
 
     func grokWebSocketDidReceiveBinary(_ data: Data) {
-        guard !dropAssistantAudio else { return }
+        // Wire binary has no response_id. Do not fill lastCreated —
+        // after barge that is still the first answer, and the gate
+        // would reject R2. Only JSON leftover inject carries the
+        // cancelled id.
+        guard shouldPlayBargeAudio(deltaResponseID: nil) else { return }
+        if playingResponseID == nil {
+            let tagged = GrokRealtime.scheduledResponseID(
+                deltaResponseID: nil,
+                createdAwaitingAudioID: createdAwaitingAudioID,
+                lastCreatedResponseID: lastCreatedResponseID
+            )
+            if GrokRealtime.shouldOverwriteScheduledLatch(
+                existingScheduledID: lastScheduledResponseID,
+                taggedID: tagged,
+                deltaResponseID: nil,
+                cancelledResponseID: cancelledPlaybackResponseID
+            ) {
+                playingResponseID = tagged
+                noteScheduledResponse(tagged)
+            }
+        }
         audio.playPCM16(data)
+        noteFirstAnswerPlaying()
     }
 
     func grokWebSocketDidReceive(json: [String: Any], type: String) {
         switch GrokRealtime.parse(type: type, json: json) {
         case .sessionCreated:
-            sendSessionUpdate()
             startAudioIfNeeded()
             finishReady()
         case .sessionUpdated:
             startAudioIfNeeded()
             finishReady()
+            client.markSessionReadyAndFlush()
         case .speechStarted:
-            applyBargeInIfNeeded(event: .speechStarted)
-        case .speechStopped:
-            if session.state == .listening {
-                apply(.listenFinished)
+            // Latch only. Energy must not cancel — radio / other-room
+            // stays ignored. Use lastScheduled, not playing — playing
+            // may already be the next created.
+            if !bargeConsumed {
+                if interruptTargetID == nil {
+                    createdCountAtBarge = responseCreatedCountForTests
+                }
+                interruptTargetID = GrokRealtime.latchedInterruptTarget(
+                    existing: interruptTargetID,
+                    scheduledResponseID: lastScheduledResponseID
+                )
             }
+            speechStartedBarge = true
+            liveToolWait = false
+            liveToolResultOnSession = false
+            createdThisUserTurn = false
+            if !bargeConsumed, verbatimSpeakResponseID == nil, !awaitingVerbatimSpeakID {
+                sendToolWaitSessionUpdate()
+            }
+        case .speechStopped:
+            break
         case .audioCommitted:
             break
         case .userTranscript(let text, let itemID):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if GrokRealtime.isVerbatimSpeakPrompt(trimmed) { break }
             guard !trimmed.isEmpty else { break }
-            // Drop echo BEFORE barge-in / AppModel / Grok. A leftover
-            // "voice" / "point" / "build" must not stop the version line.
-            guard EchoBargeIn.acceptedUserTranscript(
-                trimmed,
-                gate: echoGate
-            ) != nil else {
-                logListenResume(note: "\(ListenResumeLog.droppedTranscriptNote) leftover-echo")
-                break
-            }
-            applyBargeInIfNeeded(event: .userTranscript(text: trimmed, itemID: itemID))
+            clientTTSInFlight = false
+            spokenLoopLoggedFirstAudio = false
             eventHandler?(.userTranscript(trimmed, isFinal: true, itemID: itemID))
+            sendResponseCreateIfNeeded()
         case .responseCreated(let id):
-            currentResponseID = id
+            responseCreatedCountForTests += 1
+            currentResponseID = GrokRealtime.nonemptyID(id)
+            lastCreatedResponseID = GrokRealtime.nonemptyID(id)
+            if awaitingVerbatimSpeakID {
+                verbatimSpeakResponseID = LiveEveSpeak.bindVerbatimResponseID(
+                    existing: verbatimSpeakResponseID,
+                    createdID: id
+                )
+                awaitingVerbatimSpeakID = false
+                logSpokenLoop(
+                    SpokenLoopLog.liveSpeakSent(
+                        sessionID: SpokenLoopLog.currentSessionID,
+                        responseID: verbatimSpeakResponseID
+                    )
+                )
+            }
             assistantGate.reset()
-            apply(.speakStarted)
+            if audio.hasPendingPlayback {
+                // First-answer PCM already scheduled without response_id.
+                noteFirstAnswerPlaying()
+            } else if playingResponseID == nil {
+                createdAwaitingAudioID = lastCreatedResponseID
+            }
+            // Leftover Grok-created used to park VoiceSession speaking
+            // and disarm listen — 415c955 first-hear-then-deaf on the
+            // next close 1000. Audio plays on the one-engine player.
         case .assistantTranscriptDelta(let delta, let source):
-            guard !dropAssistantTranscript, !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
+            guard !delta.isEmpty, assistantGate.shouldAccept(source) else { break }
             eventHandler?(.assistantTranscript(delta, isFinal: false))
         case .assistantTranscriptDone:
             break
         case .outputAudioDelta(let delta):
-            guard !dropAssistantAudio else { break }
-            if json["response_id"] as? String == currentResponseID || currentResponseID == nil {
-                audio.playAudioDelta(base64: delta)
-                audioDeltaCount += 1
+            // Live Grok PCM on the one-engine player. After barge,
+            // reject leftover that carries the cancelled first-answer
+            // id. Deltas without response_id are R2 — do not eat them.
+            let deltaID = GrokRealtime.responseID(in: json)
+            guard shouldPlayBargeAudio(deltaResponseID: deltaID) else { break }
+            if playingResponseID == nil {
+                let tagged = GrokRealtime.scheduledResponseID(
+                    deltaResponseID: deltaID,
+                    createdAwaitingAudioID: createdAwaitingAudioID,
+                    lastCreatedResponseID: lastCreatedResponseID
+                )
+                if GrokRealtime.shouldOverwriteScheduledLatch(
+                    existingScheduledID: lastScheduledResponseID,
+                    taggedID: tagged,
+                    deltaResponseID: deltaID,
+                    cancelledResponseID: cancelledPlaybackResponseID
+                ) {
+                    playingResponseID = tagged
+                    noteScheduledResponse(tagged)
+                }
             }
+            audio.playAudioDelta(base64: delta)
+            audioDeltaCount += 1
+            noteFirstAnswerPlaying()
         case .outputAudioDone:
             break
-        case .responseDone:
-            apply(.turnFinished)
+        case .responseDone(let doneID):
+            responseDoneCountForTests += 1
+            if LiveEveSpeak.shouldRestorePresence(
+                doneResponseID: doneID,
+                verbatimResponseID: verbatimSpeakResponseID
+            ) {
+                logSpokenLoop(
+                    SpokenLoopLog.liveSpeakDone(
+                        sessionID: SpokenLoopLog.currentSessionID,
+                        responseID: verbatimSpeakResponseID
+                    )
+                )
+                verbatimSpeakResponseID = nil
+                sendListenResumeSessionUpdate()
+            }
+            if ListenResumePolicy.shouldApplyGrokTurnFinished(
+                clientTTSSpeaking: audio.hasPendingPlayback || clientTTSInFlight
+            ) {
+                apply(.turnFinished)
+            } else {
+                ListenResumePolicy.applySessionAfterDeskSpeak(&session)
+                eventHandler?(.state(session.state))
+            }
+            playingResponseID = nil
             currentResponseID = nil
+            createdAwaitingAudioID = nil
             audioDeltaCount = 0
+            if !audio.hasPendingPlayback {
+                if bargeConsumed {
+                    if GrokRealtime.shouldResetBargeAfterResponseDone(
+                        bargeConsumed: true,
+                        interruptAnswerScheduled: interruptAnswerScheduled,
+                        lastScheduledResponseID: lastScheduledResponseID,
+                        cancelledResponseID: cancelledPlaybackResponseID,
+                        doneResponseID: doneID
+                    ) {
+                        // A different id scheduled as the interrupt
+                        // answer. Do not nil cancelledPlaybackResponseID
+                        // or lastScheduled — leftover inject and 1529
+                        // still need the first-answer latch. First-answer
+                        // done with pending 0 must not take this branch.
+                        bargeConsumed = false
+                        interruptAnswerScheduled = false
+                        interruptTargetID = nil
+                        createdCountAtBarge = 0
+                        speechStartedBarge = false
+                    }
+                } else {
+                    interruptTargetID = nil
+                    lastScheduledResponseID = GrokRealtime.keepScheduledLatchAfterResponseDone(
+                        existingScheduledID: lastScheduledResponseID
+                    )
+                    createdCountAtBarge = 0
+                    speechStartedBarge = false
+                }
+            }
             assistantGate.reset()
             eventHandler?(.assistantTranscript("", isFinal: true))
+            flushPresenceSessionUpdateIfIdle()
         case .ping(let timestamp):
             client.sendJSON(GrokRealtime.pongObject(timestamp: timestamp))
         case .error(let code, let message):
@@ -541,5 +1027,271 @@ extension GrokVoiceService: LiveGrokVoiceClientDelegate {
         case .ignored:
             break
         }
+    }
+}
+
+extension GrokVoiceService {
+    /// Same engine `speak()` owns. Delayed-yank tests must use this instance.
+    var listenLoopEngine: GrokVoiceAudioEngine { audio }
+
+    var listenLoopStayLive: Bool { sessionShouldStayLive }
+
+    var listenLoopArmed: Bool { ListenResumePolicy.isListenArmed(state: session.state) }
+
+    var listenLoopLiveSessionArmed: Bool { liveSessionArmed }
+
+    var listenLoopClose1000: ListenResumeDecision {
+        ListenResumePolicy.afterSocketClose(
+            userWantsVoiceOff: userWantsVoiceOff,
+            sessionShouldStayLive: sessionShouldStayLive,
+            closeCode: 1000,
+            voiceState: session.state,
+            liveSessionArmed: liveSessionArmed
+        )
+    }
+
+    /// 415c955 / 18d5878 phone stayLive: listen-armed only.
+    var listenLoopPhoneStayLive: Bool {
+        ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+            userWantsVoiceOff: userWantsVoiceOff,
+            listenArmed: ListenResumePolicy.isListenArmed(state: session.state)
+        )
+    }
+
+    /// Phone log after version TTS: `state=idle`. User did not tap stop.
+    func simulateListenLoopIdleAfterDeskTTSPhoneLog() {
+        apply(.speakStarted)
+        apply(.speakFinished)
+    }
+
+    /// Same `startAudioIfNeeded` `speak()` uses. Not a second engine.
+    func startListenLoopAudioForTests() {
+        liveSessionArmed = true
+        apply(.tapTalk)
+        startAudioIfNeeded()
+    }
+
+    /// Real first-listen handshake. Not recover. Not DidClose 1000.
+    func connectListenLoopProductionForTests() async throws {
+        try await connectIfNeeded()
+    }
+
+    /// Same close the phone logged after version/desk TTS.
+    /// `listenLoopClose1000` only computes policy. This fires DidClose.
+    func simulateListenLoopSocketClose1000() async {
+        grokWebSocketDidClose(code: 1000, reason: nil)
+        await Task.yield()
+        var spins = 0
+        while isRecovering, spins < 400 {
+            try? await Task.sleep(for: .milliseconds(50))
+            spins += 1
+        }
+    }
+
+    var listenLoopRecoverCount: Int { recoverAfterDropCount }
+
+    /// Live send path. A zombie URLSession task that never opened is false.
+    var listenLoopSocketHasSendTask: Bool { client.hasSendTask }
+
+    /// Phone sendRaw: `opened && task`, not the testSendSink paper.
+    var listenLoopHasProductionSendTask: Bool { client.hasProductionSendTask }
+
+    var listenLoopProductionWebSocketTask: URLSessionWebSocketTask? {
+        client.productionWebSocketTaskForTests
+    }
+
+    var listenLoopUsesTestSendSink: Bool { client.usesTestSendSinkForTests }
+
+    func setListenLoopRealtimeURLOverrideForTests(_ url: URL?) {
+        client.setRealtimeURLOverrideForTests(url)
+    }
+
+    var listenLoopDeliveredSendCount: Int { client.deliveredSendCount }
+
+    var listenLoopDeliveredAudioPCM: [Data] { client.deliveredAppendPCM }
+
+    var listenLoopDeliveredSendTypes: [String] { client.deliveredSendTypes }
+
+    var listenLoopDeliveredSends: [String] { client.deliveredSends }
+
+    var listenLoopSocketOpened: Bool { client.isConnected }
+
+    var listenLoopVerbatimSpeakResponseID: String? { verbatimSpeakResponseID }
+
+    var listenLoopAwaitingVerbatimSpeakID: Bool { awaitingVerbatimSpeakID }
+
+    /// Opened stays true so Eve is still chosen. Send cannot go out.
+    func dropListenLoopSendTaskKeepingOpenedForTests() {
+        client.dropSendTaskKeepingOpenedForTests()
+    }
+
+    var listenLoopClientTTSSpeakCount: Int { clientTTSSpeakCountForTests }
+
+    var listenLoopClientTTSRecordedTexts: [String] {
+        ClientVoiceSpeech.shared.recordedSpeakTexts
+    }
+
+    func attachListenLoopClientTTSRecorderForTests() {
+        ClientVoiceSpeech.shared.attachTestSpeakRecorder()
+    }
+
+    func injectListenLoopJSON(_ json: [String: Any], type: String) {
+        grokWebSocketDidReceive(json: json, type: type)
+    }
+
+    /// Tiny hook. Not a mock Grok client. Flushes the dead-socket queue.
+    func attachListenLoopSendTaskForTests() {
+        client.attachTestSendTask()
+    }
+
+    /// Real DidOpen + session.updated. Not attach-send-task flush.
+    /// 19c1b33 flushed appends on notifyOpen before session.update.
+    func simulateListenLoopSocketDidOpenThenSessionReady() {
+        client.attachTestSendRecorder()
+        client.notifyOpen()
+        grokWebSocketDidOpen()
+        grokWebSocketDidReceive(json: ["type": "session.updated"], type: "session.updated")
+    }
+
+    /// Quiet-close after a flushed command. Not a second listen loop.
+    func waitUntilListenLoopQueuedTurnClosed() async {
+        for _ in 0..<160 {
+            if listenLoopDeliveredSendTypes.contains("input_audio_buffer.commit") {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// Live Grok (or a protocol-complete peer) created a response.
+    var listenLoopResponseCreatedCount: Int { responseCreatedCountForTests }
+
+    /// First barge-in already dropped local. claimLocal must not own
+    /// that turn — Grok's interrupt answer schedules on the player.
+    var listenLoopBargeConsumed: Bool { bargeConsumed }
+
+    var listenLoopLastCreatedResponseID: String? { lastCreatedResponseID }
+
+    var listenLoopLastScheduledResponseID: String? { lastScheduledResponseID }
+
+    var listenLoopLastCancelResponseID: String? { lastBargeCancelSentID }
+
+    var listenLoopCancelledResponseID: String? { cancelledPlaybackResponseID }
+
+    var listenLoopRejectedCancelledDeltaCount: Int { rejectedCancelledDeltaCount }
+
+    var listenLoopAudioDeltaCount: Int { audioDeltaCount }
+
+    /// Same `output_audio.delta` path live Grok uses. Leftover first-answer
+    /// PCM after barge must go through `shouldScheduleAfterBarge`.
+    func playListenLoopOutputAudioDeltaForTests(responseID: String, pcm: Data) {
+        grokWebSocketDidReceive(
+            json: [
+                "type": "response.output_audio.delta",
+                "response_id": responseID,
+                "delta": pcm.base64EncodedString()
+            ],
+            type: "response.output_audio.delta"
+        )
+    }
+
+    var listenLoopBargeProof: String {
+        GrokRealtime.bargeProofLine(
+            createdID: lastCreatedResponseID,
+            scheduledID: lastScheduledResponseID,
+            cancelID: lastBargeCancelSentID,
+            audioDeltaCount: audioDeltaCount
+        )
+    }
+
+    func waitUntilListenLoopHasProductionSendTask(timeoutSeconds: Double = 12) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while ContinuousClock.now < deadline {
+            if listenLoopHasProductionSendTask { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return listenLoopHasProductionSendTask
+    }
+
+    func waitUntilListenLoopResponseCreated(after: Int, timeoutSeconds: Double = 45) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while ContinuousClock.now < deadline {
+            if listenLoopResponseCreatedCount > after { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return listenLoopResponseCreatedCount > after
+    }
+
+    var listenLoopResponseDoneCount: Int { responseDoneCountForTests }
+
+    func waitUntilListenLoopResponseDone(after: Int, timeoutSeconds: Double = 45) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while ContinuousClock.now < deadline {
+            if listenLoopResponseDoneCount > after { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return listenLoopResponseDoneCount > after
+    }
+
+    /// Live Grok (or write→player) scheduled buffers on the one engine.
+    /// `isPlayerPlaying` is true from `audio.start` — pending must rise.
+    func waitUntilListenLoopPendingPlayback(
+        notScheduled cancelledID: String? = nil,
+        timeoutSeconds: Double = 45
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while ContinuousClock.now < deadline {
+            if audio.hasPendingPlayback {
+                if let cancelled = GrokRealtime.nonemptyID(cancelledID),
+                   lastScheduledResponseID == cancelled {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    continue
+                }
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        if audio.hasPendingPlayback,
+           let cancelled = GrokRealtime.nonemptyID(cancelledID),
+           lastScheduledResponseID == cancelled {
+            return false
+        }
+        return audio.hasPendingPlayback
+    }
+
+    /// Same one-engine player `speak()` drains. Not `synthesizer.speak()`.
+    func waitUntilListenLoopPlaybackDrained(timeoutSeconds: Double = 45) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
+        while audio.hasPendingPlayback, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return !audio.hasPendingPlayback
+    }
+
+    /// After a zero-notification yank the first feed is deaf.
+    /// Put the HAL tap back here — no 400ms Task, no config change.
+    /// `claimLocal` / leftover barge must not own this repair.
+    func waitUntilListenLoopDelayedSilentTapRepair() async {
+        audio.reinstallTapIfYankedWhileRunning()
+    }
+}
+
+/// Same-thread tap observer. The HAL callback is Sendable; do not touch
+/// MainActor `self` from that closure. Not a second listen loop.
+private final class ListenLoopMicFrames: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handler: (@Sendable (Data) -> Void)?
+
+    func set(_ handler: (@Sendable (Data) -> Void)?) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    func emit(_ pcm: Data) {
+        lock.lock()
+        let handler = self.handler
+        lock.unlock()
+        handler?(pcm)
     }
 }

@@ -26,7 +26,11 @@ final class DeskReplySpeechTests: XCTestCase {
             VoiceRegressionDesk.murray,
             VoiceRegressionDesk.steve
         ])
-        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+        XCTAssertFalse(digest.isEmpty, "fd4a772 empty reply + cards: \(digest)")
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(digest), digest)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(digest), digest)
+        XCTAssertNotEqual(digest, "Here they are.")
+        XCTAssertNotNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
         let madison = ConversationPresence.emailBodyReply(
             EmailItem(
                 fromName: "John Madison",
@@ -39,6 +43,8 @@ final class DeskReplySpeechTests: XCTestCase {
             )
         )
         XCTAssertEqual(DeskReplySpeech.textToSpeak(madison, lastSpoken: digest), madison)
-        XCTAssertEqual(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil), digest)
+        XCTAssertNotNil(DeskReplySpeech.textToSpeak(digest, lastSpoken: nil))
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(digest))
+        XCTAssertFalse(ConversationPresence.isGrokDeskMeta(madison))
     }
 }

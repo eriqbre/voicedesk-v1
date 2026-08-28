@@ -2,48 +2,151 @@ import XCTest
 @testable import VoiceDeskLogic
 
 final class ListenResumePolicyTests: XCTestCase {
-    func testListenIsNotArmedUntilClientTTSReportsDone() {
-        XCTAssertFalse(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: false))
-        XCTAssertTrue(ListenResumePolicy.shouldArmListenAfterClientTTS(ttsFinished: true))
-        XCTAssertNil(
-            ListenResumePolicy.afterClientTTS(
-                ttsFinished: false,
+    func testLeftoverGrokSpeakAndDoneDuringClientTTSDoNotParkSpeaking() {
+        XCTAssertFalse(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true))
+        XCTAssertTrue(ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: false))
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
                 userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: false
+                liveSessionArmed: true,
+                audioStarted: true,
+                clientTTSInFlight: true
+            )
+        )
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: false,
+                audioStarted: false,
+                clientTTSInFlight: true
             ),
-            "do not rearm listen while AVSpeech is still talking"
+            "desk TTS in flight is stayLive even if listen looks unarmed"
+        )
+        XCTAssertTrue(
+            ListenResumePolicy.sessionShouldStayLive(
+                userWantsVoiceOff: false,
+                liveSessionArmed: true,
+                audioStarted: true,
+                clientTTSInFlight: false
+            ),
+            "after drain, stayLive is armed+running, not a stuck TTS flag"
+        )
+        XCTAssertFalse(
+            ListenResumePolicy.sha415c955StayLiveAfterClose1000(
+                userWantsVoiceOff: false,
+                listenArmed: false
+            )
         )
         XCTAssertEqual(
-            ListenResumePolicy.afterClientTTS(
-                ttsFinished: true,
+            ListenResumePolicy.afterSocketClose(
                 userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: false
+                sessionShouldStayLive: true,
+                closeCode: 1000,
+                voiceState: .speaking
             ),
-            .resumeCapture
+            .reconnect
         )
         XCTAssertEqual(
-            ListenResumePolicy.afterClientTTS(
-                ttsFinished: false,
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: false,
+                closeCode: 1000,
+                voiceState: .speaking
+            ),
+            .stayIdle,
+            "415c955: stayLive=false and not armed is stayIdle"
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterSocketClose(
+                userWantsVoiceOff: false,
+                sessionShouldStayLive: false,
+                closeCode: 1000,
+                voiceState: .idle,
+                liveSessionArmed: true
+            ),
+            .reconnect,
+            "live conversation must reconnect on 1000 even if VoiceSession is idle"
+        )
+    }
+
+    func testLeftoverGrokDuringClientTTSDoesNotParkSpeaking() {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        XCTAssertFalse(
+            ListenResumePolicy.shouldApplyGrokTurnFinished(clientTTSSpeaking: true),
+            "leftover done during desk TTS must not leave listen"
+        )
+        XCTAssertEqual(session.state, .listening, "leftover created/done must not park speaking")
+        XCTAssertTrue(ListenResumePolicy.isListenArmed(state: session.state))
+    }
+
+    func testAfterClientTTSFinishedStaysLiveWithoutSecondStart() {
+        var session = VoiceSession()
+        session.apply(.tapTalk)
+        session.apply(.speakStarted)
+        let after = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: false,
+            liveSessionArmed: true,
+            captureRunning: true
+        )
+        XCTAssertTrue(after.listenArmed)
+        XCTAssertTrue(after.stayLive)
+        XCTAssertNotEqual(after.close1000, .stayIdle)
+        XCTAssertFalse(after.startAgain)
+        XCTAssertEqual(session.state, .listening)
+
+        var stopped = VoiceSession(state: .listening)
+        let idle = ListenResumePolicy.afterClientTTSFinished(
+            session: &stopped,
+            userWantsVoiceOff: true,
+            liveSessionArmed: true,
+            captureRunning: true
+        )
+        XCTAssertFalse(idle.stayLive)
+        XCTAssertEqual(idle.close1000, .stayIdle)
+        XCTAssertFalse(idle.listenArmed)
+    }
+
+    func testListenStaysLiveThroughClientTTS() {
+        XCTAssertEqual(
+            ListenResumePolicy.afterDeskSpeak(
+                userWantsVoiceOff: false,
+                socketConnected: true
+            ),
+            .keepListening
+        )
+        XCTAssertEqual(
+            ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: true,
-                socketConnected: true,
-                captureRunning: false
+                socketConnected: true
             ),
             .stayIdle
         )
     }
 
     func testDeskSpeakUsesClientTTSNotGrokVerbatim() {
-        XCTAssertTrue(ListenResumePolicy.deskSpeakUsesClientTTS())
-        XCTAssertFalse(ListenResumePolicy.deskSpeakUsesGrokVerbatim())
-        XCTAssertFalse(
+        let up = LiveEveSpeak.plan(text: "1.2.3", socketConnected: true)
+        XCTAssertEqual(up.mouth, .eve)
+        XCTAssertFalse(up.wroteClientTTS)
+        let down = LiveEveSpeak.plan(text: "1.2.3", socketConnected: false)
+        XCTAssertEqual(down.mouth, .clientTTS)
+        XCTAssertTrue(down.wroteClientTTS)
+        XCTAssertTrue(
             GrokRealtime.shouldSpeakViaRealtime(
                 usesLiveLoop: true,
                 isConnected: true,
                 userWantsVoiceOff: false
             ),
-            "desk lines must not inject a fake Grok turn"
+            "live Talk is Eve; leftover walks still model offline client TTS"
+        )
+        XCTAssertFalse(
+            GrokRealtime.shouldSpeakViaRealtime(
+                usesLiveLoop: true,
+                isConnected: false,
+                userWantsVoiceOff: false
+            ),
+            "down socket keeps ClientVoiceSpeech"
         )
     }
 
@@ -88,23 +191,13 @@ final class ListenResumePolicyTests: XCTestCase {
         )
     }
 
-    func testAfterDeskSpeakResumesCaptureWhenSocketOpen() {
+    func testAfterDeskSpeakKeepsListeningWhenSocketOpen() {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: false
+                socketConnected: true
             ),
-            .resumeCapture
-        )
-        XCTAssertEqual(
-            ListenResumePolicy.afterDeskSpeak(
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true
-            ),
-            .resumeCapture,
-            "after desk TTS, isRunning is not proof the tap still hears"
+            .keepListening
         )
     }
 
@@ -112,16 +205,7 @@ final class ListenResumePolicyTests: XCTestCase {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: false,
-                socketConnected: false,
-                captureRunning: false
-            ),
-            .reconnect
-        )
-        XCTAssertEqual(
-            ListenResumePolicy.afterDeskSpeak(
-                userWantsVoiceOff: false,
-                socketConnected: false,
-                captureRunning: true
+                socketConnected: false
             ),
             .reconnect
         )
@@ -131,8 +215,7 @@ final class ListenResumePolicyTests: XCTestCase {
         XCTAssertEqual(
             ListenResumePolicy.afterDeskSpeak(
                 userWantsVoiceOff: true,
-                socketConnected: true,
-                captureRunning: false
+                socketConnected: true
             ),
             .stayIdle
         )
@@ -160,10 +243,6 @@ final class ListenResumePolicyTests: XCTestCase {
     }
 
     func testNormalClose1000WhileIdleStillReconnectsWhenLiveSessionArmed() {
-        XCTAssertTrue(ListenResumePolicy.isNormalClose(1000))
-        XCTAssertTrue(ListenResumePolicy.isNormalClose(1001))
-        XCTAssertFalse(ListenResumePolicy.isNormalClose(1006))
-
         XCTAssertTrue(
             ListenResumePolicy.sessionShouldStayLive(
                 userWantsVoiceOff: false,
@@ -228,50 +307,6 @@ final class ListenResumePolicyTests: XCTestCase {
                 "after desk speak from \(start) must be listening, got \(session.state)"
             )
         }
-    }
-
-    func testCaptureArmedRequiresLiveSocketRunningMicAndListening() {
-        XCTAssertTrue(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true,
-                voiceState: .listening
-            )
-        )
-        XCTAssertFalse(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: true,
-                voiceState: .speaking
-            ),
-            "still speaking is not armed listen"
-        )
-        XCTAssertFalse(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: false,
-                socketConnected: true,
-                captureRunning: false,
-                voiceState: .listening
-            )
-        )
-        XCTAssertFalse(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: false,
-                socketConnected: false,
-                captureRunning: true,
-                voiceState: .listening
-            )
-        )
-        XCTAssertFalse(
-            ListenResumePolicy.isCaptureArmed(
-                userWantsVoiceOff: true,
-                socketConnected: true,
-                captureRunning: true,
-                voiceState: .listening
-            )
-        )
     }
 
     func testEngineLogLineIsCompactAndNotAUserTurn() {

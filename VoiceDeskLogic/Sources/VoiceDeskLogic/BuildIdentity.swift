@@ -22,6 +22,13 @@ public struct BuildIdentity: Equatable, Sendable {
         shortSHA: "1fa0a0e",
         branch: "cursor/cards-only-email-first-tap-9c2c"
     )
+    /// Device walk identity. Spoken line is still “VoiceDesk point 1, build 6.”
+    public static let a2727b1Walk = BuildIdentity(
+        marketing: "0.1.0",
+        build: "6",
+        shortSHA: "a2727b1",
+        branch: "cursor/desk-tts-barge-in-c024"
+    )
 
     public init(marketing: String = "", build: String = "", shortSHA: String = "", branch: String = "") {
         self.marketing = Self.normalizedMarketing(marketing)

@@ -202,11 +202,86 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     private var sessionDelegate: WebSocketBridge?
     private var timeoutTask: Task<Void, Never>?
     private var opened = false
+    /// Mic appends during a dead or unconfigured socket. Flushed after
+    /// session.update is acknowledged (`session.updated`), not on raw DidOpen.
+    /// Not a second listen loop.
+    private var outboundQueue: [String] = []
+    private var testSendSink = false
+    private var sessionReady = false
+    private var deliveredForTests: [String] = []
+    /// Close a flushed command on a short quiet after flush. The
+    /// queued utterance is already in the buffer. Do not postpone
+    /// on live appends — a later command is a new server-VAD turn.
+    private var pendingQuietCommit = false
+    private var quietCommitGeneration = 0
+    private static let maxOutbound = 64
+    private static let quietCommitMs = 80
+    /// Tests only. Recover still creates a real `URLSessionWebSocketTask`.
+    private var realtimeURLOverrideForTests: URL?
 
     var isConnected: Bool {
         lock.lock()
         defer { lock.unlock() }
         return opened
+    }
+
+    /// Live send path: socket opened, or a test attach-send-task.
+    /// A leftover URLSession task that never opened is not live.
+    var hasSendTask: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return opened || testSendSink
+    }
+
+    /// Phone sendRaw: `opened && task`, and not the testSendSink paper.
+    var hasProductionSendTask: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return opened && task != nil && !testSendSink
+    }
+
+    var productionWebSocketTaskForTests: URLSessionWebSocketTask? {
+        lock.lock()
+        defer { lock.unlock() }
+        return task
+    }
+
+    var usesTestSendSinkForTests: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return testSendSink
+    }
+
+    func setRealtimeURLOverrideForTests(_ url: URL?) {
+        lock.lock()
+        realtimeURLOverrideForTests = url
+        lock.unlock()
+    }
+
+    var deliveredSendCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return deliveredForTests.count
+    }
+
+    var deliveredAppendPCM: [Data] {
+        lock.lock()
+        let payloads = deliveredForTests
+        lock.unlock()
+        return payloads.compactMap { Self.pcmFromAppendJSON($0) }
+    }
+
+    var deliveredSendTypes: [String] {
+        lock.lock()
+        let payloads = deliveredForTests
+        lock.unlock()
+        return payloads.compactMap { Self.typeOfSend($0) }
+    }
+
+    var deliveredSends: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return deliveredForTests
     }
 
     /// Dogfood: API key in `Authorization` plus `xai-client-secret.<key>` protocol.
@@ -215,7 +290,10 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     func connect(apiKey: String, model: String = VoiceDeskSecrets.model) {
         disconnect()
 
-        let url = GrokVoiceAPI.realtimeURL(model: model)
+        lock.lock()
+        let override = realtimeURLOverrideForTests
+        let url = override ?? GrokVoiceAPI.realtimeURL(model: model)
+        lock.unlock()
         let bridge = WebSocketBridge(client: self)
 
         lock.lock()
@@ -224,10 +302,17 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         session = urlSession
         // URLSession drops `Authorization` on the WS upgrade; VoiceTesterApp uses this protocol.
         // Same credential as Bearer. Ephemeral tokens are next hardening, not a dogfood blocker.
-        let wsTask = urlSession.webSocketTask(
-            with: url,
-            protocols: ["xai-client-secret.\(apiKey)"]
-        )
+        // Override is a local loopback — still URLSessionWebSocketTask. Skip the
+        // xAI subprotocol so the RFC 6455 handshake can finish.
+        let wsTask: URLSessionWebSocketTask
+        if override != nil {
+            wsTask = urlSession.webSocketTask(with: url)
+        } else {
+            wsTask = urlSession.webSocketTask(
+                with: url,
+                protocols: ["xai-client-secret.\(apiKey)"]
+            )
+        }
         task = wsTask
         opened = false
         timeoutTask?.cancel()
@@ -254,6 +339,9 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         session = nil
         sessionDelegate = nil
         opened = false
+        sessionReady = false
+        pendingQuietCommit = false
+        quietCommitGeneration += 1
         lock.unlock()
     }
 
@@ -265,11 +353,107 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     }
 
     /// Called from the audio render thread with a prebuilt JSON string.
+    /// Appends hold until the session is ready. `session.update` goes now.
     func sendRaw(_ string: String) {
         lock.lock()
-        let task = self.task
+        if Self.isAudioAppend(string), !sessionReady {
+            enqueueLocked(string)
+            lock.unlock()
+            return
+        }
+        if testSendSink {
+            deliveredForTests.append(string)
+            lock.unlock()
+            return
+        }
+        if opened, let task {
+            lock.unlock()
+            task.send(.string(string)) { _ in }
+            return
+        }
+        enqueueLocked(string)
         lock.unlock()
-        task?.send(.string(string)) { _ in }
+    }
+
+    /// Test hook. Not a mock Grok network client. Makes send live and
+    /// flushes. The DidOpen / session-ready path is separate.
+    func attachTestSendTask() {
+        lock.lock()
+        testSendSink = true
+        sessionReady = true
+        flushLockedToTestSink()
+        lock.unlock()
+    }
+
+    /// Record later sends. Do not flush — session-ready does that.
+    func attachTestSendRecorder() {
+        lock.lock()
+        testSendSink = true
+        lock.unlock()
+    }
+
+    /// Eve still sees `opened` (chosen) but `sendRaw` cannot send —
+    /// `opened && task` is false. 83a5c6a void-returned here.
+    func dropSendTaskKeepingOpenedForTests() {
+        lock.lock()
+        task = nil
+        lock.unlock()
+    }
+
+    func markSessionReadyAndFlush() {
+        lock.lock()
+        sessionReady = true
+        let queued = outboundQueue
+        outboundQueue.removeAll()
+        let task = self.task
+        let sink = testSendSink
+        let shouldCloseTurn = queued.contains { Self.isAudioAppend($0) }
+        if sink {
+            deliveredForTests.append(contentsOf: queued)
+        }
+        lock.unlock()
+        if !sink {
+            for item in queued {
+                task?.send(.string(item)) { _ in }
+            }
+        }
+        if shouldCloseTurn {
+            lock.lock()
+            pendingQuietCommit = true
+            quietCommitGeneration += 1
+            let gen = quietCommitGeneration
+            lock.unlock()
+            scheduleQuietCommit(generation: gen)
+        }
+    }
+
+    private func scheduleQuietCommit(generation: Int) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.quietCommitMs))
+            self?.commitIfStillQuiet(generation: generation)
+        }
+    }
+
+    private func commitIfStillQuiet(generation: Int) {
+        lock.lock()
+        guard pendingQuietCommit, quietCommitGeneration == generation else {
+            lock.unlock()
+            return
+        }
+        pendingQuietCommit = false
+        lock.unlock()
+        sendJSON(GrokRealtime.commitAudioBufferObject())
+    }
+
+    func dropOutbound() {
+        lock.lock()
+        outboundQueue.removeAll()
+        deliveredForTests.removeAll()
+        testSendSink = false
+        sessionReady = false
+        pendingQuietCommit = false
+        quietCommitGeneration += 1
+        lock.unlock()
     }
 
     func sendBinary(_ data: Data) {
@@ -302,6 +486,39 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
         return token
     }
 
+    private func enqueueLocked(_ string: String) {
+        if outboundQueue.count >= Self.maxOutbound {
+            outboundQueue.removeFirst()
+        }
+        outboundQueue.append(string)
+    }
+
+    private func flushLockedToTestSink() {
+        deliveredForTests.append(contentsOf: outboundQueue)
+        outboundQueue.removeAll()
+    }
+
+    static func isAudioAppend(_ raw: String) -> Bool {
+        raw.contains("input_audio_buffer.append")
+    }
+
+    static func typeOfSend(_ raw: String) -> String? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = object["type"] as? String
+        else { return nil }
+        return type
+    }
+
+    static func pcmFromAppendJSON(_ raw: String) -> Data? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "input_audio_buffer.append",
+              let audio = object["audio"] as? String
+        else { return nil }
+        return Data(base64Encoded: audio)
+    }
+
     static func extractClientSecret(from object: [String: Any]) -> String? {
         if let value = object["value"] as? String, !value.isEmpty { return value }
         if let value = object["client_secret"] as? String, !value.isEmpty { return value }
@@ -313,9 +530,12 @@ final class LiveGrokVoiceClient: @unchecked Sendable {
     }
 
     /// URLSession delivers these on a background queue. Hop Sendable values only.
+    /// Socket is open. Do not flush appends — session is not ready yet.
+    /// Paper DidOpen without a real task must not mark the client opened —
+    /// phone sendRaw only sends when `opened && task`.
     nonisolated func notifyOpen() {
         lock.lock()
-        opened = true
+        opened = task != nil
         let timeout = timeoutTask
         timeoutTask = nil
         lock.unlock()

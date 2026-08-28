@@ -64,7 +64,6 @@ enum VoiceTapeGate {
         case .reconnect: name = "reconnect"
         case .stayIdle: name = "stayIdle"
         case .keepListening: name = "keepListening"
-        case .resumeCapture: name = "resumeCapture"
         }
         emit([
             "decision": name,

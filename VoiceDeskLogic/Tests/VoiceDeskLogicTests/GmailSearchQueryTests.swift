@@ -349,7 +349,7 @@ final class GmailSearchQueryTests: XCTestCase {
         )
     }
 
-    func testSameSenderHitsClarifyWhichOneNotSilentNewest() {
+    func testSameSenderLastEmailPicksNewestNotCannedWhichOne() {
         func eric(_ n: Int, subject: String, label: String) -> EmailItem {
             EmailItem(
                 providerID: "fixture-eric-\(n)",
@@ -369,20 +369,22 @@ final class GmailSearchQueryTests: XCTestCase {
         let ask = "Can you find the last email by Eric?"
 
         switch GmailSearchQuery.pick([oldest, middle, newest, murray], ask: ask) {
-        case .several(let emails):
-            XCTAssertEqual(Set(emails.map(\.fromName)), ["Eric Gross"])
-            XCTAssertEqual(emails.count, 3)
-            XCTAssertEqual(emails.first?.subject, newest.subject)
+        case .one(let email):
+            XCTAssertEqual(email.fromName, "Eric Gross")
+            XCTAssertEqual(email.subject, newest.subject)
         default:
-            XCTFail("same-sender several hits must clarify, not silently attach newest")
+            XCTFail("same-sender last email must attach newest, not canned which-one")
         }
 
-        switch GmailSearchQuery.pick(VoiceRegressionDesk.murraySeveralMatches, ask: "Give me a summary of Murray's last email.") {
-        case .several(let emails):
-            XCTAssertEqual(emails.count, 3)
-            XCTAssertEqual(emails.map(\.fromName), Array(repeating: "Murray Mitchell", count: 3))
+        switch GmailSearchQuery.pick(
+            VoiceRegressionDesk.murraySeveralMatches,
+            ask: "Give me a summary of Murray's last email."
+        ) {
+        case .one(let email):
+            XCTAssertEqual(email.fromName, "Murray Mitchell")
+            XCTAssertEqual(email.providerID, "fixture-murray-new")
         default:
-            XCTFail("Murray several must ask which one")
+            XCTFail("Murray last email must attach newest, not canned which-one")
         }
     }
 

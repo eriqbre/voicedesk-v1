@@ -44,9 +44,10 @@ final class HotCacheMergeTests: XCTestCase {
             5
         )
         let glance = ConversationPresence.inboxOverviewCopy(merged.emails)
+        XCTAssertTrue(InboxGlance.isShortSpokenSummary(glance), glance)
+        XCTAssertFalse(InboxGlance.isShortSpokenAck(glance), glance)
         XCTAssertFalse(glance.localizedCaseInsensitiveContains("Fleeman"))
         XCTAssertFalse(glance.localizedCaseInsensitiveContains("Laren Jansen"))
-        XCTAssertTrue(glance.contains(newer[0].fromName))
     }
 
     func testExistingRowUpdatesInPlaceAndKeepsRicherBody() {

@@ -49,11 +49,14 @@ enum VoiceEarcon {
     #if canImport(AVFAudio)
     private static func prepareSessionForClick() {
         let session = AVAudioSession.sharedInstance()
+        if session.category == .playAndRecord {
+            return
+        }
         do {
             try session.setCategory(
                 .playAndRecord,
                 mode: session.mode,
-                options: [.defaultToSpeaker, .mixWithOthers]
+                options: [.defaultToSpeaker]
             )
             try session.overrideOutputAudioPort(.speaker)
             try session.setActive(true)

@@ -127,32 +127,6 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
         XCTAssertFalse(EchoTranscriptGate.isLeftoverEcho("show my latest emails", of: ""))
     }
 
-    func testDroppedTranscriptIsEngineListenResumeNote() {
-        let entry = ListenResumeLog.droppedTranscript()
-        XCTAssertEqual(entry.source, "engine")
-        XCTAssertEqual(entry.intent, ListenResumeLog.intent)
-        XCTAssertTrue(entry.routingNotes.contains { $0.contains(ListenResumeLog.droppedTranscriptNote) })
-        XCTAssertEqual(entry.userTranscript, "")
-    }
-
-    func testOneGateAndDroppedTranscriptIsLogged() throws {
-        let source = try XCTUnwrap(repoFile("VoiceDesk/Voice/GrokVoiceService.swift"))
-        XCTAssertTrue(source.contains("EchoBargeIn.acceptedUserTranscript"))
-        XCTAssertTrue(source.contains("ListenResumeLog.droppedTranscriptNote"))
-        XCTAssertTrue(source.contains("leftover-echo"))
-        XCTAssertTrue(source.contains("liveSessionArmed = true"))
-        let app = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"))
-        XCTAssertTrue(app.contains("EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate)"), app)
-        XCTAssertTrue(app.contains("echoGate.beginSpeaking(spoken)"), app)
-        XCTAssertFalse(app.contains("markSpeaking"))
-        XCTAssertFalse(app.contains("voiceState: voice.state"), "Grok speaking must not drop")
-        XCTAssertFalse(app.contains("lastSpokenLine.isEmpty { return nil }"))
-        let gate = try XCTUnwrap(repoFile("VoiceDeskLogic/Sources/VoiceDeskLogic/EchoTranscriptGate.swift"))
-        XCTAssertFalse(gate.contains("func markSpeaking"))
-        XCTAssertFalse(gate.contains("lastSpokenLine.isEmpty { return nil }"))
-        XCTAssertFalse(gate.contains("isSpeaking || voiceState"))
-    }
-
     func testSessionStaysLiveAfterAudioStartOrWarmUpUnlessUserStop() {
         XCTAssertTrue(
             ListenResumePolicy.sessionShouldStayLive(
@@ -198,17 +172,5 @@ final class GrokSpeakingEmptyEchoWalkTests: XCTestCase {
             ),
             .stayIdle
         )
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
     }
 }

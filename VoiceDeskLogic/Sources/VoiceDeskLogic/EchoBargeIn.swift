@@ -21,6 +21,8 @@ public enum EchoBargeIn: Sendable {
     }
 
     /// Transcript that may become a user turn. `nil` = dropped (never Grok).
+    /// Non-nil means leftover on-device desk TTS must stop. One policy:
+    /// leftover drops, accepted cancels leftover speak.
     public static func acceptedUserTranscript(
         _ text: String,
         gate: EchoTranscriptGate,

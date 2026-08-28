@@ -3,93 +3,66 @@ import Foundation
 public enum ListenResumeDecision: Equatable, Sendable {
     /// User tapped stop / cancel. Do not capture or reconnect.
     case stayIdle
-    /// Socket is open and the mic tap is already running. Stay in listen.
+    /// Socket is open. Mic tap stays. Stay in listen.
     case keepListening
-    /// Socket is open but capture is down. Start the mic tap again.
-    case resumeCapture
     /// Socket closed while the session should still be live. Reconnect — no new first-tap.
     case reconnect
 }
 
 /// After a local desk line, the live Grok socket must keep hearing.
-/// Desk speak is on-device TTS — it does not go through the socket.
-/// This policy is only “stay in listen / resume the tap / reconnect.”
+/// Live Talk speaks through Eve. Offline / down-socket still uses
+/// ClientVoiceSpeech. This policy is only “stay in listen / reconnect.”
 public enum ListenResumePolicy: Sendable {
-    /// After on-device TTS reports didFinish / cancelled. User did not tap stop.
-    ///
-    /// AVSpeech can leave the engine “running” with a silent tap — do not
-    /// trust `captureRunning`. Never wait on Grok `response.done` / drain.
-    /// Never call this while client TTS is still speaking.
+    /// Client TTS never leaves listen. Socket open → keep hearing.
+    /// Closed socket → reconnect. User stop → idle.
     public static func afterDeskSpeak(
         userWantsVoiceOff: Bool,
-        socketConnected: Bool,
-        captureRunning: Bool
+        socketConnected: Bool
     ) -> ListenResumeDecision {
-        _ = captureRunning
         if userWantsVoiceOff { return .stayIdle }
         if !socketConnected { return .reconnect }
-        return .resumeCapture
-    }
-
-    /// Listen rearm waits for AVSpeech didFinish / cancelled — not Grok
-    /// `response.done`. `nil` means TTS is still speaking: do not arm.
-    public static func afterClientTTS(
-        ttsFinished: Bool,
-        userWantsVoiceOff: Bool,
-        socketConnected: Bool,
-        captureRunning: Bool
-    ) -> ListenResumeDecision? {
-        if userWantsVoiceOff { return .stayIdle }
-        guard ttsFinished else { return nil }
-        return afterDeskSpeak(
-            userWantsVoiceOff: userWantsVoiceOff,
-            socketConnected: socketConnected,
-            captureRunning: captureRunning
-        )
-    }
-
-    public static func shouldArmListenAfterClientTTS(ttsFinished: Bool) -> Bool {
-        ttsFinished
-    }
-
-    /// Desk replies always use on-device TTS. Grok realtime is listen +
-    /// general conversation only — never a fake user turn / response.create.
-    public static func deskSpeakUsesClientTTS() -> Bool {
-        true
-    }
-
-    public static func deskSpeakUsesGrokVerbatim() -> Bool {
-        !deskSpeakUsesClientTTS()
-    }
-
-    /// 4ac127a / 697147d: `session close code=1000 state=idle` after a desk
-    /// line is not user-stop. Reconnect when the live session should hear.
-    public static func isNormalClose(_ code: Int) -> Bool {
-        code == 1000 || code == 1001
+        return .keepListening
     }
 
     /// Armed on first Tap to talk, warmUp, or `audio.start`. Cleared only on
     /// user stop. Audio flowing is live unless they tapped stop.
+    /// `clientTTSInFlight` keeps stayLive during write→player only.
+    /// After drain it is cleared; stayLive is then armed + running audio.
     public static func sessionShouldStayLive(
         userWantsVoiceOff: Bool,
         liveSessionArmed: Bool,
-        audioStarted: Bool = false
+        audioStarted: Bool = false,
+        clientTTSInFlight: Bool = false
     ) -> Bool {
-        !userWantsVoiceOff && (liveSessionArmed || audioStarted)
+        !userWantsVoiceOff && (liveSessionArmed || audioStarted || clientTTSInFlight)
+    }
+
+    /// fe1ffc8 / fa72e1c / 18d5878 / 415c955: stayLive was listen-armed.
+    /// Close 1000 after desk TTS while speaking/idle → stayIdle.
+    public static func sha415c955StayLiveAfterClose1000(
+        userWantsVoiceOff: Bool,
+        listenArmed: Bool
+    ) -> Bool {
+        !userWantsVoiceOff && listenArmed
     }
 
     /// Socket closed. Reconnect when the live session is still supposed to hear.
-    /// Code 1000 + idle is the 4ac127a / 697147d deaf path.
+    /// Code 1000 + idle/speaking after desk TTS is not user-stop.
+    /// 415c955 stayLive was listen-armed only — idle after TTS + 1000
+    /// skipped recover. A live conversation (`liveSessionArmed`, user
+    /// did not tap stop) must reconnect even if VoiceSession is idle.
     public static func afterSocketClose(
         userWantsVoiceOff: Bool,
         sessionShouldStayLive: Bool,
         closeCode: Int? = nil,
-        voiceState: VoiceState? = nil
+        voiceState: VoiceState? = nil,
+        liveSessionArmed: Bool = false
     ) -> ListenResumeDecision {
         _ = closeCode
         _ = voiceState
-        if userWantsVoiceOff || !sessionShouldStayLive { return .stayIdle }
-        return .reconnect
+        if userWantsVoiceOff { return .stayIdle }
+        if sessionShouldStayLive || liveSessionArmed { return .reconnect }
+        return .stayIdle
     }
 
     /// Server idle / max_duration. Stay live → reconnect.
@@ -115,25 +88,51 @@ public enum ListenResumePolicy: Sendable {
         session.apply(sessionEventAfterDeskSpeak(state: session.state))
     }
 
+    /// Leftover `response.done` during desk TTS must not leave listen.
+    /// `turnFinished` from `.listening` stays listening; skip it while
+    /// client TTS owns the turn so a prior `.speaking` is not required.
+    public static func shouldApplyGrokTurnFinished(clientTTSSpeaking: Bool) -> Bool {
+        !clientTTSSpeaking
+    }
+
+    /// After on-device desk TTS. Return to listen. Desk speak is not
+    /// user-stop. Close 1000 reconnects. Does not start audio again.
+    public static func afterClientTTSFinished(
+        session: inout VoiceSession,
+        userWantsVoiceOff: Bool,
+        liveSessionArmed: Bool,
+        captureRunning: Bool
+    ) -> ClientTTSListenResult {
+        if !userWantsVoiceOff {
+            applySessionAfterDeskSpeak(&session)
+        }
+        let stayLive = sessionShouldStayLive(
+            userWantsVoiceOff: userWantsVoiceOff,
+            liveSessionArmed: liveSessionArmed,
+            audioStarted: captureRunning || liveSessionArmed
+        )
+        let close1000 = afterSocketClose(
+            userWantsVoiceOff: userWantsVoiceOff,
+            sessionShouldStayLive: stayLive,
+            closeCode: 1000,
+            voiceState: session.state,
+            liveSessionArmed: liveSessionArmed
+        )
+        return ClientTTSListenResult(
+            listenArmed: !userWantsVoiceOff && isListenArmed(state: session.state),
+            stayLive: stayLive,
+            close1000: close1000,
+            startAgain: false
+        )
+    }
+
     public static func isListenArmed(state: VoiceState) -> Bool {
         state == .listening
     }
 
-    public static func isCaptureArmed(
-        userWantsVoiceOff: Bool,
-        socketConnected: Bool,
-        captureRunning: Bool,
-        voiceState: VoiceState
-    ) -> Bool {
-        !userWantsVoiceOff
-            && socketConnected
-            && captureRunning
-            && isListenArmed(state: voiceState)
-    }
-
     public static func isArmed(_ decision: ListenResumeDecision) -> Bool {
         switch decision {
-        case .keepListening, .resumeCapture, .reconnect:
+        case .keepListening, .reconnect:
             return true
         case .stayIdle:
             return false
@@ -141,16 +140,31 @@ public enum ListenResumePolicy: Sendable {
     }
 }
 
+/// After client TTS. Listen stays up. No second `audio.start`.
+public struct ClientTTSListenResult: Equatable, Sendable {
+    public var listenArmed: Bool
+    public var stayLive: Bool
+    public var close1000: ListenResumeDecision
+    /// Always false — collapse listen, do not relaunch capture.
+    public var startAgain: Bool
+
+    public init(
+        listenArmed: Bool,
+        stayLive: Bool,
+        close1000: ListenResumeDecision,
+        startAgain: Bool
+    ) {
+        self.listenArmed = listenArmed
+        self.stayLive = stayLive
+        self.close1000 = close1000
+        self.startAgain = startAgain
+    }
+}
+
 /// Compact engine line for the dogfood JSONL / gist. Not a user turn.
 public enum ListenResumeLog: Sendable {
     public static let intent = "listen-resume"
     public static let source = "engine"
-
-    public static let droppedTranscriptNote = "dropped transcript"
-
-    public static func droppedTranscript(detail: String = "leftover-echo") -> VoiceInteractionEntry {
-        entry(note: "\(droppedTranscriptNote) \(detail)")
-    }
 
     public static func entry(note: String, errors: [String] = []) -> VoiceInteractionEntry {
         VoiceInteractionEntry(

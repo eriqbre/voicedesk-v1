@@ -82,12 +82,11 @@ public enum ConversationPresence {
         }
 
         if wantsInbox(text) {
-            return Plan(topic: .inbox, text: inboxReply(context: context))
+            return Plan(topic: .inbox, text: inboxReply(context: context, ask: text))
         }
 
-        if contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
-            || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"])) {
-            return Plan(topic: .calendar, text: calendarReply(context: context))
+        if wantsCalendarAsk(text) {
+            return Plan(topic: .calendar, text: calendarReply(context: context, ask: text))
         }
 
         if contains(lower, ["my tasks", "what tasks", "to-do", "todo", "open tasks"])
@@ -156,7 +155,7 @@ public enum ConversationPresence {
         }
     }
 
-    public static func inboxReply(context: DeskContext) -> String {
+    public static func inboxReply(context: DeskContext, ask: String = "") -> String {
         if !context.clientIDConfigured {
             return GoogleAuthSnapshot.missingClientIDCopy
         }
@@ -172,26 +171,25 @@ public enum ConversationPresence {
         if !context.isOnline {
             return "Here’s the last-synced inbox. I’m offline, so this may be stale."
         }
-        return inboxOverviewCopy(context.snapshot.emails)
+        return inboxOverviewCopy(context.snapshot.emails, ask: ask)
     }
 
-    public static func inboxOverviewCopy(_ emails: [EmailItem]) -> String {
+    public static func inboxOverviewCopy(_ emails: [EmailItem], ask: String = "") -> String {
         let recent = Array(emails.prefix(InboxGlance.overviewLimit))
         guard !recent.isEmpty else {
             return "Google is connected, but I don’t have any synced threads yet. I’m not inventing mail."
         }
-        return InboxGlance.heuristic(recent)
+        return InboxGlance.spokenInbox(ask: ask, emails: recent)
     }
 
-    public static func calendarReply(context: DeskContext) -> String {
+    public static func calendarReply(context: DeskContext, ask: String = "") -> String {
         if !context.isConnected {
             return "I don’t have your live calendar yet. Tap Connect Google on the card below."
         }
         if context.snapshot.events.isEmpty {
             return "Google is connected. Nothing upcoming is in the last sync — I’m not inventing events."
         }
-        let first = context.snapshot.events[0]
-        return "Next up: \(first.title), \(first.whenLabel). Only synced events."
+        return InboxGlance.spokenCalendar(ask: ask, events: context.snapshot.events)
     }
 
     public static func taskReply(context: DeskContext) -> String {
@@ -308,7 +306,8 @@ public enum ConversationPresence {
         pendingSearchClarify: Bool = false,
         hasClarifyMatches: Bool = false,
         hasFocusedEmail: Bool = false,
-        pendingSenderRefine: Bool = false
+        pendingSenderRefine: Bool = false,
+        events: [CalendarItem] = []
     ) -> Bool {
         let deskFollow = pendingSearchClarify || hasClarifyMatches || hasFocusedEmail || pendingSenderRefine
         if deskFollow, isSenderRejectRefine(raw) {
@@ -320,9 +319,19 @@ public enum ConversationPresence {
         if (pendingSearchClarify || hasClarifyMatches), isClarifyPick(raw) {
             return true
         }
+        // Leftover named-sender person: “yes” / newest / ordinal stays desk.
+        // Topic leftover is for offered cards, not trivia (“did John Wick…”).
+        if hasFocusedEmail, isLeftoverPersonContinue(raw) {
+            return true
+        }
         // “Who’s it from?” — next utterance is a brand. Not after multi-match cards.
         if pendingSearchClarify, !hasClarifyMatches,
            GmailSearchQuery.plan(from: raw, treatAsBrand: true) != nil {
+            return true
+        }
+        // matchingCalendar is the calendar from-phrase: an event already
+        // on the snapshot. Do not also require a “calendar” word.
+        if matchingCalendar(for: raw, in: events) != nil {
             return true
         }
         return looksLikeMailAsk(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) || wantsVersionAsk(raw)
@@ -370,6 +379,36 @@ public enum ConversationPresence {
     ///   are never a pick.
     public static func isClarifyPick(_ raw: String) -> Bool {
         clarifyPickKind(raw) != nil
+    }
+
+    /// Leftover named-sender continue: short “yes” / newest / ordinal.
+    /// Not topic — “did John Wick get released” is trivia, not a pick.
+    public static func isLeftoverPersonContinue(_ raw: String) -> Bool {
+        switch clarifyPickKind(raw) {
+        case .newest, .ordinal:
+            return true
+        case .topic, nil:
+            return false
+        }
+    }
+
+    /// After a named-sender hit, “summarize his” / “yes” stay on that person.
+    /// Inbox-overview / calendar / a new named sender still leave.
+    public static func staysOnLeftoverNamedPerson(
+        _ raw: String,
+        focused: EmailItem?
+    ) -> Bool {
+        guard let focused else { return false }
+        if wantsInboxOverview(raw) || wantsCalendarAsk(raw) || wantsTaskAsk(raw) || wantsVersionAsk(raw) {
+            return false
+        }
+        if GmailSearchQuery.namedSenderMismatches(focused, ask: raw) {
+            return false
+        }
+        return wantsFullThread(raw)
+            || wantsEmailFollowUp(raw)
+            || wantsLastDeskEmail(raw)
+            || isLeftoverPersonContinue(raw)
     }
 
     public enum ClarifyPickKind: Equatable, Sendable {
@@ -578,8 +617,13 @@ public enum ConversationPresence {
         if wantsEmailBody(raw), hasDeskMailIntent(raw) {
             return true
         }
-        if hasDeskMailIntent(raw),
-           (GmailSearchQuery.hasSenderPattern(raw) || GmailSearchQuery.query(from: raw) != nil) {
+        // “Read me the one from Costco” already has a sender on the existing
+        // from-phrase. Do not require an “email” word — that skip let leftover
+        // VAD speak the desk answer with no function_call.
+        if GmailSearchQuery.hasSenderPattern(raw) {
+            return true
+        }
+        if hasDeskMailIntent(raw), GmailSearchQuery.query(from: raw) != nil {
             return true
         }
         return false
@@ -627,6 +671,7 @@ public enum ConversationPresence {
     public static func wantsCalendarAsk(_ raw: String) -> Bool {
         let lower = raw.lowercased()
         if wantsCalendarDetails(raw) { return true }
+        if wantsCalendarSummary(raw) { return true }
         if wantsCalendarOverview(raw) { return true }
         return contains(lower, ["my calendar", "on my calendar", "what's on my calendar", "whats on my calendar", "schedule today", "what meetings"])
             || (contains(lower, ["calendar", "schedule"]) && contains(lower, ["my", "today", "upcoming"]))
@@ -707,6 +752,7 @@ public enum ConversationPresence {
     /// List / digest of upcoming events — not a named reservation or “that event”.
     public static func wantsCalendarOverview(_ raw: String) -> Bool {
         if wantsCalendarDetails(raw) { return false }
+        if wantsCalendarSummary(raw) { return true }
         let lower = raw.lowercased()
         if contains(lower, [
             "what's the latest on my calendar",
@@ -780,16 +826,18 @@ public enum ConversationPresence {
             return versionEvidence(for: raw)
         }
 
+        // Event already on the snapshot — same skip-delete as mail
+        // from-phrase. Do not wait for a “calendar” word.
+        if let event = matchingCalendar(for: raw, in: context.snapshot.events) {
+            return DeskEvidence(
+                topic: .calendar,
+                text: calendarDetailsReply(event),
+                cards: [.calendar(event)]
+            )
+        }
         if wantsCalendarAsk(raw) {
             if wantsCalendarOverview(raw) {
-                return calendarOverviewEvidence(context: context)
-            }
-            if let event = matchingCalendar(for: raw, in: context.snapshot.events) {
-                return DeskEvidence(
-                    topic: .calendar,
-                    text: calendarDetailsReply(event),
-                    cards: [.calendar(event)]
-                )
+                return calendarOverviewEvidence(context: context, ask: raw)
             }
             if context.isConnected {
                 if wantsCalendarDetails(raw) || GmailSearchQuery.hasSenderPattern(raw) {
@@ -799,7 +847,7 @@ public enum ConversationPresence {
                         cards: []
                     )
                 }
-                return calendarOverviewEvidence(context: context)
+                return calendarOverviewEvidence(context: context, ask: raw)
             }
         }
 
@@ -823,6 +871,7 @@ public enum ConversationPresence {
 
         // Inbox / today / everything wins over leftover clarify or sticky.
         // Named sender is excluded inside wantsInboxOverview.
+        // “summarize his” is not overview — leftover person stays.
         if wantsInboxOverview(raw) {
             return inboxOverviewEvidence(context: context, ask: raw)
         }
@@ -902,6 +951,15 @@ public enum ConversationPresence {
                let plan = GmailSearchQuery.plan(from: raw, treatAsBrand: true) {
                 return searchEvidence(ask: raw, plan: plan, expandEarlier: wantsFullThread(raw))
             }
+        }
+
+        // Leftover named-sender person: “yes” / newest / ordinal fetches that
+        // thread. Not live Grok wait-for-full-note. Not John Wick trivia.
+        if let focusedEmail, isLeftoverPersonContinue(raw) {
+            if wantsFullThread(raw) {
+                return threadEvidence(focusedEmail)
+            }
+            return emailEvidence(focusedEmail)
         }
 
         if wantsFullThread(raw) {
@@ -1039,10 +1097,57 @@ public enum ConversationPresence {
         if recent, mail, contains(lower, ["my"]) {
             return true
         }
+        if wantsInboxSummary(raw) { return true }
         if contains(lower, ["summarize", "summary of", "summary"]), mail, contains(lower, ["my"]) {
             return true
         }
         return false
+    }
+
+    /// Summary / catch-up / what’s important — still inbox-overview + cards.
+    /// List/show asks are the rest of the overview family.
+    public static func wantsInboxSummary(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        // “summarize his email” is leftover-person, not inbox digest.
+        // “summarize my emails” still overview.
+        if contains(lower, ["his", "her", "their"]), !contains(lower, ["my"]) {
+            return false
+        }
+        let mail = contains(lower, ["email", "emails", "mail", "mails", "inbox"])
+        guard mail else { return false }
+        return contains(lower, [
+            "summarize",
+            "summary",
+            "catch me up",
+            "what's important",
+            "whats important",
+            "what is important",
+            "digest",
+            "brief me",
+            "rundown",
+            "run-down",
+            "run down"
+        ])
+    }
+
+    /// “Summarize my week” / calendar catch-up — still calendar + cards.
+    public static func wantsCalendarSummary(_ raw: String) -> Bool {
+        if GmailSearchQuery.hasSenderPattern(raw) { return false }
+        let lower = raw.lowercased()
+        if contains(lower, ["email", "emails", "mail", "mails", "inbox"]) { return false }
+        let summary = contains(lower, [
+            "summarize",
+            "summary",
+            "catch me up",
+            "what's important",
+            "whats important",
+            "what is important",
+            "digest",
+            "brief me"
+        ])
+        guard summary else { return false }
+        return contains(lower, ["week", "calendar", "schedule", "meetings", "agenda"])
     }
 
     /// Plural / inbox collection — not singular “the email” (that is last-card).
@@ -1375,7 +1480,7 @@ public enum ConversationPresence {
 
     public static func notSeeingCardsReply(hasInbox: Bool) -> String {
         if hasInbox {
-            return "Here they are — the synced emails."
+            return ""
         }
         return "I don’t have a synced thread yet. I’m not inventing cards."
     }
@@ -1681,7 +1786,7 @@ public enum ConversationPresence {
             } else if window.isEmpty {
                 text = todayEmptyCopy(hasInbox: !context.snapshot.emails.isEmpty)
             } else {
-                text = InboxGlance.heuristic(window)
+                text = InboxGlance.spokenInbox(ask: ask, emails: window)
             }
             return DeskEvidence(
                 topic: .inbox,
@@ -1693,17 +1798,17 @@ public enum ConversationPresence {
                 shouldGlanceInbox: !window.isEmpty
             )
         }
-        var evidence = inboxEvidence(context: context, followUp: false, resetsFocus: true)
+        var evidence = inboxEvidence(context: context, followUp: false, resetsFocus: true, ask: ask)
         if context.isConnected, !context.snapshot.emails.isEmpty {
             evidence.shouldGlanceInbox = true
         }
         return evidence
     }
 
-    private static func calendarOverviewEvidence(context: DeskContext) -> DeskEvidence {
+    private static func calendarOverviewEvidence(context: DeskContext, ask: String) -> DeskEvidence {
         DeskEvidence(
             topic: .calendar,
-            text: calendarReply(context: context),
+            text: calendarReply(context: context, ask: ask),
             cards: cards(for: .calendar, context: context)
         )
     }
@@ -1711,14 +1816,15 @@ public enum ConversationPresence {
     private static func inboxEvidence(
         context: DeskContext,
         followUp: Bool,
-        resetsFocus: Bool = false
+        resetsFocus: Bool = false,
+        ask: String = ""
     ) -> DeskEvidence {
         let cards = cards(for: .inbox, context: context)
         let text: String
         if followUp {
             text = notSeeingCardsReply(hasInbox: !context.snapshot.emails.isEmpty)
         } else {
-            text = inboxReply(context: context)
+            text = inboxReply(context: context, ask: ask)
         }
         return DeskEvidence(
             topic: .inbox,

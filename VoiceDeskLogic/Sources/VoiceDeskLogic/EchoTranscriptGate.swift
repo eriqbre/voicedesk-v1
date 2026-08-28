@@ -74,8 +74,8 @@ public struct EchoTranscriptGate: Equatable, Sendable {
         !shouldIgnoreUserTranscript(voiceState: voiceState)
     }
 
-    /// Dropped echo never stops Eve. A live non-echo ask may barge-in except
-    /// on a short identity / version line (prefer finishing that sentence).
+    /// Dropped leftover never stops TTS. An accepted live ask cancels
+    /// leftover on-device desk speak — version, glance, named email, calendar.
     public func shouldCancelSpeak(
         for transcript: String,
         voiceState: VoiceState = .listening
@@ -83,7 +83,6 @@ public struct EchoTranscriptGate: Equatable, Sendable {
         guard acceptUserTranscript(transcript, voiceState: voiceState) != nil else {
             return false
         }
-        if isProtectedIdentityLine { return false }
         return shouldIgnoreUserTranscript(voiceState: voiceState)
     }
 

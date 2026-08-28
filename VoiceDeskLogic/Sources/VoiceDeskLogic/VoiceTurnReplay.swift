@@ -88,7 +88,8 @@ public enum VoiceTurnReplay: Sendable {
                 pendingSearchClarify: pendingSearchClarify,
                 hasClarifyMatches: !clarifyMatches.isEmpty,
                 hasFocusedEmail: focusedEmail != nil,
-                pendingSenderRefine: pendingSenderRefine
+                pendingSenderRefine: pendingSenderRefine,
+                events: context.snapshot.events
             ),
             looksLikeMailAsk: ConversationPresence.looksLikeMailAsk(cleaned),
             evidence: evidence,
@@ -102,6 +103,11 @@ public enum VoiceTurnReplay: Sendable {
 
     private static func spokenReply(evidence: ConversationPresence.DeskEvidence?) -> String {
         guard let evidence else { return "" }
+        // List/show is empty — cards are the list. Do not fill
+        // spokenDeskHit when the leftover ack is gone.
+        if evidence.shouldGlanceInbox || evidence.topic == .calendar {
+            return evidence.text
+        }
         if let email = evidence.focusedEmail
             ?? evidence.cards.compactMap({ card -> EmailItem? in
                 if case .email(let item) = card { return item }

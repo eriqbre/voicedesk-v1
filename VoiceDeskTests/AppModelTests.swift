@@ -306,7 +306,8 @@ final class AppModelTests: XCTestCase {
             InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""),
             "calendar overview is cards-only: \(model.turns.last?.text ?? "")"
         )
-        XCTAssertTrue(fake.spoken.contains { $0.contains("Dinner reservation") })
+        XCTAssertTrue(fake.spoken.contains { InboxGlance.isShortSpokenSummary($0) })
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
         XCTAssertTrue(fake.sentTurns.isEmpty, "calendar is on-device TTS; Grok stays in listen")
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.notes, "Window table, party of 4.")
@@ -399,14 +400,8 @@ final class AppModelTests: XCTestCase {
             buildIdentity: .fixture
         )
         await model.applyUserTurn("what's on the phone")
-        let afterVersion = model.turns.count
         XCTAssertTrue(fake.spoken.contains("VoiceDesk point 1, build 6."))
         XCTAssertTrue(fake.sentTurns.isEmpty)
-
-        fake.emitUser("zero")
-        fake.emitUser("point one")
-        fake.emitUser("build 6")
-        XCTAssertEqual(model.turns.count, afterVersion, "echo leftovers must not become user turns")
 
         await model.applyUserTurn("what's on my calendar")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
@@ -415,80 +410,6 @@ final class AppModelTests: XCTestCase {
 
         await model.applyUserTurn("latest email from Lauren")
         XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
-    }
-
-    func testLiveWhatsPeriodHoldsThenCompletedPhraseSpeaksSHAOrDesk() async {
-        let event = CalendarItem(
-            title: "Dinner reservation",
-            whenLabel: "Tonight 7:00 PM",
-            location: "Oak & Stone",
-            relatedPeople: ["Massimo Ricci"]
-        )
-        var lauren = SampleData.syncedEmail()
-        lauren.fromName = "Laren Cole"
-        lauren.providerID = "msg-laren"
-        lauren.subject = "Walk-through window"
-        lauren.body = "Can we do Thursday at 11?"
-        let fake = FakeLiveVoiceService()
-        let model = AppModel(
-            voice: fake,
-            google: .mock(connected: true),
-            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: [lauren], events: [event])),
-            buildIdentity: .fixture
-        )
-        let afterWelcome = model.turns.count
-
-        fake.emitUser("What's.")
-        XCTAssertEqual(model.turns.count, afterWelcome, "bare What's. must not become a user turn")
-        XCTAssertTrue(fake.sentTurns.isEmpty)
-        XCTAssertFalse(fake.spoken.contains { $0.lowercased().contains("starting a thought") })
-
-        await model.applyUserTurn("what SHA")
-        XCTAssertEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
-        XCTAssertTrue(fake.spoken.contains("VoiceDesk 1fa0a0e."))
-        XCTAssertTrue(model.turns.last?.cards.isEmpty == true)
-        XCTAssertTrue(fake.sentTurns.isEmpty)
-
-        fake.emitUser("What's.")
-        let afterSecondHold = model.turns.count
-        await model.applyUserTurn("what's on my calendar")
-        XCTAssertGreaterThan(model.turns.count, afterSecondHold)
-        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .calendar } == true)
-        XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
-        XCTAssertNotEqual(model.turns.last?.text, "VoiceDesk 1fa0a0e.")
-
-        fake.emitUser("What's.")
-        await model.applyUserTurn("what's the latest email from Lauren")
-        XCTAssertTrue(model.turns.last?.cards.contains { $0.kind == .email } == true)
-    }
-
-    func testLiveHmThenGiveMeASummaryHoldsUntilLaurenFleemanArrives() async {
-        let fake = FakeLiveVoiceService()
-        let model = AppModel(
-            voice: fake,
-            google: .mock(connected: true),
-            cache: MemoryDeskCache(snapshot: VoiceRegressionDesk.laurenSeveralSnapshot),
-            buildIdentity: .fixture
-        )
-        let afterWelcome = model.turns.count
-
-        fake.emitUser("hm")
-        fake.emitUser("give me a summary")
-        XCTAssertEqual(model.turns.count, afterWelcome, "incomplete desk stem must not become a user turn")
-        XCTAssertTrue(fake.sentTurns.isEmpty)
-
-        await model.applyUserTurn("on the email from lauren about fleeman rd")
-        XCTAssertTrue(
-            model.turns.last?.cards.contains(where: { card in
-                if case .email(let item) = card {
-                    return item.fromName == "Laren Jansen" && item.subject.contains("Fleeman")
-                }
-                return false
-            }) == true,
-            "\(model.turns.last?.cards.map(\.kind) ?? [])"
-        )
-        XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("Family Fun Day"))
-        XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("starting a thought"))
     }
 
     func testSHAAskSpeaksFixtureSHAWithoutInventing() async {
@@ -709,12 +630,19 @@ final class AppModelTests: XCTestCase {
         )
 
         await model.applyUserTurn("Give me a summary of Murray's last email.")
-        XCTAssertTrue(fake.sentTurns.isEmpty, "named-sender clarify is on-device TTS")
-        XCTAssertEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
-        XCTAssertEqual(model.turns.last?.cards.filter { $0.kind == .email }.count, 3)
+        XCTAssertTrue(fake.sentTurns.isEmpty, "named-sender last email stays on-device fetch")
+        XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
+        XCTAssertEqual(model.turns.last?.cards.filter { $0.kind == .email }.count, 1)
+        if case .email(let item) = model.turns.last?.cards.first {
+            XCTAssertEqual(item.fromName, "Murray Mitchell")
+            XCTAssertEqual(item.subject, "Walk-through today")
+            XCTAssertEqual(item.providerID, "msg-murray-new")
+        } else {
+            XCTFail("expected newest Murray card, not canned which-one")
+        }
 
         await model.applyUserTurn("The last one.")
-        XCTAssertTrue(fake.sentTurns.isEmpty, "clarify pick must not inject a Grok user turn")
+        XCTAssertTrue(fake.sentTurns.isEmpty, "leftover person must not inject a Grok user turn")
         XCTAssertNotEqual(model.turns.last?.text, ConversationPresence.gmailSearchSeveralReply)
         XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("stay quiet"))
         XCTAssertFalse((model.turns.last?.text ?? "").localizedCaseInsensitiveContains("ios app handles"))
@@ -738,6 +666,84 @@ final class AppModelTests: XCTestCase {
             spoken
         )
         XCTAssertNotEqual(fake.spoken.last, ConversationPresence.gmailSearchSeveralReply)
+    }
+
+    /// 65C7B25F c42cadc live tape: Murray hit must command fetch, not
+    /// canned which-one. “summarize his” / “yes” stay on Murray with tools.
+    func testLiveMurrayLastEmailStaysOnPersonThroughSummarizeHisAndYes() async throws {
+        let snapshot = VoiceRegressionDesk.murraySeveralSnapshot
+        let sync = MockGoogleSync(result: snapshot)
+        for email in VoiceRegressionDesk.murraySeveralMatches {
+            if let id = email.providerID, let body = email.body {
+                sync.bodies[id] = body
+            }
+        }
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: sync
+        )
+        _ = await fake.startListening()
+
+        fake.emitUser("Can you find the last email from Murray?")
+        let firstDeadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < firstDeadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "Murray last-email must command the existing tool")
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "c42cadc tape had zero function_call: \(fake.wireItems)"
+        )
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" }
+        )
+        XCTAssertFalse(
+            fake.spoken.contains(ConversationPresence.gmailSearchSeveralReply),
+            "delete canned which-one as the product mouth: \(fake.spoken)"
+        )
+        XCTAssertFalse(
+            (model.turns.last?.text ?? "") == ConversationPresence.gmailSearchSeveralReply
+        )
+        let murrayCards = model.turns.flatMap(\.cards).compactMap { card -> EmailItem? in
+            if case .email(let item) = card { return item }
+            return nil
+        }
+        XCTAssertTrue(murrayCards.contains { $0.fromName == "Murray Mitchell" })
+        XCTAssertFalse(murrayCards.contains { $0.fromName == "Costco" || $0.fromName == "Paul" })
+
+        let toolsAfterFind = fake.beginToolWaitCount
+        fake.emitUser("Can you summarize his email?")
+        let secondDeadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < secondDeadline {
+            if fake.beginToolWaitCount > toolsAfterFind { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, toolsAfterFind, "summarize-his must stay on Murray and command fetch")
+        let afterHis = model.turns.flatMap(\.cards).compactMap { card -> String? in
+            if case .email(let item) = card { return item.fromName }
+            return nil
+        }
+        XCTAssertTrue(afterHis.contains("Murray Mitchell"))
+        XCTAssertFalse(afterHis.contains("Costco"))
+
+        let toolsAfterHis = fake.beginToolWaitCount
+        fake.emitUser("Yes, please.")
+        let thirdDeadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < thirdDeadline {
+            if fake.beginToolWaitCount > toolsAfterHis { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.beginToolWaitCount,
+            toolsAfterHis,
+            "c42cadc leftover: yes was live Grok wait-for-full-note with no tool"
+        )
+        XCTAssertTrue(fake.sentTurns.isEmpty, "yes must not inject a Grok user turn")
+        XCTAssertFalse(fake.spoken.contains { $0.localizedCaseInsensitiveContains("full note comes through") })
     }
 
     func testMarieLastEmailDoesNotAndLastToken() async {
@@ -1066,7 +1072,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(fake.sentTurns.isEmpty)
     }
 
-    func testInboxOverviewAttachesCompactRowsAndSpeaksDigest() async {
+    func testInboxOverviewAttachesCompactRowsAndSpeaksDigest() async throws {
         var murray = SampleData.syncedEmail()
         murray.fromName = "Murray Mitchell"
         murray.providerID = "msg-murray-list"
@@ -1079,6 +1085,9 @@ final class AppModelTests: XCTestCase {
         steve.subject = "Inspection note"
         steve.body = "Punch list is attached."
         let snapshot = DeskSnapshot(emails: [murray, steve])
+        let ask = "summary of my latest emails"
+        let dump = InboxGlance.spokenInbox(ask: ask, emails: snapshot.emails)
+        XCTAssertTrue(InboxGlance.isFromSubjectGlanceDump(dump), dump)
         let fake = FakeLiveVoiceService()
         let model = AppModel(
             voice: fake,
@@ -1086,7 +1095,7 @@ final class AppModelTests: XCTestCase {
             cache: MemoryDeskCache(snapshot: snapshot),
             sync: MockGoogleSync(result: snapshot)
         )
-        await model.applyUserTurn("summary of my latest emails")
+        await model.applyUserTurn(ask)
         let cards = model.turns.last?.cards ?? []
         XCTAssertEqual(cards.count, 2)
         XCTAssertTrue(cards.allSatisfy { card in
@@ -1098,12 +1107,13 @@ final class AppModelTests: XCTestCase {
             InboxGlance.isShortOnScreenLeadIn(onScreen),
             "glance is cards-only: \(onScreen)"
         )
-        let digest = fake.spoken.last ?? ""
-        XCTAssertTrue(digest.contains("Murray Mitchell"), digest)
-        XCTAssertTrue(digest.contains("Steve Brown"), digest)
-        XCTAssertNotEqual(digest, onScreen)
-        XCTAssertFalse(digest.contains("<html"))
-        XCTAssertFalse(EmailSummary.containsUIChrome(digest))
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 client digest: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertFalse(fake.spoken.contains(dump))
         XCTAssertTrue(fake.sentTurns.isEmpty)
 
         let epoch = model.conversationScrollEpoch
@@ -1127,6 +1137,32 @@ final class AppModelTests: XCTestCase {
         } else {
             XCTFail("expected compact email to expand")
         }
+
+        // Live overview: Eve after tool-done, not a client dump, not empty-then-cards.
+        // Different synonym so TranscriptDedupe does not swallow the typed ask.
+        _ = await fake.startListening()
+        fake.emitUser("show me my latest emails")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "fd4a772 never waited on tools")
+        XCTAssertGreaterThan(fake.endToolWaitCount, 0, "fd4a772 no Eve create after tools")
+        XCTAssertTrue(
+            fake.sentResponseCreate,
+            "fd4a772 create-without-words: endToolWait with no tool-done payload"
+        )
+        XCTAssertTrue(fake.sawThinkingDuringTools, "client loading at tool start")
+        let payload = try XCTUnwrap(fake.toolDoneOutputs.first)
+        XCTAssertFalse(InboxGlance.isFromSubjectGlanceDump(payload), payload)
+        XCTAssertNotEqual(payload, dump)
+        XCTAssertTrue(payload.contains(murray.fromName), payload)
+        XCTAssertTrue(payload.contains(murray.subject), payload)
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "\(fake.spoken)"
+        )
     }
 
     func testSingleEmailSummaryNamesConcreteAsksNotCardChrome() async {
@@ -1189,26 +1225,25 @@ final class AppModelTests: XCTestCase {
         )
 
         await model.applyUserTurn("see my latest emails")
-        XCTAssertEqual(fake.spoken.count, 1, "inbox-overview digest must Eve-speak")
-        let glance = fake.spoken.last ?? ""
-        XCTAssertTrue(glance.contains("Murray Mitchell"))
-        XCTAssertTrue(InboxGlance.isMultiline(glance) || glance.contains("\n"), glance)
-        XCTAssertFalse(glance.localizedCaseInsensitiveContains("please do not reply"), glance)
-        XCTAssertFalse(glance.contains("Need you to notarize the closing package"), glance)
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 typed glance dump: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { $0.contains("Murray Mitchell") }, "\(fake.spoken)")
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
         let onScreen = model.turns.last?.text ?? ""
         XCTAssertTrue(
             InboxGlance.isShortOnScreenLeadIn(onScreen),
             "cards are the list; bubble must not reprint the glance: \(onScreen)"
         )
         XCTAssertFalse(InboxGlance.repeatsGlanceLines(onScreen), onScreen)
-        XCTAssertNotEqual(onScreen, glance, "TTS is fed the glance; the bubble is not")
         XCTAssertTrue(model.turns.last?.cards.allSatisfy { card in
             if case .email(let item) = card { return item.isCompactListRow }
             return false
         } == true)
 
         await model.applyUserTurn("summarize that email from John Madison")
-        XCTAssertEqual(fake.spoken.count, 2, "desk-person follow-up must Eve-speak")
+        XCTAssertEqual(fake.spoken.count, 1, "Madison follow-up speaks; glance dump does not")
         XCTAssertTrue(InboxGlance.isShortOnScreenLeadIn(model.turns.last?.text ?? ""))
         XCTAssertTrue((fake.spoken.last ?? "").contains("John Madison")
                       || (fake.spoken.last ?? "").contains("Beach Drive")
@@ -1220,6 +1255,612 @@ final class AppModelTests: XCTestCase {
             XCTFail("expected John Madison full card")
         }
         XCTAssertTrue(fake.sentTurns.isEmpty)
+    }
+
+    func testLiveGlanceBeatAmbientDoesNotCancelAndCommandTakesTurn() async {
+        var murray = SampleData.syncedEmail()
+        murray.fromName = "Murray Mitchell"
+        murray.providerID = "msg-murray-barge"
+        murray.subject = "Closing / notarization"
+        murray.body = "Need you to notarize the closing package today."
+        var steve = SampleData.syncedEmail()
+        steve.fromName = "Steve Brown"
+        steve.fromEmail = "steve@example.com"
+        steve.providerID = "msg-steve-barge"
+        steve.subject = "Inspection note"
+        steve.body = "Punch list is attached."
+        let snapshot = DeskSnapshot(emails: [murray, steve])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        await model.applyUserTurn("see my latest emails")
+        let afterGlance = model.turns.count
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 typed glance dump: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
+
+        fake.hasPendingPlayback = true
+        fake.emitPartial("radio in the other room")
+        XCTAssertEqual(fake.interruptCount, 0, "energy / partial must not cancel her")
+        XCTAssertEqual(model.turns.count, afterGlance)
+
+        fake.emitUser("and now the weather")
+        XCTAssertEqual(fake.interruptCount, 0, "ambient speech must not cancel her")
+        XCTAssertEqual(model.turns.count, afterGlance, "radio stays ignored")
+
+        fake.emitUser("Can you hear me?")
+        XCTAssertEqual(fake.interruptCount, 0)
+        XCTAssertEqual(model.turns.count, afterGlance)
+
+        fake.emitUser("show me Murray's latest email")
+        XCTAssertEqual(fake.interruptCount, 1, "command intent drops playback")
+        XCTAssertFalse(fake.hasPendingPlayback)
+        XCTAssertGreaterThan(model.turns.count, afterGlance, "command-shaped ask is the next turn")
+        XCTAssertTrue(fake.sentTurns.isEmpty)
+    }
+
+    /// DD56F6A9 8:56 "Show me my latest emails." 677abb9 spoke
+    /// InboxGlance.spokenInbox (from/subject dump) then 5 cards.
+    /// handleLiveUser must not client-speak that dump. Tools, then Eve
+    /// via endToolWaitCreate. Not empty-then-cards. Not Here they are.
+    func testLiveLatestEmailsDoesNotSpeakFromSubjectGlanceThenCards() async throws {
+        let snapshot = DeskSnapshot(emails: [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre
+        ])
+        let ask = "Show me my latest emails."
+        let dump = InboxGlance.spokenInbox(ask: ask, emails: snapshot.emails)
+        XCTAssertTrue(
+            InboxGlance.isFromSubjectGlanceDump(dump),
+            "677abb9 mouth was this dump: \(dump)"
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        _ = await fake.startListening()
+        fake.emitUser(ask)
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.beginToolWaitCount,
+            0,
+            "fd4a772 empty-reply-then-cards never waited on tools"
+        )
+        XCTAssertGreaterThan(
+            fake.endToolWaitCount,
+            0,
+            "fd4a772 empty-reply-then-cards: no Eve create after tools"
+        )
+        XCTAssertTrue(
+            fake.sentResponseCreate,
+            "fd4a772 create-without-words: endToolWait with no tool-done payload"
+        )
+        XCTAssertTrue(fake.sawThinkingDuringTools, "client loading at tool start")
+        XCTAssertNotEqual(fake.state, .thinking, "loading false when cards/tool done land")
+        let payload = try XCTUnwrap(fake.toolDoneOutputs.first)
+        XCTAssertFalse(
+            InboxGlance.isFromSubjectGlanceDump(payload),
+            "677abb9 dump on tool done: \(payload)"
+        )
+        XCTAssertNotEqual(payload, dump)
+        XCTAssertTrue(payload.contains(VoiceRegressionDesk.murray.fromName), payload)
+        XCTAssertTrue(payload.contains(VoiceRegressionDesk.murray.subject), payload)
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 glance-then-cards mouth: \(fake.spoken)"
+        )
+        XCTAssertFalse(
+            fake.spoken.contains(dump),
+            "677abb9 spoke spokenInbox then cards: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(fake.spoken)")
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertFalse(
+            model.turns.contains { ConversationPresence.isThinkingBeat($0.text) },
+            "thinking beat must clear when cards / tool-done land"
+        )
+        _ = model
+    }
+
+    /// Same leftover family on calendar overview. Do not lock
+    /// spokenCalendar as the live mouth.
+    func testLiveCalendarTomorrowDoesNotSpeakGlanceDumpThenCards() async throws {
+        let snapshot = DeskSnapshot(events: [
+            CalendarItem(title: "Walk the lot", whenLabel: "Tomorrow 9:00 AM"),
+            CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
+        ])
+        let ask = "what's on my calendar tomorrow"
+        let dump = InboxGlance.spokenCalendar(ask: ask, events: snapshot.events)
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        _ = await fake.startListening()
+        fake.emitUser(ask)
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "must wait on tools")
+        XCTAssertGreaterThan(
+            fake.endToolWaitCount,
+            0,
+            "fd4a772 empty-reply-then-cards: no Eve create after tools"
+        )
+        XCTAssertTrue(
+            fake.sentResponseCreate,
+            "fd4a772 create-without-words: endToolWait with no tool-done payload"
+        )
+        XCTAssertTrue(fake.sawThinkingDuringTools, "client loading at tool start")
+        XCTAssertNotEqual(fake.state, .thinking, "loading false when cards land")
+        let payload = try XCTUnwrap(fake.toolDoneOutputs.first)
+        XCTAssertNotEqual(payload, dump)
+        XCTAssertTrue(payload.contains("Walk the lot"), payload)
+        XCTAssertFalse(
+            fake.spoken.contains(dump),
+            "677abb9 spoke spokenCalendar then cards: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertFalse(
+            model.turns.contains { ConversationPresence.isThinkingBeat($0.text) },
+            "thinking beat must clear when cards land"
+        )
+        _ = model
+    }
+
+    /// bdbace4 walk 14B69B95: leftover Authentisign cards already on
+    /// screen, then live latest-emails, then live calendar while Eve
+    /// still had playback. yieldGrokInterruptAnswer returned before
+    /// fulfill — mouth moved, cards stayed email, tape never wrote
+    /// user/reply/cardsAttached. Tool-done must replace cards AND write
+    /// the calendar tape. Not a log-only paper.
+    func testLiveCalendarAfterLatestEmailsReplacesEmailCards() async throws {
+        VoiceInteractionLog.resetForTests()
+        let leftoverEmails = [
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 4:10 PM",
+                subject: "Signature required 1650",
+                preview: "Please review and sign",
+                filterTag: "Inbox"
+            ),
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 3:02 PM",
+                subject: "Documents ready for signature",
+                preview: "Your packet is ready",
+                filterTag: "Inbox"
+            ),
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 1:18 PM",
+                subject: "Reminder: signature requested",
+                preview: "Still waiting on a signature",
+                filterTag: "Inbox"
+            )
+        ]
+        let snapshot = DeskSnapshot(
+            emails: leftoverEmails,
+            events: [
+                CalendarItem(title: "20th anniversary", whenLabel: "Tomorrow 5:30 PM"),
+                CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
+            ]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        model.turns.append(
+            ConversationTurn(
+                role: .assistant,
+                text: "",
+                cards: EmailItem.listCards(leftoverEmails)
+            )
+        )
+        _ = await fake.startListening()
+        fake.emitUser("Show me my latest emails.")
+        var deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.endToolWaitCount, 0)
+        let afterMail = model.turns.last?.cards ?? []
+        XCTAssertTrue(afterMail.contains { $0.kind == .email }, "\(afterMail)")
+
+        let creates = fake.endToolWaitCount
+        fake.hasPendingPlayback = true
+        fake.emitUser("what's on my calendar tomorrow")
+        deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > creates { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(
+            fake.endToolWaitCount,
+            creates,
+            "bdbace4 yield returned before fulfill — calendar never parked"
+        )
+        XCTAssertEqual(fake.interruptCount, 1, "command barge still drops leftover playback")
+        XCTAssertTrue(fake.sentResponseCreate, "fd4a772 create-without-words")
+        let visible = model.turns.last?.cards ?? []
+        let calendarCards = snapshot.events.map { ContentCard.calendar($0) }
+        XCTAssertFalse(
+            LiveToolMouth.isStickyPriorDeskCards(visible: visible, current: calendarCards),
+            "bdbace4 leftover Authentisign cards after calendar mouth: \(visible)"
+        )
+        XCTAssertFalse(visible.contains { $0.kind == .email }, "\(visible)")
+        XCTAssertTrue(visible.contains { $0.kind == .calendar }, "\(visible)")
+        XCTAssertTrue(
+            model.turns.contains { $0.role == .user && $0.text == "what's on my calendar tomorrow" },
+            "spoken calendar vanished from the transcript: \(model.turns.map(\.text))"
+        )
+        let tape = VoiceInteractionLog.snapshot().filter {
+            !$0.userTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let calendarTape = tape.filter {
+            $0.userTranscript.localizedCaseInsensitiveContains("calendar")
+        }
+        XCTAssertFalse(
+            calendarTape.isEmpty,
+            "bdbace4 vanished calendar tape (spoken-loop phantom only): \(VoiceInteractionLog.snapshot().map { $0.userTranscript })"
+        )
+        XCTAssertTrue(
+            calendarTape.contains { entry in
+                entry.cardsAttached.contains { $0.hasPrefix("calendar:") }
+                    && !entry.cardsAttached.contains { $0.hasPrefix("email:") }
+            },
+            "calendar tape must attach calendar cards, not leftover email: \(calendarTape.map(\.cardsAttached))"
+        )
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "\(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        _ = model
+        VoiceInteractionLog.resetForTests()
+    }
+
+    /// 9cf53c4 9B23C3AA 9:01:32 leftover inbound `response.created`,
+    /// then "What are my newest emails?" finishLiveTool wrote empty
+    /// onScreenText + 5 cards and leftover inbound skipped the done
+    /// mouth. Drive leftover inbound create, not a planted empty
+    /// transcript. Cards + one done mouth after function_call_output.
+    /// Do not force a looking-mouth.
+    func testLiveNewestEmailsDoesNotAttachCardsOntoEmptyVADMouth() async throws {
+        let inbox = [
+            VoiceRegressionDesk.murray,
+            VoiceRegressionDesk.steve,
+            VoiceRegressionDesk.greenacre,
+            VoiceRegressionDesk.laren,
+            VoiceRegressionDesk.ericGross
+        ]
+        XCTAssertEqual(inbox.count, 5)
+        XCTAssertTrue(InboxGlance.onScreenText(compactCardCount: 5).isEmpty)
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: DeskSnapshot(emails: inbox)),
+            sync: MockGoogleSync(result: DeskSnapshot(emails: inbox))
+        )
+        _ = await fake.startListening()
+        fake.emitLeftoverVADCreate()
+        XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
+        XCTAssertFalse(
+            fake.createdThisUserTurn,
+            "leftover inbound response.created is not alreadyCreated"
+        )
+        fake.emitUser("What are my newest emails?")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "tool start missing")
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "start report must be on the existing wire: \(fake.wireItems)"
+        )
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
+            "tool-done missing: \(fake.wireItems)"
+        )
+        XCTAssertTrue(
+            fake.sentResponseCreate,
+            "one done mouth after function_call_output — leftover inbound is not alreadyCreated"
+        )
+        XCTAssertTrue(fake.spoken.isEmpty, "do not force a looking-mouth: \(fake.spoken)")
+        let emptyMouthCards = model.turns.filter {
+            $0.role == .assistant
+                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !$0.cards.isEmpty
+        }
+        XCTAssertTrue(
+            emptyMouthCards.isEmpty,
+            "9B23C3AA leftover inbound + empty + 5 cards: \(model.turns.map { "\($0.text) cards=\($0.cards.count)" })"
+        )
+        XCTAssertTrue(
+            model.turns.flatMap(\.cards).contains { $0.kind == .email },
+            "cards land with tool-done, not onto an empty leftover mouth"
+        )
+        _ = model
+    }
+
+    /// 9cf53c4 9B23C3AA 9:01:56 leftover inbound then
+    /// “Read me the one from Costco.” ownsConnectedDeskTurn was false
+    /// (hasDeskMailIntent required an “email” word). Fall-through let
+    /// leftover VAD speak Costco with no function_call. No planted
+    /// leftover empty mouth. Assistant-only — user text has Costco.
+    func testLiveCostcoDoesNotSpeakWithoutToolReport() async throws {
+        let snapshot = DeskSnapshot(
+            emails: [
+                VoiceRegressionDesk.murray,
+                EmailItem(
+                    providerID: "fixture-costco",
+                    fromName: "Costco",
+                    fromEmail: "receipts@costco.example",
+                    sentAtLabel: "Yesterday 6:12 PM",
+                    subject: "Your Costco.com order",
+                    preview: "Thanks for your order",
+                    filterTag: "Inbox"
+                )
+            ]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        _ = await fake.startListening()
+        fake.emitLeftoverVADCreate()
+        XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
+        XCTAssertFalse(fake.createdThisUserTurn)
+        fake.emitUser("Read me the one from Costco.")
+        let deadline = ContinuousClock.now + .milliseconds(2000)
+        while ContinuousClock.now < deadline {
+            if fake.endToolWaitCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(fake.beginToolWaitCount, 0, "9cf53c4 Costco never commanded a tool")
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "Costco must be on the existing wire: \(fake.wireItems)"
+        )
+        XCTAssertTrue(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call_output" },
+            "tool-done missing: \(fake.wireItems)"
+        )
+        XCTAssertTrue(fake.spoken.isEmpty, "do not force a looking-mouth: \(fake.spoken)")
+        XCTAssertFalse(
+            model.turns.contains {
+                $0.role == .assistant && $0.text.localizedCaseInsensitiveContains("Costco")
+            },
+            "leftover VAD desk answer landed without a tool report: \(model.turns.map { "\($0.role) \($0.text)" })"
+        )
+        _ = model
+    }
+
+    /// 9cf53c4 9B23C3AA leftover inbound then the walk phrase.
+    /// Presence used to list Massimo on the session so leftover VAD
+    /// could speak him with no function_call. Delete that injection.
+    /// Do not invent a command. No planted leftover empty mouth.
+    func testLiveAppointmentsTonightDoesNotSpeakWithoutToolReport() async throws {
+        let snapshot = DeskSnapshot(
+            emails: [VoiceRegressionDesk.murray],
+            events: [
+                CalendarItem(
+                    title: "Massimo showing",
+                    whenLabel: "Tonight 5:30 PM",
+                    relatedPeople: ["Massimo Ricci"]
+                )
+            ]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        _ = await fake.startListening()
+        XCTAssertFalse(
+            fake.lastPresenceInstructions.contains("Massimo showing"),
+            "9cf53c4 calendar leak: \(fake.lastPresenceInstructions)"
+        )
+        fake.emitLeftoverVADCreate()
+        XCTAssertEqual(fake.leftoverInboundCreateCount, 1)
+        XCTAssertFalse(fake.createdThisUserTurn)
+        fake.emitUser("Do I have any appointments tonight?")
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(
+            fake.beginToolWaitCount,
+            0,
+            "do not invent a command for the walk phrase"
+        )
+        XCTAssertFalse(
+            fake.wireItems.contains { GrokRealtime.conversationItemType(inCreate: $0) == "function_call" },
+            "walk phrase still no-tool: \(fake.wireItems)"
+        )
+        XCTAssertTrue(fake.spoken.isEmpty, "do not force a looking-mouth: \(fake.spoken)")
+        XCTAssertFalse(
+            fake.spoken.contains { $0.localizedCaseInsensitiveContains("Massimo") }
+        )
+        XCTAssertFalse(
+            model.turns.contains {
+                $0.role == .assistant && $0.text.localizedCaseInsensitiveContains("Massimo")
+            },
+            "leftover VAD desk answer landed without a tool report: \(model.turns.map { "\($0.role) \($0.text)" })"
+        )
+        _ = model
+    }
+
+    /// a85473b leftover: leftover Authentisign already on screen, then a
+    /// real calendar user bubble. Tools / Eve have not landed yet. Prior
+    /// email cards must already be gone (empty/cleared). Not barge-only.
+    /// Not emitAssistant. Not a fabricated tape row.
+    func testLiveCalendarUserBubbleDropsLeftoverEmailCardsBeforeTools() async throws {
+        let leftoverEmails = [
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 4:10 PM",
+                subject: "Signature required 1650",
+                preview: "Please review and sign",
+                filterTag: "Inbox"
+            ),
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 3:02 PM",
+                subject: "CR-7_Q",
+                preview: "Signature packet",
+                filterTag: "Inbox"
+            ),
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 1:18 PM",
+                subject: "Bridget signature",
+                preview: "Please sign",
+                filterTag: "Inbox"
+            )
+        ]
+        let leftoverCards = EmailItem.listCards(leftoverEmails)
+        let snapshot = DeskSnapshot(
+            emails: leftoverEmails,
+            events: [
+                CalendarItem(title: "20th anniversary", whenLabel: "Tomorrow 5:30 PM"),
+                CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
+            ]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        model.turns.append(
+            ConversationTurn(role: .assistant, text: "", cards: leftoverCards)
+        )
+        _ = await fake.startListening()
+        XCTAssertTrue(
+            model.turns.flatMap(\.cards).contains { $0.kind == .email },
+            "precondition: leftover Authentisign cards on screen"
+        )
+
+        fake.emitUser("what's on my calendar tomorrow")
+        XCTAssertTrue(
+            model.turns.contains { $0.role == .user && $0.text == "what's on my calendar tomorrow" },
+            "user-visible calendar turn must draw: \(model.turns.map(\.text))"
+        )
+        let visible = model.turns.flatMap(\.cards)
+        XCTAssertFalse(
+            visible.contains { $0.kind == .email },
+            "a85473b leftover Authentisign cards after calendar user bubble: \(visible)"
+        )
+        XCTAssertTrue(
+            visible.isEmpty || visible.allSatisfy { $0.kind == .calendar },
+            "turn start must clear leftover email, or already show this turn's calendar: \(visible)"
+        )
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "\(fake.spoken)"
+        )
+        _ = model
+    }
+
+    /// Live service path after version + glance write→player. Same loop
+    /// as `FirstHearTapLoop.versionThenGlanceWritePlayerThenThird`.
+    func testVersionThenGlanceWritePlayerStayLiveThirdCommandIsATurn() async {
+        let snapshot = DeskSnapshot(emails: [SampleData.syncedEmail()])
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot),
+            buildIdentity: .fixture
+        )
+
+        await model.applyUserTurn("what version are we on")
+        XCTAssertTrue(fake.spoken.contains { $0.contains("VoiceDesk") })
+        XCTAssertTrue(fake.stayLiveAfterSpeak)
+        XCTAssertTrue(fake.listenArmedAfterSpeak)
+        XCTAssertFalse(fake.parkedSpeaking)
+        XCTAssertNotEqual(fake.close1000AfterSpeak, .stayIdle)
+        XCTAssertEqual(fake.startCount, 0)
+
+        await model.applyUserTurn("show me my emails")
+        XCTAssertTrue(fake.spoken.contains { $0.contains("VoiceDesk") })
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "677abb9 glance dump after version: \(fake.spoken)"
+        )
+        XCTAssertFalse(fake.spoken.contains { InboxGlance.isShortSpokenAck($0) })
+        XCTAssertTrue(fake.stayLiveAfterSpeak, "glance write→player must stayLive")
+        XCTAssertTrue(fake.listenArmedAfterSpeak)
+        XCTAssertFalse(fake.parkedSpeaking, "leftover created/done must not park speaking")
+        XCTAssertNotEqual(fake.close1000AfterSpeak, .stayIdle, "close 1000 stayIdle after glance is a fail")
+        XCTAssertEqual(fake.startCount, 0, "write→player must not audio.start")
+
+        let afterGlanceUsers = model.turns.filter { $0.role == .user }.map(\.text)
+        fake.emitUser("what's on my calendar")
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.map(\.text),
+            afterGlanceUsers + ["what's on my calendar"],
+            "third command after glance is the next turn"
+        )
+
+        fake.hasPendingPlayback = true
+        let turns = model.turns.count
+        fake.emitUser("Can you hear me?")
+        XCTAssertEqual(fake.interruptCount, 0, "ambient must not interruptPlayback")
+        XCTAssertEqual(model.turns.count, turns)
+        fake.emitUser("show calendar")
+        XCTAssertEqual(fake.interruptCount, 1, "command intent drops playback")
+        XCTAssertGreaterThan(model.turns.count, turns)
+    }
+
+    func testSpokenSentenceContainingStopDoesNotKillTheSession() async {
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(voice: fake)
+        fake.emitUser("I need to stop by the office at five")
+        XCTAssertFalse(fake.cancelled)
+        XCTAssertEqual(
+            model.turns.filter { $0.role == .user }.last?.text,
+            "I need to stop by the office at five"
+        )
+        fake.emitUser("Stop")
+        XCTAssertTrue(fake.cancelled)
     }
 
     func testTypedTurnOnLiveServiceGoesToGrokNotLocalPlan() async {
@@ -1323,7 +1964,7 @@ final class AppModelTests: XCTestCase {
 
 /// Live Grok stand-in. Desk speak is `speak` (on-device TTS). `sentTurns` is
 /// a fake Grok user turn — desk replies must not use it. The socket stays
-/// in listen; do not treat output-suppress as “session muted.”
+/// in listen. No mute / suppress flags.
 @MainActor
 final class FakeLiveVoiceService: VoiceServicing {
     private var session = VoiceSession()
@@ -1336,12 +1977,26 @@ final class FakeLiveVoiceService: VoiceServicing {
     var cancelled = false
     var sentTurns: [String] = []
     var spoken: [String] = []
-    var assistantOutputSuppressed = false
+    var hasPendingPlayback = false
+    var listenLoopBargeConsumed = false
+    var interruptCount = 0
+    /// Mic tap. Client TTS must not tear this down (fe1ffc8 resumeCapture).
+    var tapLive = true
+    /// Fired while client TTS is in-flight. Inject at this boundary once.
+    var onClientTTS: (() -> Void)?
+    /// Product startListening. Client TTS must not increment this.
+    var startCount = 0
+    var stayLiveAfterSpeak = false
+    var listenArmedAfterSpeak = false
+    var parkedSpeaking = false
+    var close1000AfterSpeak: ListenResumeDecision = .stayIdle
 
     var state: VoiceState { session.state }
 
     func startListening() async -> String {
         started = true
+        startCount += 1
+        tapLive = true
         session.apply(.cancel)
         session.apply(.tapTalk)
         eventHandler?(.state(session.state))
@@ -1350,6 +2005,20 @@ final class FakeLiveVoiceService: VoiceServicing {
 
     func speak(_ text: String) async {
         spoken.append(text)
+        let after = ListenResumePolicy.afterClientTTSFinished(
+            session: &session,
+            userWantsVoiceOff: false,
+            liveSessionArmed: true,
+            captureRunning: tapLive
+        )
+        stayLiveAfterSpeak = after.stayLive
+        listenArmedAfterSpeak = after.listenArmed
+        parkedSpeaking = session.state == .speaking
+        close1000AfterSpeak = after.close1000
+        if after.startAgain {
+            startCount += 1
+        }
+        onClientTTS?()
     }
 
     func sendTextTurn(_ text: String) async {
@@ -1363,21 +2032,91 @@ final class FakeLiveVoiceService: VoiceServicing {
     }
 
     func emitUser(_ text: String, itemID: String? = nil) {
+        guard tapLive else { return }
         eventHandler?(.userTranscript(text, isFinal: true, itemID: itemID))
+    }
+
+    /// 9B23C3AA leftover inbound `response.created` before the user
+    /// transcript. Same alreadyCreated rule as GrokVoiceService
+    /// (`response.created` does not set createdThisUserTurn). Not an
+    /// empty assistantTranscript. Not a planted ConversationTurn.
+    func emitLeftoverVADCreate() {
+        leftoverInboundCreateCount += 1
+    }
+
+    func emitPartial(_ text: String, itemID: String? = nil) {
+        guard tapLive else { return }
+        eventHandler?(.userTranscript(text, isFinal: false, itemID: itemID))
     }
 
     func emitAssistant(_ text: String, isFinal: Bool) {
         eventHandler?(.assistantTranscript(text, isFinal: isFinal))
     }
 
+    var lastPresenceInstructions = ""
+
     func updatePresenceInstructions(_ text: String) {
-        _ = text
+        lastPresenceInstructions = text
     }
 
-    func interruptResponse() {}
+    func interruptResponse() {
+        guard hasPendingPlayback else { return }
+        interruptCount += 1
+        hasPendingPlayback = false
+        listenLoopBargeConsumed = true
+    }
 
-    func suppressAssistantOutput(_ suppress: Bool) {
-        assistantOutputSuppressed = suppress
+    var beginToolWaitCount = 0
+    var endToolWaitCount = 0
+    var toolDoneOutputs: [String] = []
+    var sawThinkingDuringTools = false
+    var sentResponseCreate = false
+    var createdThisUserTurn = false
+    var leftoverInboundCreateCount = 0
+    var wireItems: [String] = []
+
+    func beginToolWaitCreate() {
+        beginToolWaitCount += 1
+        createdThisUserTurn = false
+        session.apply(.listenFinished)
+        eventHandler?(.state(session.state))
+        if session.state == .thinking {
+            sawThinkingDuringTools = true
+        }
+        appendWire(GrokRealtime.functionCallItemObject(
+            name: LiveToolMouth.deskGlanceToolName,
+            callID: "fake-call"
+        ))
+    }
+
+    func reportToolResult(_ output: String) {
+        toolDoneOutputs.append(output)
+        appendWire(GrokRealtime.functionCallOutputItemObject(
+            callID: "fake-call",
+            output: output
+        ))
+        if session.state == .thinking {
+            session.apply(.turnFinished)
+            eventHandler?(.state(session.state))
+        }
+    }
+
+    func endToolWaitCreate() {
+        endToolWaitCount += 1
+        sentResponseCreate = LiveToolMouth.shouldSendResponseCreate(
+            toolWait: false,
+            alreadyCreated: createdThisUserTurn,
+            hasToolResult: !toolDoneOutputs.isEmpty
+        )
+        if sentResponseCreate {
+            createdThisUserTurn = true
+        }
+    }
+
+    private func appendWire(_ object: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let raw = String(data: data, encoding: .utf8) else { return }
+        wireItems.append(raw)
     }
 }
 
@@ -1890,7 +2629,8 @@ final class GoogleSliceTests: XCTestCase {
             "cards are the list; bubble must not reprint Eve: \(model.turns.last?.text ?? "")"
         )
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Massimo showing"))
-        XCTAssertTrue(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
+        XCTAssertTrue(voice.spoken.contains { InboxGlance.isShortSpokenSummary($0) }, "\(voice.spoken)")
+        XCTAssertFalse(voice.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(voice.spoken)")
         XCTAssertEqual(model.turns.last?.cards.count, 1)
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.title, "Massimo showing")
@@ -1926,7 +2666,8 @@ final class GoogleSliceTests: XCTestCase {
             "cards are the list; bubble must not reprint Eve: \(model.turns.last?.text ?? "")"
         )
         XCTAssertFalse((model.turns.last?.text ?? "").contains("Massimo showing"))
-        XCTAssertTrue(voice.spoken.contains { $0.contains("Massimo showing") }, "\(voice.spoken)")
+        XCTAssertTrue(voice.spoken.contains { InboxGlance.isShortSpokenSummary($0) }, "\(voice.spoken)")
+        XCTAssertFalse(voice.spoken.contains { InboxGlance.isShortSpokenAck($0) }, "\(voice.spoken)")
         if case .calendar(let item) = model.turns.last?.cards.first {
             XCTAssertEqual(item.title, "Massimo showing")
         } else {

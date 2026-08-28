@@ -1,62 +1,105 @@
 import AVFoundation
 import Foundation
 
-/// On-device TTS for local desk replies. The live Grok socket stays in
-/// listen — desk speak never injects a fake user turn.
+/// On-device TTS as PCM into the live engine player. Never the AVSpeech
+/// output path — that sits outside voice processing, so AEC cannot cancel Eve.
 ///
-/// Callers await `speak` until AVSpeech reports didFinish or didCancel.
-/// Do not rearm the mic or close the echo window before that.
+/// `write` yields buffers; the caller plays them with `playPCM16` on the
+/// same `AVAudioEngine` that owns the mic tap.
 @MainActor
-final class ClientVoiceSpeech: NSObject, AVSpeechSynthesizerDelegate {
+final class ClientVoiceSpeech: NSObject {
     static let shared = ClientVoiceSpeech()
 
     private let synthesizer = AVSpeechSynthesizer()
+    private var play: ((Data) -> Void)?
     private var continuation: CheckedContinuation<Void, Never>?
     private var currentUtterance: AVSpeechUtterance?
+    private var recordsSpeakForTests = false
+    private(set) var recordedSpeakTexts: [String] = []
 
     private override init() {
         super.init()
-        synthesizer.delegate = self
+        // write() only yields PCM. The shared session stays playAndRecord
+        // + voiceChat. Letting AVSpeech own it flips category/mode or
+        // deactivates and yanks the HAL tap.
+        synthesizer.usesApplicationAudioSession = false
     }
 
-    func speak(_ text: String) async {
+    /// Tests only. Record the text and finish. No AVSpeech.
+    func attachTestSpeakRecorder() {
+        recordsSpeakForTests = true
+    }
+
+    func resetTestSpeakRecorder() {
+        recordsSpeakForTests = false
+        recordedSpeakTexts.removeAll()
+    }
+
+    func speak(_ text: String, play: @escaping (Data) -> Void) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        finishPendingWait()
-        if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .immediate)
+        if recordsSpeakForTests {
+            recordedSpeakTexts.append(trimmed)
+            return
         }
+        finishPendingWait()
+        synthesizer.stopSpeaking(at: .immediate)
+        self.play = play
         let utterance = AVSpeechUtterance(string: trimmed)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         currentUtterance = utterance
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             continuation = cont
-            synthesizer.speak(utterance)
+            synthesizer.write(utterance) { [weak self] buffer in
+                self?.handleWrite(buffer)
+            }
         }
     }
 
     func stop() {
-        if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .immediate)
+        synthesizer.stopSpeaking(at: .immediate)
+        play = nil
+        currentUtterance = nil
+        finishPendingWait()
+    }
+
+    private func handleWrite(_ buffer: AVAudioBuffer) {
+        guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+        if pcm.frameLength == 0 {
+            Task { @MainActor in
+                self.currentUtterance = nil
+                self.finishPendingWait()
+            }
             return
         }
-        finishPendingWait()
-    }
-
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        guard utterance === currentUtterance else { return }
-        currentUtterance = nil
-        finishPendingWait()
-    }
-
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        guard utterance === currentUtterance else { return }
-        currentUtterance = nil
-        finishPendingWait()
+        guard let data = Self.pcm16LE(from: pcm) else { return }
+        Task { @MainActor in
+            self.play?(data)
+        }
     }
 
     private func finishPendingWait() {
         continuation?.resume()
         continuation = nil
+    }
+
+    /// Same 24 kHz PCM16 the player and tap already use.
+    nonisolated static func pcm16LE(from pcm: AVAudioPCMBuffer) -> Data? {
+        let count = Int(pcm.frameLength)
+        guard count > 0 else { return nil }
+        var samples = [Float](repeating: 0, count: count)
+        if let channel = pcm.floatChannelData?[0] {
+            samples.withUnsafeMutableBufferPointer { dest in
+                guard let base = dest.baseAddress else { return }
+                base.update(from: channel, count: count)
+            }
+        } else if let channel = pcm.int16ChannelData?[0] {
+            for index in 0..<count {
+                samples[index] = Float(channel[index]) / Float(Int16.max)
+            }
+        } else {
+            return nil
+        }
+        return GrokVoiceAudioEngine.int16Data(samples: samples, sourceRate: pcm.format.sampleRate)
     }
 }

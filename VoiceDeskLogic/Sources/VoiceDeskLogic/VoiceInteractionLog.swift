@@ -203,7 +203,8 @@ public enum VoiceInteractionLog: Sendable {
             intent = "version"
         } else if ConversationPresence.wantsInboxOverview(utterance) {
             intent = "inbox-overview"
-        } else if ConversationPresence.wantsCalendarAsk(utterance) {
+        } else if ConversationPresence.wantsCalendarAsk(utterance)
+                    || evidence?.topic == .calendar {
             intent = "calendar"
         } else if ConversationPresence.wantsTaskAsk(utterance) {
             intent = "task"

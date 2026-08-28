@@ -1,0 +1,127 @@
+import Foundation
+
+/// Spoken-loop helper. AppModel.handleLiveUser still records a version
+/// ask here. Live VAD `AppModel.speakDeskReply` does not: it calls
+/// `voice.speak` directly. This helper still refuses desk PCM on live
+/// VAD (that write + Eve on the same turn is a2727b1 two-mouth).
+/// Offline / typed still writes identity. Mute flags and unmute-after-drain
+/// lived here and produced 8927c2d silence — they are gone.
+public struct LiveVersionAsk: Equatable, Sendable {
+    public var identity: BuildIdentity
+    public var liveVADTurn: Bool
+    public var lastUserUtterance: String
+    public var lastSpokenDeskReply: String?
+    public var identityPCM: String?
+    public var assistantReply: String
+    public var voicePath: String
+    public var routingNotes: [String]
+    public var sessionID: String
+
+    public init(
+        identity: BuildIdentity,
+        liveVADTurn: Bool,
+        lastUserUtterance: String = "",
+        lastSpokenDeskReply: String? = nil,
+        identityPCM: String? = nil,
+        assistantReply: String = "",
+        voicePath: String = "Eve realtime",
+        routingNotes: [String] = [],
+        sessionID: String = SpokenLoopLog.currentSessionID
+    ) {
+        self.identity = identity
+        self.liveVADTurn = liveVADTurn
+        self.lastUserUtterance = lastUserUtterance
+        self.lastSpokenDeskReply = lastSpokenDeskReply
+        self.identityPCM = identityPCM
+        self.assistantReply = assistantReply
+        self.voicePath = voicePath
+        self.routingNotes = routingNotes
+        self.sessionID = sessionID
+    }
+
+    public var spokenIdentityLine: String {
+        ConversationPresence.spokenIdentityLine(
+            for: lastUserUtterance,
+            identity: identity
+        )
+    }
+
+    public var wroteIdentityPCM: Bool {
+        !(identityPCM?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    /// AppModel.handleLiveUser version detect. Does not mute Eve.
+    @discardableResult
+    public mutating func handleLiveUser(_ raw: String, itemID: String? = nil) -> Bool {
+        _ = itemID
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        guard ConversationPresence.wantsVersionAsk(text) else { return false }
+        lastUserUtterance = text
+        let line = ConversationPresence.spokenIdentityLine(for: text, identity: identity)
+        assistantReply = line
+        routingNotes = ["local build identity", identity.dogfoodLine]
+        voicePath = "Eve realtime"
+        return true
+    }
+
+    /// Typed / offline `AppModel.speakDeskReply` still calls this.
+    /// Live VAD returns false so a desk write is not a second mouth.
+    /// Live VAD production speak is `GrokVoiceService.speak`, not this.
+    @discardableResult
+    public mutating func speakDeskReply(_ text: String) -> Bool {
+        guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {
+            return false
+        }
+        if !LiveVADPlayerKeep.shouldWriteLiveDeskLineToPlayer(
+            liveVADTurn: liveVADTurn,
+            spoken: spoken,
+            identityLine: ConversationPresence.spokenIdentityLine(
+                for: lastUserUtterance,
+                identity: identity
+            )
+        ) {
+            return false
+        }
+        lastSpokenDeskReply = spoken
+        identityPCM = spoken
+        return true
+    }
+
+    public var spokenLoopMouth: SpokenLoopLog.Mouth {
+        if wroteIdentityPCM { return .desk }
+        return liveVADTurn ? .eve : .desk
+    }
+
+    /// Events AppModel emits after handleLiveUser + speakDeskReply.
+    /// Intent only — no transcript.
+    public func spokenLoopTurnEvents(intent: String = "version", ask: String = "") -> [VoiceInteractionEntry] {
+        let evePlays = LiveVADPlayerKeep.shouldPlayBargeAudio(
+            bargeConsumed: false,
+            deltaResponseID: "eve",
+            cancelledResponseID: nil,
+            createdAwaitingAudioID: nil,
+            lastCreatedResponseID: nil,
+            playingResponseID: nil,
+            lastScheduledResponseID: nil,
+            hasPendingPlayback: true
+        )
+        let interrupted = LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
+            alreadyBarged: true,
+            hasPendingPlayback: true,
+            ask: ask.isEmpty ? lastUserUtterance : ask
+        )
+        return [
+            SpokenLoopLog.turnStart(sessionID: sessionID, intent: intent),
+            SpokenLoopLog.mouth(sessionID: sessionID, mouth: spokenLoopMouth),
+            SpokenLoopLog.firstAudio(
+                sessionID: sessionID,
+                status: SpokenLoopLog.firstAudioAfterSpokenReply(
+                    wroteDeskPCM: wroteIdentityPCM,
+                    evePlays: evePlays,
+                    interruptedWhilePending: interrupted
+                )
+            )
+        ]
+    }
+}

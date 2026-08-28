@@ -31,13 +31,16 @@ final class AppModel {
     let sync: any GoogleSyncing
     let emailSummarizer: any EmailSummarizing
     let buildIdentity: BuildIdentity
+    private var liveVersionAsk: LiveVersionAsk
 
     private var liveAssistantID: UUID?
     private var pendingDeskTopic: ConversationPresence.Topic?
     private var userDedupe = TranscriptDedupe()
     private var waitingToOfferConnectAfterTalk = false
-    /// After we script Connect / email-body locally, drop Grok’s spoken contradiction.
-    private var suppressLiveAssistant = false
+    /// Live VAD desk cards parked until Eve's first transcript delta.
+    /// Must attach on the stream — not after glanceInbox — or show-latest
+    /// is a blob.
+    private var pendingLiveDeskCards: [ContentCard] = []
     /// Last email the local path attached, for “show it to me” / full-thread follow-ups.
     private var lastFocusedEmail: EmailItem?
     private var pendingThreadSummary = false
@@ -51,11 +54,6 @@ final class AppModel {
     private var lastSearchAsk: String?
     /// Last desk reply spoken via `voice.speak` — skip exact duplicates.
     private var lastSpokenDeskReply: String?
-    /// Leftover of on-device desk TTS only. Same EchoBargeIn policy as
-    /// GrokVoiceService. FakeLive / sim emit hits this ingress, not the socket.
-    private var echoGate = EchoTranscriptGate()
-    /// ASR early-final of a lone “what’s” / “what” — hold, don’t send to Grok.
-    private var earlyFinal = EarlyFinalHold()
     private var lastUserUtterance = ""
     private var lastUserSource = "text"
     private var hadFocusedEmailAtTurnStart = false
@@ -105,6 +103,7 @@ final class AppModel {
         self.sync = sync ?? MockGoogleSync()
         self.emailSummarizer = emailSummarizer ?? HeuristicEmailSummarizer()
         self.buildIdentity = buildIdentity ?? BuildIdentity(infoDictionary: Bundle.main.infoDictionary)
+        self.liveVersionAsk = LiveVersionAsk(identity: self.buildIdentity, liveVADTurn: false)
         self.isOnline = isOnline
         self.hasCompletedPlaybook = self.playbook.hasCompleted
         // First paint: local cache only. Google restore + sync run after first frame.
@@ -193,7 +192,6 @@ final class AppModel {
         case .listening, .speaking, .thinking:
             VoiceEarcon.listenEnded()
             voiceListeningVisual = false
-            earlyFinal.reset()
             voice.cancel()
             liveAssistantID = nil
             cancelPendingDraftsFromVoice()
@@ -345,37 +343,63 @@ final class AppModel {
     private func handleLiveTranscript(_ event: VoiceTranscript) {
         switch event.role {
         case .user:
-            // One policy, any ingress: leftover of lastSpokenLine only.
-            // Never drop because Grok is speaking or lastSpokenLine is empty.
-            if EchoBargeIn.acceptedUserTranscript(event.text, gate: echoGate) == nil {
-                return
+            guard event.isFinal else { return }
+            if voice.hasPendingPlayback {
+                guard shouldTakeLiveTurn(event.text) else { return }
             }
-            if !event.isFinal {
-                if EarlyFinalHold.shouldHold(event.text) {
-                    claimLocalAssistantReply()
-                    return
-                }
-                if let held = earlyFinal.heldPrefix {
-                    preemptGrokIfDeskTurn(EarlyFinalHold.stitch(held, onto: event.text))
-                    return
-                }
-                preemptGrokIfDeskTurn(event.text)
-                return
-            }
-            guard let accepted = earlyFinal.accept(event.text, context: deskContext) else {
-                claimLocalAssistantReply()
-                return
-            }
-            handleLiveUser(accepted, itemID: event.itemID)
+            handleLiveUser(event.text, itemID: event.itemID)
         case .assistant:
             upsertLiveAssistant(event.text, isFinal: event.isFinal)
         }
     }
 
+    /// Eve decides command vs ambient. Energy / partials never cancel her.
+    private func shouldTakeLiveTurn(_ raw: String) -> Bool {
+        if matchesCancel(raw) { return true }
+        return ListenInterrupt.isCommand(
+            raw,
+            context: deskContext,
+            pendingSearchClarify: pendingSearchClarify,
+            hasClarifyMatches: !lastSearchMatches.isEmpty,
+            hasFocusedEmail: lastFocusedEmail != nil,
+            pendingSenderRefine: pendingSenderRefine,
+            focusedEmail: lastFocusedEmail,
+            priorSearchAsk: lastSearchAsk
+        )
+    }
+
     private func handleLiveUser(_ raw: String, itemID: String?) {
+        // Duplicate item.created + transcription.completed used to
+        // interrupt before accept, then cancel the interrupt answer
+        // (playingResponseID already the next created).
+        let bargeConsumedBefore = voice.listenLoopBargeConsumed
         guard let text = userDedupe.accept(text: raw, itemID: itemID) else { return }
+        liveVersionAsk.liveVADTurn = isLiveVADTurn
+        liveVersionAsk.identity = buildIdentity
+        liveVersionAsk.sessionID = SpokenLoopLog.currentSessionID
+        _ = liveVersionAsk.handleLiveUser(text)
+        let loopIntent = ConversationPresence.wantsVersionAsk(text)
+            ? "version"
+            : (ConversationPresence.looksLikeMailAsk(text)
+                || ConversationPresence.wantsInboxOverview(text) ? "mail" : "live")
+        if isLiveVADTurn {
+            for event in liveVersionAsk.spokenLoopTurnEvents(intent: loopIntent, ask: text) {
+                enqueueSpokenLoop(event)
+            }
+        }
+        if LiveVADPlayerKeep.shouldInterruptOnUserTranscript(
+            alreadyBarged: voice.listenLoopBargeConsumed,
+            hasPendingPlayback: voice.hasPendingPlayback,
+            ask: text
+        ) {
+            voice.interruptResponse()
+        }
+        let yieldGrokInterruptAnswer = !bargeConsumedBefore && voice.listenLoopBargeConsumed
         rememberUserTurn(text, source: "live voice")
         completePlaybook()
+        if google.isConnected {
+            Task { await prefetchNewestBodyForEve() }
+        }
 
         if matchesCancel(text) {
             voice.cancel()
@@ -405,10 +429,33 @@ final class AppModel {
                 pendingSearchClarify: awaitingClarify,
                 hasClarifyMatches: !lastSearchMatches.isEmpty,
                 hasFocusedEmail: lastFocusedEmail != nil,
-                pendingSenderRefine: pendingSenderRefine
+                pendingSenderRefine: pendingSenderRefine,
+                events: deskSnapshot.events
             ) {
-                claimLocalAssistantReply()
-                Task { await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify) }
+                // bdbace4 14B69B95: yieldGrokInterruptAnswer returned here.
+                // Eve spoke calendar from presence; leftover email cards
+                // stayed; tape never got user/reply/cardsAttached. Interrupt
+                // still drops playback. Desk tools still fulfill and park.
+                // Live VAD already has Eve's mouth. Do not claimLocal —
+                // that drops her in-flight audio. Cards and tools still run.
+                // 12:14: create_response false while tools run; one create after.
+                // Do not park cards here — 59 parked before tools, so a
+                // bare create attached rows to an empty mouth (fd4a772).
+                if isLiveVADTurn, LiveToolMouth.needsClientTools(
+                    ask: text,
+                    snapshot: deskSnapshot,
+                    isConnected: true,
+                    isOnline: isOnline,
+                    hasFocusedEmail: lastFocusedEmail != nil,
+                    pendingSearchClarify: awaitingClarify,
+                    hasClarifyMatches: !lastSearchMatches.isEmpty
+                ) {
+                    voice.beginToolWaitCreate()
+                }
+                Task {
+                    await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
+                    voice.endToolWaitCreate()
+                }
                 return
             }
         }
@@ -418,11 +465,15 @@ final class AppModel {
             focusedEmail: lastFocusedEmail,
             priorSearchAsk: lastSearchAsk
         ) {
-            claimLocalAssistantReply()
+            if isLiveVADTurn {
+                parkOrAttachLiveDeskCards(evidence.cards)
+            }
+            if yieldGrokInterruptAnswer {
+                return
+            }
             surfaceDeskEvidence(evidence)
             return
         }
-        unmuteGrokAssistant()
         pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
         pendingGeneralVoiceLog = true
         if ConversationPresence.wantsTour(text) {
@@ -434,15 +485,14 @@ final class AppModel {
     }
 
     private func upsertLiveAssistant(_ text: String, isFinal: Bool) {
-        if ConversationPresence.isGrokDeskMeta(text) {
-            return
-        }
-        if suppressLiveAssistant {
+        if ConversationPresence.isGrokDeskMeta(text)
+            || ConversationPresence.replyMentionsCard(text) {
             return
         }
         if text.isEmpty, isFinal {
+            // Leftover inbound create / empty final is not a desk frame.
+            // Do not attach cards onto an empty leftover assistant.
             if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
-                attachPendingCards(to: index)
                 liveAssistantID = nil
                 finishGeneralVoiceLog(reply: turns[index].text)
             }
@@ -451,6 +501,7 @@ final class AppModel {
 
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
             turns[index].text += text
+            attachLiveDeskCardsIfNeeded(to: index)
             if isFinal {
                 attachPendingCards(to: index)
                 liveAssistantID = nil
@@ -463,12 +514,39 @@ final class AppModel {
         let turn = ConversationTurn(role: .assistant, text: text)
         liveAssistantID = turn.id
         turns.append(turn)
-        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
+        attachLiveDeskCardsIfNeeded(to: turns.count - 1)
+        requestScroll(
+            ConversationScrollPolicy.afterAssistant(
+                turnID: turn.id,
+                hasCards: !turns[turns.count - 1].cards.isEmpty
+            )
+        )
         if isFinal {
             attachPendingCards(to: turns.count - 1)
             liveAssistantID = nil
             finishGeneralVoiceLog(reply: turns.last?.text ?? text)
         }
+    }
+
+    private func parkOrAttachLiveDeskCards(_ cards: [ContentCard]) {
+        if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
+            turns[index].cards = cards
+            pendingLiveDeskCards = []
+            requestScroll(
+                ConversationScrollPolicy.afterAssistant(turnID: turns[index].id, hasCards: !cards.isEmpty)
+            )
+            return
+        }
+        pendingLiveDeskCards = cards
+    }
+
+    private func attachLiveDeskCardsIfNeeded(to index: Int) {
+        guard !pendingLiveDeskCards.isEmpty, turns.indices.contains(index) else { return }
+        turns[index].cards = pendingLiveDeskCards
+        pendingLiveDeskCards = []
+        requestScroll(
+            ConversationScrollPolicy.afterAssistant(turnID: turns[index].id, hasCards: true)
+        )
     }
 
     private func attachPendingCards(to index: Int) {
@@ -486,8 +564,7 @@ final class AppModel {
     }
 
     private func handleUserText(_ raw: String) async {
-        let stripped = EarlyFinalHold.dropLeadingLeftoverStem(raw)
-        guard let text = userDedupe.accept(text: stripped, itemID: nil) else { return }
+        guard let text = userDedupe.accept(text: raw, itemID: nil) else { return }
         rememberUserTurn(text, source: "text")
         completePlaybook()
 
@@ -535,7 +612,8 @@ final class AppModel {
                 pendingSearchClarify: awaitingClarify,
                 hasClarifyMatches: !lastSearchMatches.isEmpty,
                 hasFocusedEmail: lastFocusedEmail != nil,
-                pendingSenderRefine: pendingSenderRefine
+                pendingSenderRefine: pendingSenderRefine,
+                events: deskSnapshot.events
             ) {
                 claimLocalAssistantReply()
                 await fulfillConnectedDeskTurn(text, awaitingClarify: awaitingClarify)
@@ -555,7 +633,6 @@ final class AppModel {
         }
 
         if voice.usesLiveLoop {
-            unmuteGrokAssistant()
             pendingDeskTopic = ConversationPresence.plan(for: text, context: deskContext).topic
             pendingGeneralVoiceLog = true
             await voice.sendTextTurn(text)
@@ -626,42 +703,18 @@ final class AppModel {
         logVoiceTurn(intentHint: "general", reply: plan.text, cards: cards, notes: ["local plan"])
     }
 
-    /// Stop Grok from contradicting a local Connect / email-body reply on the thread.
+    /// Typed / Connect: interrupt Eve so a local bubble is not contradicted.
+    /// No mute flags — those stuck (8927c2d silence). Live VAD desk
+    /// turns do not call this.
     private func claimLocalAssistantReply() {
-        suppressLiveAssistant = true
         voice.interruptResponse()
-        voice.suppressAssistantOutput(true)
         if let id = liveAssistantID, let index = turns.firstIndex(where: { $0.id == id }) {
             turns.remove(at: index)
         }
         liveAssistantID = nil
         pendingDeskTopic = nil
+        pendingLiveDeskCards = []
         scrubGrokDeskRefusals()
-    }
-
-    private func unmuteGrokAssistant() {
-        suppressLiveAssistant = false
-        voice.suppressAssistantOutput(false)
-    }
-
-    /// Interrupt as soon as a partial transcript looks like a connected desk ask.
-    private func preemptGrokIfDeskTurn(_ raw: String) {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        if ConversationPresence.wantsVersionAsk(text) {
-            claimLocalAssistantReply()
-            return
-        }
-        guard google.isConnected else { return }
-        if ConversationPresence.ownsConnectedDeskTurn(
-            text,
-            pendingSearchClarify: pendingSearchClarify,
-            hasClarifyMatches: !lastSearchMatches.isEmpty,
-            hasFocusedEmail: lastFocusedEmail != nil,
-            pendingSenderRefine: pendingSenderRefine
-        ) {
-            claimLocalAssistantReply()
-        }
     }
 
     private func scrubGrokDeskRefusals() {
@@ -784,6 +837,9 @@ final class AppModel {
         if shouldRefreshDeskSnapshot(for: text) {
             await syncDesk()
         }
+        if isLiveVADTurn {
+            await prefetchNewestBodyForEve()
+        }
         if let evidence = ConversationPresence.deskEvidence(
             for: text,
             context: deskContext,
@@ -806,17 +862,30 @@ final class AppModel {
         }
     }
 
+    private var isLiveVADTurn: Bool {
+        lastUserSource == "live voice" && voice.usesLiveLoop
+    }
+
     private func shouldRefreshDeskSnapshot(for text: String) -> Bool {
         guard google.isConnected, isOnline else { return false }
-        if ConversationPresence.wantsInboxOverview(text) {
+        // Leftover-person follow-up is fetch+summarize, not an inbox list refresh.
+        if ConversationPresence.staysOnLeftoverNamedPerson(text, focused: lastFocusedEmail) {
+            return false
+        }
+        if ConversationPresence.wantsInboxOverview(text)
+            || (isLiveVADTurn && ConversationPresence.looksLikeMailAsk(text)) {
             return InboxGlanceSpeakPlan.shouldRefreshGmailListBeforeFirstSpeak(
                 ask: text,
                 snapshot: deskSnapshot,
                 isConnected: true,
-                isOnline: true
+                isOnline: true,
+                liveVADTurn: isLiveVADTurn
             )
         }
-        return ConversationPresence.wantsCalendarAsk(text) && deskSnapshot.events.isEmpty
+        if ConversationPresence.wantsCalendarAsk(text) {
+            return deskSnapshot.events.isEmpty || isLiveVADTurn
+        }
+        return false
     }
 
     private func surfaceDeskEvidence(_ evidence: ConversationPresence.DeskEvidence) {
@@ -830,7 +899,9 @@ final class AppModel {
                 for: lastUserUtterance,
                 identity: buildIdentity
             )
-            appendAssistant(line)
+            if !isLiveVADTurn {
+                appendAssistant(line)
+            }
             await speakDeskReply(line)
             logVoiceTurn(
                 evidence: evidence,
@@ -838,6 +909,18 @@ final class AppModel {
                 reply: line,
                 cards: [],
                 notes: ["local build identity", buildIdentity.dogfoodLine]
+            )
+            return
+        }
+        // Live VAD: cards + function_call_output. Do not speak a desk
+        // answer (Costco body, glance dump) before that report.
+        if isLiveVADTurn {
+            finishLiveTool(cards: evidence.cards)
+            refreshPresence()
+            logVoiceTurn(
+                evidence: evidence,
+                reply: InboxGlance.onScreenText(for: evidence),
+                cards: evidence.cards
             )
             return
         }
@@ -863,8 +946,6 @@ final class AppModel {
             await applyInboxGlance(evidence)
             return
         }
-        // Calendar overview (and any other cards-only evidence): speak `text`,
-        // don’t reprint it in the bubble. Cards are the visual — same as inbox.
         appendAssistant(InboxGlance.onScreenText(for: evidence), cards: evidence.cards)
         await speakDeskReply(evidence.text)
         logVoiceTurn(evidence: evidence, reply: evidence.text)
@@ -875,32 +956,62 @@ final class AppModel {
             if case .email(let item) = card { return item }
             return nil
         }
-        // Cache-hot glance: first audio is the snapshot heuristic. Do not await
-        // xAI’s five-line rewrite or a Gmail list refresh before speak.
-        let plan = InboxGlanceSpeakPlan.fromCachedEmails(emails, fallbackText: evidence.text)
+        if isLiveVADTurn {
+            // 677abb9 spoke spokenInbox. Delete that mouth. Tool start is
+            // already on the wire. Done carries the same rows as the cards.
+            // Eve translates once. Client thinking indicator, not spoken.
+            _ = await emailSummarizer.glanceInbox(emails)
+            finishLiveTool(cards: evidence.cards)
+            refreshPresence()
+            logVoiceTurn(
+                evidence: evidence,
+                reply: InboxGlance.onScreenText(for: evidence),
+                cards: evidence.cards
+            )
+            return
+        }
+        let plan = InboxGlanceSpeakPlan.fromCachedEmails(
+            emails,
+            ask: lastUserUtterance,
+            fallbackText: evidence.text
+        )
         let spoken = plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? evidence.text
             : plan.spokenText
-        // Cards are the list. Speak the glance; don’t reprint Name — topic lines in the bubble.
         let onScreen = emails.isEmpty
             ? spoken
             : InboxGlance.onScreenText(compactCardCount: emails.count)
         appendAssistant(onScreen, cards: evidence.cards)
-        await speakDeskReply(spoken)
+        if !InboxGlance.isFromSubjectGlanceDump(spoken) {
+            await speakDeskReply(spoken)
+        }
         logVoiceTurn(
             evidence: evidence,
-            reply: spoken,
+            reply: InboxGlance.isFromSubjectGlanceDump(spoken) ? onScreen : spoken,
             cards: evidence.cards,
             notes: plan.voiceLogNotes
         )
     }
 
-    @discardableResult
-    private func appendThinkingBeat() -> UUID {
-        let turn = ConversationTurn(role: .assistant, text: ConversationPresence.thinkingStatusBeat)
-        turns.append(turn)
-        requestScroll(ConversationScrollPolicy.afterAssistant(turnID: turn.id, hasCards: false))
-        return turn.id
+    /// Tool-done on Eve's wire, then the same rows draw. Not before.
+    /// Do not append a looking-mouth. Do not write empty `onScreenText`
+    /// onto a leftover assistant. Cards land on the last turn.
+    private func finishLiveTool(cards: [ContentCard]) {
+        let payload = LiveToolMouth.cardPayload(cards)
+        voice.reportToolResult(payload)
+        pendingLiveDeskCards = []
+        guard !payload.isEmpty else { return }
+        if let index = turns.indices.last {
+            turns[index].cards = cards
+            requestScroll(
+                ConversationScrollPolicy.afterAssistant(
+                    turnID: turns[index].id,
+                    hasCards: true
+                )
+            )
+            return
+        }
+        parkOrAttachLiveDeskCards(cards)
     }
 
     private func searchGmail(_ query: String, plan: GmailSearchPlan?, ask: String?) async {
@@ -1049,13 +1160,21 @@ final class AppModel {
     }
 
     private func speakDeskReply(_ text: String) async {
-        guard let spoken = DeskReplySpeech.textToSpeak(text, lastSpoken: lastSpokenDeskReply) else {
+        liveVersionAsk.liveVADTurn = isLiveVADTurn
+        liveVersionAsk.identity = buildIdentity
+        liveVersionAsk.lastUserUtterance = lastUserUtterance
+        liveVersionAsk.lastSpokenDeskReply = lastSpokenDeskReply
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if isLiveVADTurn {
+            lastSpokenDeskReply = trimmed
+            await voice.speak(trimmed)
             return
         }
-        lastSpokenDeskReply = spoken
-        echoGate.beginSpeaking(spoken)
+        guard liveVersionAsk.speakDeskReply(text) else { return }
+        lastSpokenDeskReply = liveVersionAsk.lastSpokenDeskReply
+        guard let spoken = liveVersionAsk.lastSpokenDeskReply, !spoken.isEmpty else { return }
         await voice.speak(spoken)
-        echoGate.finishSpeaking()
     }
 
     private func rememberUserTurn(_ text: String, source: String) {
@@ -1135,6 +1254,15 @@ final class AppModel {
             voicePath: voicePath,
             errors: errors
         )
+        VoiceInteractionLog.record(entry)
+        #if DEBUG
+        DebugVoiceLogFile.append(entry)
+        #endif
+        VoiceCloudDogfoodClient.shared.enqueue(entry)
+    }
+
+    private func enqueueSpokenLoop(_ entry: VoiceInteractionEntry) {
+        guard VoiceDogfoodGate.allowsLogging else { return }
         VoiceInteractionLog.record(entry)
         #if DEBUG
         DebugVoiceLogFile.append(entry)
@@ -1261,7 +1389,38 @@ final class AppModel {
     }
 
     private func refreshPresence() {
-        voice.updatePresenceInstructions(GrokRealtime.presenceInstructions(for: deskContext))
+        voice.updatePresenceInstructions(
+            GrokRealtime.presenceInstructions(for: deskContext, identity: buildIdentity)
+        )
+    }
+
+    /// Live VAD read path: fetch the newest body so Eve can speak it.
+    /// Do not speak a client line.
+    private func prefetchNewestBodyForEve() async {
+        guard google.isConnected, let token = google.accessToken else {
+            refreshPresence()
+            return
+        }
+        guard let newest = EmailRecency.newest(deskSnapshot.emails) ?? deskSnapshot.emails.first else {
+            refreshPresence()
+            return
+        }
+        if newest.hasFullBody {
+            refreshPresence()
+            return
+        }
+        guard let id = newest.providerID, !id.isEmpty else {
+            refreshPresence()
+            return
+        }
+        do {
+            let full = try await sync.fetchMessage(token: token, messageID: id, now: Date())
+            upsertSnapshotEmail(full)
+            cache.save(deskSnapshot)
+            refreshPresence()
+        } catch {
+            refreshPresence()
+        }
     }
 
     private func refreshGoogleCards() {
@@ -1277,10 +1436,26 @@ final class AppModel {
     // MARK: - Mutations
 
     private func appendUser(_ text: String) {
+        if !ConversationPresence.staysOnLeftoverNamedPerson(text, focused: lastFocusedEmail) {
+            dropPriorIntentDeskCards()
+        }
         userOwnsConversationScroll = false
         let turn = ConversationTurn(role: .user, text: text)
         turns.append(turn)
         requestScroll(ConversationScrollPolicy.afterUser(turnID: turn.id))
+    }
+
+    /// 14B69B95: calendar user bubble drew, Authentisign cards stayed.
+    /// A new user-visible turn drops prior-intent email/calendar rows now.
+    /// Leftover-person “summarize his” / “yes” keep that person’s cards.
+    /// Tools later replace with this turn's cardPayload. Not a log-only write.
+    /// Not waiting on Eve. Draft / connect cards stay.
+    private func dropPriorIntentDeskCards() {
+        pendingLiveDeskCards = []
+        pendingDeskTopic = nil
+        for index in turns.indices {
+            turns[index].cards.removeAll { $0.kind == .email || $0.kind == .calendar }
+        }
     }
 
     private func appendAssistant(_ text: String, cards: [ContentCard] = [], suggestions: [String] = []) {
@@ -1360,11 +1535,7 @@ final class AppModel {
     }
 
     private func matchesCancel(_ text: String) -> Bool {
-        matches(text.lowercased(), ["stop", "cancel", "nevermind", "never mind", "abort"])
-    }
-
-    private func matches(_ lower: String, _ keys: [String]) -> Bool {
-        keys.contains { lower.contains($0) }
+        VoiceStopIntent.matches(text)
     }
 
     private func pause(_ milliseconds: UInt64) async {

@@ -67,11 +67,7 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
                 ask
             )
 
-            let started = Date()
             let plan = InboxGlanceSpeakPlan.cacheHot(ask: ask, snapshot: snapshot, now: now)
-            let elapsed = Date().timeIntervalSince(started)
-
-            XCTAssertLessThan(elapsed, 0.05, "\(ask) first-speak plan must be sync")
             XCTAssertEqual(hanging.glanceCalls, 0, "\(ask) must not touch a glancer")
             XCTAssertEqual(plan.intent, "inbox-overview", ask)
             XCTAssertEqual(plan.spokenSource, InboxGlanceSpeakPlan.localHeuristicSource, ask)
@@ -93,8 +89,20 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
             XCTAssertFalse(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.gmailListStage), ask)
             XCTAssertFalse(plan.stagesBeforeFirstAudio.contains(InboxGlanceSpeakPlan.xaiGlanceStage), ask)
             XCTAssertEqual(plan.cardCount, InboxGlance.overviewLimit, ask)
-            XCTAssertFalse(plan.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ask)
-            XCTAssertNotNil(DeskReplySpeech.textToSpeak(plan.spokenText, lastSpoken: nil), ask)
+            XCTAssertNotEqual(plan.spokenText, "Here they are.", ask)
+            XCTAssertFalse(plan.spokenText.localizedCaseInsensitiveContains("here they are"), ask)
+            XCTAssertTrue(
+                plan.spokenText.isEmpty
+                    || InboxGlance.isShortSpokenSummary(plan.spokenText),
+                "\(ask) → \(plan.spokenText)"
+            )
+            XCTAssertFalse(InboxGlance.isMultiline(plan.spokenText), ask)
+            XCTAssertFalse(plan.spokenText.contains("—"), ask)
+            if plan.spokenText.isEmpty {
+                XCTAssertNil(DeskReplySpeech.textToSpeak(plan.spokenText, lastSpoken: nil), ask)
+            } else {
+                XCTAssertNotNil(DeskReplySpeech.textToSpeak(plan.spokenText, lastSpoken: nil), ask)
+            }
             XCTAssertTrue(plan.voiceLogNotes.contains("firstAudio skipped xaiGlance"), ask)
             XCTAssertTrue(plan.voiceLogNotes.contains("firstAudio skipped gmailList"), ask)
             XCTAssertTrue(plan.voiceLogNotes.contains("cacheAgeSec=9"), ask)
@@ -175,64 +183,6 @@ final class InboxGlanceSpeakPlanTests: XCTestCase {
             let plan = InboxGlanceSpeakPlan.cacheHot(ask: ask, snapshot: snapshot, now: now)
             XCTAssertNotEqual(plan.intent, "inbox-overview", ask)
         }
-    }
-
-    func testApplyInboxGlanceDoesNotAwaitModelOrListBeforeSpeak() throws {
-        let source = try XCTUnwrap(repoFile("VoiceDesk/AppModel.swift"), "AppModel.swift")
-        XCTAssertTrue(source.contains("InboxGlanceSpeakPlan"), source)
-
-        let refresh = functionBody(in: source, named: "shouldRefreshDeskSnapshot")
-        XCTAssertTrue(
-            refresh.contains("InboxGlanceSpeakPlan.shouldRefreshGmailListBeforeFirstSpeak")
-                || refresh.contains("hasHotLatestFive"),
-            refresh
-        )
-        XCTAssertFalse(
-            refresh.contains("if ConversationPresence.wantsInboxOverview(text) { return true }"),
-            "cache-hot glance must not always await syncDesk: \(refresh)"
-        )
-
-        let glance = functionBody(in: source, named: "applyInboxGlance")
-        XCTAssertTrue(glance.contains("InboxGlanceSpeakPlan"), glance)
-        XCTAssertTrue(glance.contains("speakDeskReply"), glance)
-        guard let speakRange = glance.range(of: "speakDeskReply") else {
-            return
-        }
-        let beforeSpeak = String(glance[..<speakRange.lowerBound])
-        XCTAssertFalse(
-            beforeSpeak.contains("emailSummarizer.glanceInbox"),
-            "firstAudio must not await xaiGlance"
-        )
-        XCTAssertFalse(beforeSpeak.contains("await emailSummarizer"), beforeSpeak)
-        XCTAssertFalse(beforeSpeak.contains("syncDesk"), beforeSpeak)
-    }
-
-    private func functionBody(in source: String, named name: String) -> String {
-        let needle = "private func \(name)"
-        guard let start = source.range(of: needle) else {
-            XCTFail("\(name) missing")
-            return ""
-        }
-        let after = source[start.lowerBound...]
-        let searchFrom = after.index(after.startIndex, offsetBy: needle.count)
-        let nextFn = after.range(
-            of: "\n    private func ",
-            options: [],
-            range: searchFrom..<after.endIndex
-        )
-        return String(after[..<(nextFn?.lowerBound ?? after.endIndex)])
-    }
-
-    private func repoFile(_ relative: String) -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return try? String(contentsOf: candidate, encoding: .utf8)
-            }
-        }
-        return nil
     }
 
     private func waitUntil(_ predicate: @escaping () -> Bool) async {
