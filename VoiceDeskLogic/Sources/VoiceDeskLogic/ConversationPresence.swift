@@ -325,7 +325,8 @@ public enum ConversationPresence {
             return true
         }
         // matchingCalendar is the calendar from-phrase: an event already
-        // on the snapshot. Do not also require a “calendar” word.
+        // on the snapshot (title, person, or whenLabel time). Do not
+        // also require a “calendar” word.
         if matchingCalendar(for: raw, in: events) != nil {
             return true
         }
