@@ -1460,6 +1460,83 @@ final class AppModelTests: XCTestCase {
         VoiceInteractionLog.resetForTests()
     }
 
+    /// a85473b leftover: leftover Authentisign already on screen, then a
+    /// real calendar user bubble. Tools / Eve have not landed yet. Prior
+    /// email cards must already be gone (empty/cleared). Not barge-only.
+    /// Not emitAssistant. Not a fabricated tape row.
+    func testLiveCalendarUserBubbleDropsLeftoverEmailCardsBeforeTools() async throws {
+        let leftoverEmails = [
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 4:10 PM",
+                subject: "Signature required 1650",
+                preview: "Please review and sign",
+                filterTag: "Inbox"
+            ),
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 3:02 PM",
+                subject: "CR-7_Q",
+                preview: "Signature packet",
+                filterTag: "Inbox"
+            ),
+            EmailItem(
+                fromName: "Authentisign",
+                fromEmail: "notify@authentisign.example",
+                sentAtLabel: "Yesterday 1:18 PM",
+                subject: "Bridget signature",
+                preview: "Please sign",
+                filterTag: "Inbox"
+            )
+        ]
+        let leftoverCards = EmailItem.listCards(leftoverEmails)
+        let snapshot = DeskSnapshot(
+            emails: leftoverEmails,
+            events: [
+                CalendarItem(title: "20th anniversary", whenLabel: "Tomorrow 5:30 PM"),
+                CalendarItem(title: "Massimo showing", whenLabel: "Tomorrow 3:00 PM")
+            ]
+        )
+        let fake = FakeLiveVoiceService()
+        let model = AppModel(
+            voice: fake,
+            google: .mock(connected: true),
+            cache: MemoryDeskCache(snapshot: snapshot),
+            sync: MockGoogleSync(result: snapshot)
+        )
+        model.turns.append(
+            ConversationTurn(role: .assistant, text: "", cards: leftoverCards)
+        )
+        _ = await fake.startListening()
+        XCTAssertTrue(
+            model.turns.flatMap(\.cards).contains { $0.kind == .email },
+            "precondition: leftover Authentisign cards on screen"
+        )
+
+        fake.emitUser("what's on my calendar tomorrow")
+        XCTAssertTrue(
+            model.turns.contains { $0.role == .user && $0.text == "what's on my calendar tomorrow" },
+            "user-visible calendar turn must draw: \(model.turns.map(\.text))"
+        )
+        let visible = model.turns.flatMap(\.cards)
+        XCTAssertFalse(
+            visible.contains { $0.kind == .email },
+            "a85473b leftover Authentisign cards after calendar user bubble: \(visible)"
+        )
+        XCTAssertTrue(
+            visible.isEmpty || visible.allSatisfy { $0.kind == .calendar },
+            "turn start must clear leftover email, or already show this turn's calendar: \(visible)"
+        )
+        XCTAssertFalse(fake.spoken.contains { $0 == "Here they are." })
+        XCTAssertFalse(
+            fake.spoken.contains { InboxGlance.isFromSubjectGlanceDump($0) },
+            "\(fake.spoken)"
+        )
+        _ = model
+    }
+
     /// Live service path after version + glance write→player. Same loop
     /// as `FirstHearTapLoop.versionThenGlanceWritePlayerThenThird`.
     func testVersionThenGlanceWritePlayerStayLiveThirdCommandIsATurn() async {

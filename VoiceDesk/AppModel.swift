@@ -1448,10 +1448,23 @@ final class AppModel {
     // MARK: - Mutations
 
     private func appendUser(_ text: String) {
+        dropPriorIntentDeskCards()
         userOwnsConversationScroll = false
         let turn = ConversationTurn(role: .user, text: text)
         turns.append(turn)
         requestScroll(ConversationScrollPolicy.afterUser(turnID: turn.id))
+    }
+
+    /// 14B69B95: calendar user bubble drew, Authentisign cards stayed.
+    /// A new user-visible turn drops prior-intent email/calendar rows now.
+    /// Tools later replace with this turn's cardPayload. Not a log-only write.
+    /// Not waiting on Eve. Draft / connect cards stay.
+    private func dropPriorIntentDeskCards() {
+        pendingLiveDeskCards = []
+        pendingDeskTopic = nil
+        for index in turns.indices where turns[index].role == .assistant {
+            turns[index].cards.removeAll { $0.kind == .email || $0.kind == .calendar }
+        }
     }
 
     private func appendAssistant(_ text: String, cards: [ContentCard] = [], suggestions: [String] = []) {
