@@ -1,37 +1,11 @@
 import XCTest
 @testable import VoiceDeskLogic
 
-/// 12:14 leftover: listen-resume `create_response: true` lets VAD create
-/// before tools, then another create after tools. Runtime walk of
-/// production session.update / VAD-create / response.create — not a
-/// baked leftover1214() phrase factory.
+/// Policy helpers + leftover gates that are still honest.
+/// The 12:14 device miss is gated in VoiceDeskTests
+/// `GrokVoiceServiceSpeakTests` (loopback wire), not a CreateTrace factory.
 final class LiveToolMouthTests: XCTestCase {
-    func testSha83a5c6aNoonCreateBeforeAndAfterToolsFails() {
-        let leftover = LiveToolMouth.sha83a5c6aNoonCreateTrace()
-        XCTAssertEqual(leftover.createResponseOnListen, true)
-        XCTAssertTrue(
-            GrokRealtime.vadCreatesOnSpeechStopped(createResponse: leftover.createResponseOnListen)
-        )
-        XCTAssertGreaterThanOrEqual(leftover.createsBeforeTools, 1)
-        XCTAssertGreaterThanOrEqual(leftover.createsAfterTools, 1)
-        XCTAssertTrue(
-            leftover.isNoon1214Leftover,
-            "83a5c6a / 7ef2f6d noon: VAD mouth before tools, then another after"
-        )
-        XCTAssertFalse(leftover.isOneMouthAfterTools)
-    }
-
-    func testProductToolWaitIsOneCreateAfterTools() {
-        let product = LiveToolMouth.productToolWaitCreateTrace()
-        XCTAssertEqual(product.createResponseOnListen, GrokRealtime.createResponseWhileToolsRun)
-        XCTAssertEqual(product.createResponseOnListen, false)
-        XCTAssertFalse(
-            GrokRealtime.vadCreatesOnSpeechStopped(createResponse: product.createResponseOnListen)
-        )
-        XCTAssertEqual(product.createsBeforeTools, 0)
-        XCTAssertEqual(product.createsAfterTools, 1)
-        XCTAssertFalse(product.isNoon1214Leftover)
-        XCTAssertTrue(product.isOneMouthAfterTools)
+    func testShouldSendResponseCreateOnlyAfterToolsLand() {
         XCTAssertTrue(
             LiveToolMouth.shouldSendResponseCreate(toolWait: false, alreadyCreated: false)
         )

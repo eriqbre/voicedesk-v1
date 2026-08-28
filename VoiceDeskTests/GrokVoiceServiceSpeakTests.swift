@@ -165,6 +165,111 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
         voice.cancel()
     }
 
+    /// 12:14 leftover: 83a5c6a / 7ef2f6d left `create_response` true
+    /// (or omitted) on speech_started, so server VAD created a mouth
+    /// before client tools, then another create after tools landed.
+    /// This walk is the production socket: peer `speech_started` /
+    /// user transcript / AppModel begin+end tool-wait. Not a
+    /// CreateTrace factory, leftover1214() string, or source scrape.
+    func testCalendarAskWaitsForToolsThenOneResponseCreate() async throws {
+        let loopback = try await ListenLoopWebSocketLoopback.start()
+        defer { loopback.stop() }
+        let voice = try await openProductionSpeakSocket(
+            apiKey: "speak-1214-tool-wait",
+            loopback: loopback
+        )
+        voice.attachListenLoopClientTTSRecorderForTests()
+
+        let connectUpdates = loopback.receivedTexts.filter {
+            LiveGrokVoiceClient.typeOfSend($0) == "session.update"
+        }
+        XCTAssertFalse(connectUpdates.isEmpty, "connect must put session.update on the task")
+        XCTAssertFalse(
+            connectUpdates.contains { GrokRealtime.createResponse(inSessionUpdate: $0) == false },
+            "listen connect must not wait on tools: \(connectUpdates)"
+        )
+
+        let afterConnect = loopback.receivedTexts.count
+        let snapshot = DeskSnapshot(accountEmail: "agent@example.com")
+        voice.eventHandler = { event in
+            if case .userTranscript(let text, _, _) = event,
+               LiveToolMouth.needsClientTools(
+                ask: text,
+                snapshot: snapshot,
+                isConnected: true,
+                isOnline: true
+               ) {
+                voice.beginToolWaitCreate()
+            }
+        }
+
+        loopback.sendPeerJSON(#"{"type":"input_audio_buffer.speech_started"}"#)
+        let sawToolWait = await waitUntilNewReceived(loopback, after: afterConnect) {
+            GrokRealtime.createResponse(inSessionUpdate: $0) == false
+        }
+        XCTAssertTrue(
+            sawToolWait,
+            "83a5c6a / 7ef2f6d noon: speech_started sent no create_response false; VAD created before tools"
+        )
+        let toolWaitUpdate = try XCTUnwrap(
+            loopback.receivedTexts.dropFirst(afterConnect).first(where: {
+                GrokRealtime.createResponse(inSessionUpdate: $0) == false
+            })
+        )
+        XCTAssertFalse(
+            GrokRealtime.vadCreatesOnSpeechStopped(
+                createResponse: GrokRealtime.createResponse(inSessionUpdate: toolWaitUpdate)
+            ),
+            "wire flag must stop VAD create: \(toolWaitUpdate)"
+        )
+
+        loopback.sendPeerJSON(#"{"type":"input_audio_buffer.speech_stopped"}"#)
+        try? await Task.sleep(for: .milliseconds(80))
+        XCTAssertFalse(
+            loopback.receivedTexts.dropFirst(afterConnect).contains {
+                LiveGrokVoiceClient.typeOfSend($0) == "response.create"
+            },
+            "no client response.create before tools"
+        )
+
+        let afterSpeech = loopback.receivedTexts.count
+        loopback.sendPeerJSON(
+            #"{"type":"conversation.item.input_audio_transcription.completed","transcript":"what's on my calendar","item_id":"cal-1"}"#
+        )
+        let beganWait = await waitUntilNewReceived(loopback, after: afterSpeech) {
+            GrokRealtime.createResponse(inSessionUpdate: $0) == false
+        }
+        XCTAssertTrue(
+            beganWait,
+            "tools ask must send another create_response false (AppModel beginToolWaitCreate)"
+        )
+        XCTAssertFalse(
+            loopback.receivedTexts.dropFirst(afterConnect).contains {
+                LiveGrokVoiceClient.typeOfSend($0) == "response.create"
+            },
+            "transcript + tools-needed must not create a mouth before the tool result"
+        )
+
+        let beforeTools = loopback.receivedTexts.count
+        voice.endToolWaitCreate()
+        let sawCreate = await waitUntilNewReceived(loopback, after: beforeTools) {
+            LiveGrokVoiceClient.typeOfSend($0) == "response.create"
+        }
+        XCTAssertTrue(sawCreate, "one response.create after tools on the real task")
+        try? await Task.sleep(for: .milliseconds(80))
+        let createsAfterTools = loopback.receivedTexts.dropFirst(beforeTools).filter {
+            LiveGrokVoiceClient.typeOfSend($0) == "response.create"
+        }
+        XCTAssertEqual(
+            createsAfterTools.count,
+            1,
+            "exactly one mouth after tools; 83a5c6a noon added a later create on top of the VAD mouth: \(createsAfterTools)"
+        )
+        XCTAssertEqual(voice.listenLoopClientTTSSpeakCount, 0)
+        XCTAssertTrue(voice.listenLoopClientTTSRecordedTexts.isEmpty)
+        voice.cancel()
+    }
+
     private func openProductionSpeakSocket(
         apiKey: String,
         loopback: ListenLoopWebSocketLoopback
@@ -196,5 +301,21 @@ final class GrokVoiceServiceSpeakTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(20))
         }
         return predicate()
+    }
+
+    private func waitUntilNewReceived(
+        _ loopback: ListenLoopWebSocketLoopback,
+        after count: Int,
+        timeoutMs: Int = 2000,
+        matching: @escaping (String) -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
+        while ContinuousClock.now < deadline {
+            if loopback.receivedTexts.dropFirst(count).contains(where: matching) {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return loopback.receivedTexts.dropFirst(count).contains(where: matching)
     }
 }
